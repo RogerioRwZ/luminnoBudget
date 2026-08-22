@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1787332910451,
+      "tag": "0000_quick_madame_masque",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1787333165025,
+      "tag": "0001_keen_malcolm_colcord",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787336091008,
+      "tag": "0002_complex_iron_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787336934526,
+      "tag": "0003_cute_smiling_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1787338006956,
+      "tag": "0004_legal_mathemanic",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1787341047674,
+      "tag": "0005_mature_the_twelve",
+      "breakpoints": true
+    }
+  ]
+}

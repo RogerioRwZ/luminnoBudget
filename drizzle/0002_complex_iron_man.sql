@@ -1,0 +1,1 @@
+ALTER TABLE `storeSettings` ADD `alertThresholdDays` int DEFAULT 7 NOT NULL;

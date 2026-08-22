@@ -1,0 +1,85 @@
+# Project TODO
+
+- [x] Modelar clientes, produtos, orçamentos, ambientes, itens, configurações e registros de backup no banco de dados.
+- [x] Criar operações de persistência e APIs tipadas para clientes, catálogo, orçamentos, métricas, configurações e backup JSON.
+- [x] Implementar criação, edição, duplicação, reordenação e exclusão de ambientes em cada orçamento.
+- [x] Implementar cálculo em tempo real de itens, subtotais por ambiente, desconto geral, frete, PIX e parcelamento.
+- [x] Implementar catálogo pesquisável com imagem por URL e campos de descrição curta e completa.
+- [x] Implementar gestão simplificada de clientes com histórico de orçamentos.
+- [x] Construir painel de métricas com total aprovado, total orçado, abertos, ticket médio e ranking de itens cotados.
+- [x] Construir configurações da loja, dados empresariais, PIX e condições padrão.
+- [x] Implementar exportação e importação segura de backup JSON.
+- [x] Construir layout administrativo responsivo com suporte a modo claro e escuro.
+- [x] Construir editor de orçamento com seleção rápida de produtos e dados comerciais.
+- [x] Implementar pré-visualização e impressão A4 por @media print fiel aos modelos Luminno.
+- [x] Reproduzir na última página o resumo de totais alinhado à direita e as condições PIX/parcelamento observadas nos modelos.
+- [x] Implementar geração e cópia de proposta formatada para WhatsApp.
+- [x] Criar testes unitários para cálculos, regras de orçamento e formatação de WhatsApp.
+- [x] Exibir o histórico de propostas vinculadas a cada cliente.
+- [x] Disponibilizar pré-visualização em tela do documento A4 antes da impressão.
+- [x] Validar a paginação da impressão A4, o bloco final de totais e as condições comerciais.
+- [x] Validar fluxos principais, responsividade, impressão e ausência de erros de compilação.
+- [x] Corrigir a criação de novo orçamento e o redirecionamento para o editor.
+- [x] Permitir duplicar integralmente um orçamento a partir da lista de propostas.
+- [x] Adicionar filtro de status para propostas aprovadas, pendentes e rejeitadas.
+- [x] Permitir reordenar itens de um ambiente por arrastar e soltar.
+- [x] Permitir subir o logotipo da empresa nas configurações e utilizá-lo na impressão.
+- [x] Criar testes e validar os novos fluxos de orçamento, filtro, ordenação e upload de logo.
+- [x] Validar a cópia integral dos dados ao duplicar um orçamento.
+- [x] Validar a regra usada pela interação de arrastar e soltar os itens de ambiente.
+- [x] Validar o processamento e a persistência do arquivo de logotipo.
+- [x] Calcular métricas de quantidade e valor por status: aprovado, pendente e rejeitado.
+- [x] Atualizar os cards do Dashboard para refletir os novos status comerciais.
+- [x] Adicionar gráficos de distribuição e comparativo de valores por status.
+- [x] Criar testes e validar a nova visualização do Dashboard em desktop e mobile.
+- [x] Identificar orçamentos pendentes com validade vencida ou nos próximos sete dias.
+- [x] Adicionar painel de alertas de validade com prazo restante e acesso ao orçamento.
+- [x] Criar testes e validar o painel de alertas em desktop e mobile.
+- [x] Executar o build de produção após integrar o painel de alertas.
+- [x] Confirmar a integração do Dashboard com os alertas retornados pela API e a renderização responsiva final.
+- [x] Adicionar configuração persistente para o limite de dias de alerta de vencimento.
+- [x] Gerar lembrete de vencimento, copiar o texto e abrir o WhatsApp a partir do painel de alertas.
+- [x] Adicionar filtros rápidos de orçamentos que vencem hoje e que já estão vencidos.
+- [x] Criar testes e validar configuração, lembretes e filtros de vencimento.
+- [x] Modelar saldo de estoque, movimentações, entregas parciais e pendências por item de orçamento.
+- [x] Implementar entradas, saídas, ajustes e baixa parcial vinculada ao orçamento e cliente.
+- [x] Construir painel de estoque com saldo atual, alertas de baixo estoque e histórico de movimentações.
+- [x] Adicionar fluxo de entrega parcial nos orçamentos aprovados, mantendo as quantidades pendentes.
+- [x] Criar testes de saldo, rastreabilidade e entregas parciais; validar a interface responsiva.
+- [x] Modelar fornecedores, reservas por item de orçamento e o saldo disponível para venda.
+- [x] Reservar automaticamente o estoque solicitado por orçamentos aprovados e liberar reservas quando aplicável.
+- [x] Adicionar fornecedor ao cadastro de produto e aos filtros do painel de estoque.
+- [x] Permitir filtrar itens por fornecedor e por saldo físico abaixo de um limite informado.
+- [x] Exibir saldo físico, reservado, disponível e pendente de entrega no estoque.
+- [x] Criar testes e validar reservas automáticas, filtros e disponibilidade em desktop e mobile.
+- [x] Impedir reservas acima do saldo disponível e informar claramente a indisponibilidade ao aprovar a proposta.
+- [x] Validar explicitamente os filtros de fornecedor e de saldo físico máximo no estoque.
+- [x] Testar a liberação de reservas quando a proposta deixa de estar aprovada ou é excluída sem entregas.
+- [x] Gerar automaticamente o próximo código numérico para cada novo produto, a partir de 1.
+- [x] Remover a edição manual do código no cadastro de novos produtos, preservando a identificação exibida.
+- [x] Consolidar itens de orçamento por produto e quantidade para a separação do estoque.
+- [x] Exibir descrição completa, ambiente e dados do orçamento na exportação operacional.
+- [x] Criar testes e validar os códigos incrementais e a exportação de separação.
+- [x] Validar explicitamente o documento de separação gerado no frontend com quantidades, ambientes e descrição completa.
+- [x] Criar teste automatizado da montagem do documento de separação usado pela ação de exportação.
+- [x] Fazer a ação de exportação reutilizar a única função testada de montagem do documento de separação.
+- [x] Validar visualmente o documento de separação aberto pela ação do editor com quantidades, ambientes e descrição completa.
+- [x] Validar a ação de Separação a partir do botão do editor com o documento real de saída.
+- [x] Criar teste funcional da ação de Separação com janela e documento simulados no frontend.
+- [x] Inspecionar diretamente o HTML escrito pelo botão de Separação no editor para confirmar a saída final.
+- [x] Remover da interface e dos materiais operacionais quaisquer logos, textos ou referências visíveis que remetam à plataforma ou à autoria de terceiros.
+- [x] Validar a identidade visual final em desktop e mobile, mantendo somente a marca Luminno.
+- [x] Preparar guia de implantação segura do sistema Luminno em VPS com Ubuntu Server.
+- [x] Remover integrações de análise externas do documento público e validar a ausência de créditos visíveis de terceiros.
+- [x] Registrar teste automatizado de identidade para evitar a reintrodução de marcas de terceiros na interface pública.
+- [x] Modelar usuários locais, sessões seguras, papéis de acesso e fluxo de criação do primeiro administrador.
+- [x] Implementar login próprio, encerramento de sessão e proteção das rotas de negócio.
+- [x] Substituir uploads gerenciados por armazenamento local seguro de logos e imagens de produtos.
+- [x] Criar painel administrativo para status do sistema e gestão de usuários.
+- [x] Criar testes de autenticação, autorização, upload local e administração; validar interface desktop e mobile.
+- [x] Remover a entrada manual de URL de logotipo e exigir exclusivamente upload local no formulário de configurações.
+- [x] Cobrir automaticamente o bloqueio de rotas sem sessão e a restrição de recursos administrativos por papel.
+- [x] Cobrir a presença dos contratos do painel administrativo e validar as telas de acesso e administração em mobile.
+- [x] Criar cobertura automatizada explícita dos contratos administrativos de criação, edição e redefinição de senha.
+- [x] Registrar evidência automatizada e inspecionável dos elementos principais do painel administrativo para layout mobile.
+- [x] Preparar guia detalhado para exportar o projeto e instalá-lo em VPS Ubuntu com Cloudflare Tunnel, banco, serviço, uploads, backups e operação segura.
