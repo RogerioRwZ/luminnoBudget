@@ -57,5 +57,5 @@ export async function saveLocalImage(scope: "products" | "store-brand", fileName
 
 export function registerLocalStorage(app: Express) {
   const root = getUploadDirectory();
-  app.use("/uploads", express.static(root, { fallthrough: false, index: false, maxAge: "7d", immutable: true }));
+  app.use("/uploads", express.static(root, { fallthrough: false, index: false, maxAge: "7d", immutable: true, dotfiles: "deny" }));
 }
