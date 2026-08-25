@@ -83,3 +83,34 @@
 - [x] Criar cobertura automatizada explícita dos contratos administrativos de criação, edição e redefinição de senha.
 - [x] Registrar evidência automatizada e inspecionável dos elementos principais do painel administrativo para layout mobile.
 - [x] Preparar guia detalhado para exportar o projeto e instalá-lo em VPS Ubuntu com Cloudflare Tunnel, banco, serviço, uploads, backups e operação segura.
+- [x] Auditar o repositório por erros de código, inconsistências de formulários, permissões, upload, PDF/impressão e fluxos críticos; consolidar achados priorizados.
+- [x] Entregar ao usuário o resumo executivo do relatório de auditoria com os bloqueadores e as recomendações de correção.
+
+- [x] Corrigir os quatro erros do `pnpm check` e alinhar o contrato da lista de Separação.
+- [x] Adicionar validação de campos numéricos e datas, rate limit no login e testes de segurança.
+- [x] Corrigir paginação, rodapé e carregamento de imagens na impressão A4/PDF.
+- [x] Tornar check, testes e build obrigatórios no pipeline de produção.
+- [x] Executar auditoria final, criar guia de atualização, publicar nova branch no GitHub e entregar a versão.
+- [x] Validar o segredo `AUTH_RATE_LIMIT_SECRET` com teste automatizado.
+- [x] Corrigir qualquer erro adicional descoberto durante a suíte final.
+- [x] Executar build final e revisar o status do repositório antes do push.
+- [x] Entregar ao usuário o resumo das correções e o guia de atualização em produção.
+- [x] Publicar as correções em nova branch no repositório GitHub.
+
+- [x] Implementar e testar validação explícita do formulário de login no frontend, incluindo mensagens antes do envio e tratamento do rate limit.
+- [x] Confirmar separadamente a ausência de erros em check, testes, build e audit de dependências, registrando cada resultado.
+
+- [x] Adicionar teste explícito para a mensagem exibida pelo formulário de login quando o servidor aplica rate limit.
+- [x] Entregar a versão final ao usuário com a branch publicada e o guia de atualização referenciados.
+
+- [x] Adicionar teste de componente do AuthPage com ambiente DOM, simulando erro de rate limit e verificando o toast exibido.
+- [x] Enviar a resposta final com a branch publicada, commit e guia de atualização após o checkpoint.
+
+- [x] Salvar checkpoint final com o teste DOM do AuthPage, configuração do Vitest, dependências e ajustes finais de login.
+- [x] Enviar a resposta final citando a branch `fix/auditoria-formularios-pdf-auth`, o commit `07befc5` e o arquivo `GUIA-ATUALIZACAO-PRODUCAO.md`.
+- [x] Atualizar dependências de produção e desenvolvimento para eliminar vulnerabilidades moderadas e baixas, preservando compatibilidade.
+- [x] Adicionar feedback visual animado, acessível e não imprimível durante a preparação do PDF/A4.
+- [x] Criar testes para o estado de preparação do PDF e reexecutar check, testes, build e audit.
+- [x] Atualizar dependências de produção e desenvolvimento para eliminar vulnerabilidades moderadas e baixas, preservando compatibilidade.
+- [x] Adicionar feedback visual animado, acessível e não imprimível durante a preparação do PDF/A4.
+- [x] Criar testes para o estado de preparação do PDF e reexecutar check, testes, build e audit.
