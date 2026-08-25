@@ -4,6 +4,7 @@ import { COOKIE_NAME } from "../../shared/const";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getSessionMaxAgeMs, signLocalSession, toSafeUser, verifyPassword } from "../localAuth";
+import { assertLoginAllowed, clearLoginFailures, registerLoginFailure } from "../loginRateLimit";
 import {
   countLocalUsers,
   createLocalUser,
@@ -49,10 +50,18 @@ export const localAuthRouter = router({
       }
     }),
   login: publicProcedure.input(credentials).mutation(async ({ ctx, input }) => {
+    const ip = ctx.req.ip || ctx.req.socket.remoteAddress || "unknown";
+    try {
+      assertLoginAllowed(input.username, ip);
+    } catch (error) {
+      throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: error instanceof Error ? error.message : "Muitas tentativas. Aguarde alguns minutos." });
+    }
     const user = await getLocalUserByUsername(input.username);
     if (!user || !user.isActive || !(await verifyPassword(input.password, user.passwordHash))) {
+      registerLoginFailure(input.username, ip);
       throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos." });
     }
+    clearLoginFailures(input.username, ip);
     await markLocalUserSignedIn(user.id);
     setSessionCookie(ctx, await signLocalSession(user));
     return toSafeUser({ ...user, lastSignedIn: new Date() });
