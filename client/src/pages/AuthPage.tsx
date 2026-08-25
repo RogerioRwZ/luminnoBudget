@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
+import { validateLoginCredentials } from "@shared/formValidation";
 import { KeyRound, LockKeyhole, UserPlus, UserRound } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -21,8 +22,10 @@ export default function AuthPage({ setupRequired }: { setupRequired: boolean }) 
   const login = trpc.auth.login.useMutation({ onSuccess: () => { complete(); toast.success("Acesso liberado."); }, onError: (error) => toast.error(error.message) });
   const pending = setup.isPending || login.isPending;
   const submit = () => {
-    if (setupRequired) setup.mutate({ username, password, name, email: email || undefined });
-    else login.mutate({ username, password });
+    const validation = validateLoginCredentials({ username, password, setupRequired, name, email });
+    if (validation) { toast.error(validation); return; }
+    if (setupRequired) setup.mutate({ username: username.trim().toLowerCase(), password, name: name.trim(), email: email.trim() || undefined });
+    else login.mutate({ username: username.trim().toLowerCase(), password });
   };
 
   return (

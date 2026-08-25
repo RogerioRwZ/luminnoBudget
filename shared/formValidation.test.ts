@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFiniteNumber, validateQuoteDraft, validateSettingsNumbers } from "./formValidation";
+import { parseFiniteNumber, validateLoginCredentials, validateQuoteDraft, validateSettingsNumbers } from "./formValidation";
 
 describe("form validation", () => {
   it("normaliza campos numéricos vazios e inválidos sem produzir NaN", () => {
@@ -13,6 +13,13 @@ describe("form validation", () => {
     expect(validateQuoteDraft({ ...base, clientName: "" })).toContain("cliente");
     expect(validateQuoteDraft({ ...base, issueDate: new Date("invalid") })).toContain("emissão");
     expect(validateQuoteDraft({ ...base, rooms: [{ name: "SALA", items: [{ quantity: 0, unitPrice: 10 }] }] })).toContain("quantidade");
+  });
+
+  it("valida credenciais do formulário antes do envio", () => {
+    expect(validateLoginCredentials({ username: "a", password: "curta", setupRequired: false })).toContain("usuário");
+    expect(validateLoginCredentials({ username: "ana.silva", password: "curta", setupRequired: false })).toContain("senha");
+    expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: true, name: "" })).toContain("nome");
+    expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: false })).toBeNull();
   });
 
   it("aplica limites de configurações", () => {

@@ -34,6 +34,14 @@ export function validateQuoteDraft(input: QuoteValidationInput): string | null {
   return null;
 }
 
+export function validateLoginCredentials(input: { username: string; password: string; setupRequired: boolean; name?: string; email?: string }) {
+  if (!/^[a-z0-9][a-z0-9._-]{2,79}$/.test(input.username.trim().toLowerCase())) return "Informe um usuário válido (3 a 80 caracteres).";
+  if (input.password.length < 12 || input.password.length > 200) return "A senha deve ter entre 12 e 200 caracteres.";
+  if (input.setupRequired && (!input.name || input.name.trim().length < 2)) return "Informe o nome completo do administrador.";
+  if (input.setupRequired && input.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(input.email)) return "Informe um e-mail válido.";
+  return null;
+}
+
 export function validateSettingsNumbers(input: { defaultPixDiscountValue: number; defaultInstallments: number; alertThresholdDays: number }) {
   if (!isFiniteNonNegative(input.defaultPixDiscountValue)) return "Informe um desconto PIX válido.";
   if (!Number.isInteger(input.defaultInstallments) || input.defaultInstallments < 1 || input.defaultInstallments > 24) return "As parcelas devem estar entre 1 e 24.";
