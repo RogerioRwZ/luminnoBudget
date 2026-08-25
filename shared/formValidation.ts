@@ -34,6 +34,12 @@ export function validateQuoteDraft(input: QuoteValidationInput): string | null {
   return null;
 }
 
+export function formatLoginError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/rate.?limit|login attempts|muitas tentativas|tente novamente|429/i.test(message)) return "Muitas tentativas de login. Aguarde alguns minutos e tente novamente.";
+  return "Não foi possível entrar. Verifique suas credenciais e tente novamente.";
+}
+
 export function validateLoginCredentials(input: { username: string; password: string; setupRequired: boolean; name?: string; email?: string }) {
   if (!/^[a-z0-9][a-z0-9._-]{2,79}$/.test(input.username.trim().toLowerCase())) return "Informe um usuário válido (3 a 80 caracteres).";
   if (input.password.length < 12 || input.password.length > 200) return "A senha deve ter entre 12 e 200 caracteres.";
