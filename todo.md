@@ -114,3 +114,9 @@
 - [x] Atualizar dependências de produção e desenvolvimento para eliminar vulnerabilidades moderadas e baixas, preservando compatibilidade.
 - [x] Adicionar feedback visual animado, acessível e não imprimível durante a preparação do PDF/A4.
 - [x] Criar testes para o estado de preparação do PDF e reexecutar check, testes, build e audit.
+- [x] Modelar o histórico persistente de PDFs vinculados a cada orçamento com acesso autenticado.
+- [x] Gerar, armazenar e disponibilizar downloads rápidos de PDFs de orçamento.
+- [x] Adicionar painel de histórico de PDFs ao editor e cobrir os fluxos com testes e validação.
+- [x] Exibir no editor o histórico do orçamento atual, com estado vazio, data, tamanho e ações de download.
+- [x] Consumir a consulta de histórico por orçamento e testar o painel integrado ao editor.
+- [x] Testar no editor o painel de histórico com o orçamento atual e a ação de download integrada ao layout.

@@ -1,12 +1,12 @@
 # Guia de atualização em produção — Luminno Orçamentos
 
-Este procedimento atualiza uma instalação existente do Luminno em uma VPS Ubuntu usando uma branch do GitHub, preservando banco, uploads locais e configuração do Cloudflare Tunnel. Execute como administrador da VPS, mas rode Git, pnpm, migrações e build com o usuário de serviço `luminno` sempre que possível.
+Este procedimento atualiza uma instalação existente do Luminno em uma VPS Ubuntu usando uma branch do GitHub, preservando banco, uploads locais, PDFs históricos e configuração do Cloudflare Tunnel. Execute como administrador da VPS, mas rode Git, pnpm, migrações e build com o usuário de serviço `luminno` sempre que possível.
 
 > **Importante:** nunca faça `git reset --hard`, nunca substitua o arquivo de ambiente por um arquivo do GitHub e nunca execute uma migração destrutiva sem backup verificável.
 
 ## 1. Pré-requisitos da instalação
 
-A instalação deve possuir o repositório em `/var/www/luminno-orcamentos`, o serviço systemd `luminno-orcamentos.service`, MySQL acessível por `DATABASE_URL`, Node.js LTS, pnpm e o Cloudflare Tunnel apontando para `http://127.0.0.1:3000`. O arquivo de ambiente deve permanecer fora do repositório, por exemplo em `/etc/luminno-orcamentos.env`, com pelo menos `DATABASE_URL`, `JWT_SECRET`, `AUTH_RATE_LIMIT_SECRET`, `UPLOAD_DIR` e `NODE_ENV=production`.
+A instalação deve possuir o repositório em `/var/www/luminno-orcamentos`, o serviço systemd `luminno-orcamentos.service`, MySQL acessível por `DATABASE_URL`, Node.js LTS, pnpm e o Cloudflare Tunnel apontando para `http://127.0.0.1:3000`. O arquivo de ambiente deve permanecer fora do repositório, por exemplo em `/etc/luminno-orcamentos.env`, com pelo menos `DATABASE_URL`, `JWT_SECRET`, `AUTH_RATE_LIMIT_SECRET`, `UPLOAD_DIR`, `PDF_HISTORY_DIR` e `NODE_ENV=production`.
 
 Confirme os nomes dos serviços antes da primeira atualização:
 
@@ -23,7 +23,7 @@ Faça uma cópia do banco e do diretório de uploads. O backup JSON do painel co
 ```bash
 sudo install -d -m 700 /var/backups/luminno-orcamentos
 sudo mysqldump --defaults-extra-file=/etc/mysql/luminno-backup.cnf --single-transaction --routines --triggers luminno > /var/backups/luminno-orcamentos/db-$(date +%Y%m%d-%H%M%S).sql
-sudo tar -C /var/lib/luminno -czf /var/backups/luminno-orcamentos/uploads-$(date +%Y%m%d-%H%M%S).tar.gz uploads
+sudo tar -C /var/lib/luminno -czf /var/backups/luminno-orcamentos/arquivos-$(date +%Y%m%d-%H%M%S).tar.gz uploads pdf-history
 sudo sha256sum /var/backups/luminno-orcamentos/* | sudo tee /var/backups/luminno-orcamentos/SHA256SUMS
 ```
 
@@ -99,11 +99,11 @@ O build deve criar `dist/index.js` e `dist/public`. O alerta sobre chunks grande
 Não copie `.env`, segredos ou uploads do repositório. Garanta que o diretório local configurado no ambiente existe e pertence ao usuário de serviço.
 
 ```bash
-sudo install -d -o luminno -g luminno -m 750 /var/lib/luminno/uploads
-sudo grep -E '^(NODE_ENV|UPLOAD_DIR|DATABASE_URL|JWT_SECRET|AUTH_RATE_LIMIT_SECRET)=' /etc/luminno-orcamentos.env | sed 's/=.*/=<configurado>/'
+sudo install -d -o luminno -g luminno -m 750 /var/lib/luminno/uploads /var/lib/luminno/pdf-history
+sudo grep -E '^(NODE_ENV|UPLOAD_DIR|PDF_HISTORY_DIR|DATABASE_URL|JWT_SECRET|AUTH_RATE_LIMIT_SECRET)=' /etc/luminno-orcamentos.env | sed 's/=.*/=<configurado>/'
 ```
 
-O valor de `UPLOAD_DIR` deve apontar para `/var/lib/luminno/uploads`, não para um diretório dentro do checkout que possa ser substituído numa atualização.
+O valor de `UPLOAD_DIR` deve apontar para `/var/lib/luminno/uploads`, e o valor de `PDF_HISTORY_DIR` para `/var/lib/luminno/pdf-history`; ambos devem ficar fora do checkout para não serem substituídos numa atualização. Os PDFs do histórico são baixados por uma rota autenticada e não devem ser expostos como diretório público.
 
 ## 8. Reiniciar e verificar a aplicação
 

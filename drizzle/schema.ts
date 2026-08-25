@@ -98,6 +98,16 @@ export const quoteItems = mysqlTable("quoteItems", {
   sortOrder: int("sortOrder").notNull().default(0),
 });
 
+export const quotePdfHistory = mysqlTable("quotePdfHistory", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
+  fileName: varchar("fileName", { length: 180 }).notNull(),
+  storageKey: varchar("storageKey", { length: 255 }).notNull().unique(),
+  fileSize: int("fileSize").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const quoteItemReservations = mysqlTable("quoteItemReservations", {
   id: int("id").autoincrement().primaryKey(),
   quoteId: int("quoteId").notNull(),

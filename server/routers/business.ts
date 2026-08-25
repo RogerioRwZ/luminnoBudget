@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { saveLocalImage } from "../localStorage";
+import { saveLocalImage, saveLocalPdf } from "../localStorage";
 import {
   createQuote,
+  createQuotePdfHistory,
   dashboardMetrics,
   deleteProduct,
   deleteQuote,
@@ -14,6 +15,8 @@ import {
   listClients,
   listProducts,
   listQuotes,
+  listAllQuotePdfHistory,
+  listQuotePdfHistory,
   saveClient,
   saveProduct,
   saveQuote,
@@ -146,6 +149,29 @@ export const businessRouter = router({
         shipping: Number(source.shipping),
         pixDiscountValue: Number(source.pixDiscountValue),
       });
+    }),
+    pdfHistory: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuotePdfHistory(input.quoteId)),
+    pdfHistoryAll: protectedProcedure.query(listAllQuotePdfHistory),
+    savePdf: protectedProcedure.input(z.object({
+      quoteId: z.number().int().positive(),
+      dataUrl: z.string().min(32).max(12_000_000),
+    })).mutation(async ({ ctx, input }) => {
+      const separator = input.dataUrl.indexOf(",");
+      if (!input.dataUrl.startsWith("data:application/pdf") || separator === -1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo PDF inválido." });
+      }
+      const bytes = Buffer.from(input.dataUrl.slice(separator + 1), "base64");
+      if (bytes.length > 8 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "O PDF deve ter no máximo 8 MB." });
+      const quote = await getQuote(input.quoteId);
+      if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
+      const generatedAt = new Date();
+      const fileName = `orcamento-${String(quote.quoteNumber).padStart(4, "0")}-${generatedAt.toISOString().replace(/[:.]/g, "-")}.pdf`;
+      try {
+        const stored = await saveLocalPdf(fileName, bytes);
+        return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, storageKey: stored.key, fileSize: stored.fileSize });
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o PDF." });
+      }
     }),
   }),
   inventory: router({

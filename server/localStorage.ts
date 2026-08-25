@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_PDF_BYTES = 8 * 1024 * 1024;
 const supportedTypes = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -15,8 +16,16 @@ export function getUploadDirectory() {
   return path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
 }
 
+export function getPdfHistoryDirectory() {
+  return path.resolve(process.env.PDF_HISTORY_DIR || path.join(path.dirname(getUploadDirectory()), "pdf-history"));
+}
+
 export async function ensureUploadDirectory() {
   await mkdir(getUploadDirectory(), { recursive: true, mode: 0o750 });
+}
+
+export async function ensurePdfHistoryDirectory() {
+  await mkdir(getPdfHistoryDirectory(), { recursive: true, mode: 0o750 });
 }
 
 function assertImageSignature(bytes: Buffer, mimeType: string) {
@@ -53,6 +62,28 @@ export async function saveLocalImage(scope: "products" | "store-brand", fileName
   await writeFile(temporary, bytes, { mode: 0o640 });
   await rename(temporary, destination);
   return { key, url: `/uploads/${key}` };
+}
+
+export async function saveLocalPdf(fileName: string, bytes: Buffer) {
+  if (bytes.length < 5 || bytes.length > MAX_PDF_BYTES) throw new Error("O PDF deve ter até 8 MB.");
+  if (bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("O conteúdo enviado não corresponde a um PDF válido.");
+  await ensurePdfHistoryDirectory();
+
+  const key = `${safeStem(fileName)}-${randomUUID()}.pdf`;
+  const destination = path.join(getPdfHistoryDirectory(), key);
+  const root = getPdfHistoryDirectory();
+  if (!destination.startsWith(`${root}${path.sep}`)) throw new Error("Caminho de PDF inválido.");
+  const temporary = `${destination}.tmp-${randomUUID()}`;
+  await writeFile(temporary, bytes, { mode: 0o640 });
+  await rename(temporary, destination);
+  return { key, fileSize: bytes.length };
+}
+
+export function getLocalPdfPath(storageKey: string) {
+  const root = getPdfHistoryDirectory();
+  const key = path.basename(storageKey);
+  if (key !== storageKey || !key.endsWith(".pdf")) throw new Error("Chave de PDF inválida.");
+  return path.join(root, key);
 }
 
 export function registerLocalStorage(app: Express) {

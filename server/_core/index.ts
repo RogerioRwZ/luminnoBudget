@@ -3,10 +3,15 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import { parse } from "cookie";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { ensureUploadDirectory, registerLocalStorage } from "../localStorage";
+import { ensurePdfHistoryDirectory, ensureUploadDirectory, getLocalPdfPath, registerLocalStorage } from "../localStorage";
+import { COOKIE_NAME } from "../../shared/const";
+import { verifyLocalSession } from "../localAuth";
+import { getActiveLocalUserById } from "../localUserDb";
+import { getQuotePdfHistoryEntry } from "../quoteDb";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,7 +40,24 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   await ensureUploadDirectory();
+  await ensurePdfHistoryDirectory();
   registerLocalStorage(app);
+  app.get("/api/quote-pdfs/:historyId/download", async (req, res) => {
+    const historyId = Number(req.params.historyId);
+    const token = parse(req.headers.cookie ?? "")[COOKIE_NAME];
+    const session = token ? await verifyLocalSession(token) : null;
+    const user = session ? await getActiveLocalUserById(session.userId) : null;
+    if (!user) return res.status(401).send("Autenticação necessária.");
+    if (!Number.isSafeInteger(historyId) || historyId < 1) return res.status(404).send("PDF não encontrado.");
+    const entry = await getQuotePdfHistoryEntry(historyId);
+    if (!entry) return res.status(404).send("PDF não encontrado.");
+    try {
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.download(getLocalPdfPath(entry.storageKey), entry.fileName);
+    } catch {
+      return res.status(404).send("Arquivo PDF não encontrado.");
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import {
   ArchiveRestore,
   FileText,
+  Files,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -30,6 +31,7 @@ import {
 const menuItems = [
   { icon: LayoutDashboard, label: "Visão geral", path: "/" },
   { icon: FileText, label: "Orçamentos", path: "/orcamentos" },
+  { icon: Files, label: "Histórico de PDFs", path: "/historico-pdfs" },
   { icon: PackageSearch, label: "Catálogo", path: "/catalogo" },
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: UsersRound, label: "Clientes", path: "/clientes" },

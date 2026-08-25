@@ -11,4 +11,5 @@ overrides:
   esbuild: 0.28.2
 
 allowBuilds:
+  core-js: true
   esbuild: true

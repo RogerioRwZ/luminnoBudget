@@ -8,6 +8,7 @@ import CustomersPage from "@/pages/CustomersPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InventoryPage from "@/pages/InventoryPage";
 import NotFound from "@/pages/NotFound";
+import PdfHistoryPage from "@/pages/PdfHistoryPage";
 import ProductsPage from "@/pages/ProductsPage";
 import QuoteEditorPage from "@/pages/QuoteEditorPage";
 import QuotesPage from "@/pages/QuotesPage";
@@ -28,6 +29,7 @@ function Router() {
         <Route path="/orcamentos" component={QuotesPage} />
         <Route path="/orcamentos/novo" component={QuoteEditorPage} />
         <Route path="/orcamentos/:id" component={QuoteEditorPage} />
+        <Route path="/historico-pdfs" component={PdfHistoryPage} />
         <Route path="/catalogo" component={ProductsPage} />
         <Route path="/estoque" component={InventoryPage} />
         <Route path="/clientes" component={CustomersPage} />
