@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFiniteNumber, validateLoginCredentials, validateQuoteDraft, validateSettingsNumbers } from "./formValidation";
+import { formatLoginError, parseFiniteNumber, validateLoginCredentials, validateQuoteDraft, validateSettingsNumbers } from "./formValidation";
 
 describe("form validation", () => {
   it("normaliza campos numéricos vazios e inválidos sem produzir NaN", () => {
@@ -13,6 +13,11 @@ describe("form validation", () => {
     expect(validateQuoteDraft({ ...base, clientName: "" })).toContain("cliente");
     expect(validateQuoteDraft({ ...base, issueDate: new Date("invalid") })).toContain("emissão");
     expect(validateQuoteDraft({ ...base, rooms: [{ name: "SALA", items: [{ quantity: 0, unitPrice: 10 }] }] })).toContain("quantidade");
+  });
+
+  it("exibe mensagem específica quando o login é limitado por tentativas", () => {
+    expect(formatLoginError(new Error("Too many login attempts; try again later"))).toContain("Muitas tentativas");
+    expect(formatLoginError(new Error("Usuário ou senha inválidos"))).toContain("credenciais");
   });
 
   it("valida credenciais do formulário antes do envio", () => {

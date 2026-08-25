@@ -3,9 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
-import { validateLoginCredentials } from "@shared/formValidation";
+import { formatLoginError, validateLoginCredentials } from "@shared/formValidation";
 import { KeyRound, LockKeyhole, UserPlus, UserRound } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { toast } from "sonner";
 
 export default function AuthPage({ setupRequired }: { setupRequired: boolean }) {
@@ -19,7 +19,7 @@ export default function AuthPage({ setupRequired }: { setupRequired: boolean }) 
     utils.auth.me.invalidate();
   };
   const setup = trpc.auth.setup.useMutation({ onSuccess: () => { complete(); toast.success("Administrador criado com segurança."); }, onError: (error) => toast.error(error.message) });
-  const login = trpc.auth.login.useMutation({ onSuccess: () => { complete(); toast.success("Acesso liberado."); }, onError: (error) => toast.error(error.message) });
+  const login = trpc.auth.login.useMutation({ onSuccess: () => { complete(); toast.success("Acesso liberado."); }, onError: (error) => toast.error(formatLoginError(error)) });
   const pending = setup.isPending || login.isPending;
   const submit = () => {
     const validation = validateLoginCredentials({ username, password, setupRequired, name, email });
