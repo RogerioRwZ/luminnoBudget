@@ -140,3 +140,21 @@
 - [x] Cobrir automaticamente a chave válida de rate limit usada pelo login local e repetir a validação integral.
 - [x] Adicionar teste do procedimento real de login com chave válida de rate limit e verificar a emissão de sessão.
 - [x] Cobrir a falha de segredo inválido no ponto de entrada do login local para prevenir novo bloqueio de acesso.
+- [x] Corrigir a perda de foco ao digitar o nome de um ambiente no editor de orçamento.
+- [x] Auditar campos editáveis semelhantes para prevenir remounts, perda de foco e edição de um caractere por vez.
+- [x] Executar e ampliar a validação de login, logout, emissão de orçamentos, estoque, entregas e financeiro.
+- [x] Revisar desktop e mobile quanto a UX/UI, acessibilidade, carregamento, erros e estados vazios dos fluxos críticos.
+- [ ] Corrigir inconsistências descobertas, repetir a regressão completa e publicar a versão validada.
+- [x] Validar a reserva e pendência de entrega após aprovar um orçamento com item vinculado ao catálogo; a ausência inicial não se reproduziu quando o salvamento alcançou o servidor.
+- [x] Cobrir a reserva automática e a criação de parcelas em um teste integrado de orçamento aprovado.
+- [x] Validar em mobile autenticado o editor de orçamento, estoque, financeiro, catálogo e clientes, incluindo foco e navegação básica.
+- [x] Cobrir manualmente e por testes os estados de carregamento, vazio e erro dos fluxos críticos.
+- [x] Registrar que a reserva ausente não foi reproduzida quando o salvamento alcança o servidor e manter sua regressão integrada.
+- [x] Corrigir os campos móveis sem nome acessível e validar associação de rótulos nos formulários críticos.
+- [x] Adicionar regressão de acessibilidade básica para impedir novos campos de formulário sem identificação.
+- [x] Remover o aviso de depreciação na limpeza do cookie de sessão sem alterar o contrato de logout seguro.
+- [x] Validar por rota os estados de carregamento, vazio e erro de login, orçamentos, catálogo, estoque, financeiro e clientes.
+- [x] Auditar os formulários móveis de catálogo, clientes, financeiro, configurações e autenticação quanto a nomes acessíveis.
+- [x] Criar uma regressão reutilizável que detecte controles de formulário sem nome acessível nos fluxos críticos.
+- [x] Adicionar teste e evidência explícita dos estados de carregamento e erro na rota de orçamentos.
+- [x] Registrar a validação explícita dos estados aplicáveis ao login: gate de sessão, credenciais/rate limit e ausência de sessão.

@@ -17,7 +17,7 @@ import { openPickingPrintDocument } from "@shared/pickingPrint";
 import { buildWhatsAppProposal } from "@shared/whatsapp";
 import { parseFiniteNumber, validateQuoteDraft } from "@shared/formValidation";
 import { ArrowDown, ArrowLeft, ArrowUp, Calculator, ChevronDown, ChevronUp, Clipboard, ClipboardList, Copy, Eye, FileText, Loader2, PackagePlus, Plus, Printer, Save, Search, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
@@ -69,14 +69,27 @@ export default function QuoteEditorPage() {
   const savePdf = trpc.quote.savePdf.useMutation({ onSuccess: () => { utils.quote.pdfHistory.invalidate(); utils.quote.pdfHistoryAll.invalidate(); toast.success("PDF gerado e salvo no histórico."); }, onError: (error) => toast.error(error.message) });
   const save = trpc.quote.save.useMutation({ onSuccess: (quote) => { if (quote) { setDraft(fromQuote(quote)); utils.quote.list.invalidate(); utils.dashboard.invalidate(); toast.success("Orçamento salvo"); } }, onError: (error) => toast.error(error.message) });
   const remove = trpc.quote.delete.useMutation({ onSuccess: () => { utils.quote.list.invalidate(); utils.dashboard.invalidate(); setLocation("/orcamentos"); toast.success("Orçamento excluído"); }, onError: (error) => toast.error(error.message) });
-  const [draft, setDraft] = useState<QuoteDraft | null>(null); const [searches, setSearches] = useState<Record<number, string>>({}); const [preview, setPreview] = useState(false); const [isPreparingPrint, setIsPreparingPrint] = useState(false);
+  const [draft, setDraft] = useState<QuoteDraft | null>(null); const [searches, setSearches] = useState<Record<number, string>>({}); const [preview, setPreview] = useState(false); const [isPreparingPrint, setIsPreparingPrint] = useState(false); const focusedFieldIndex = useRef<number | null>(null);
   useEffect(() => { if (quoteQuery.data) setDraft(fromQuote(quoteQuery.data as QuoteRecord)); }, [quoteQuery.data]);
   useEffect(() => { if (isNewRoute && !draft && !createNew.isPending) createNew.mutate(); }, [isNewRoute, draft, createNew]);
+  useEffect(() => {
+    const editor = document.querySelector(".quote-editor");
+    if (!editor) return;
+    const staticLabels = ["Data de emissão", "Data de validade", "Nome do cliente", "Profissional responsável", "CPF ou CNPJ", "Telefone", "Endereço", "Nome do ambiente", "Buscar e adicionar produto", "Observações comerciais", "Valor do desconto", "Frete", "Valor do desconto PIX"];
+    const staticControls = Array.from(editor.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).filter((control) => !control.closest(".quote-line"));
+    staticControls.forEach((control, index) => control.setAttribute("aria-label", staticLabels[index] ?? "Campo do orçamento"));
+    editor.querySelectorAll(".quote-line").forEach((line, lineIndex) => {
+      const itemLabels = ["Descrição do item", "Código do item", "Unidade do item", "Quantidade do item", "Valor unitário do item"];
+      line.querySelectorAll<HTMLInputElement>("input").forEach((control, index) => control.setAttribute("aria-label", `${itemLabels[index] ?? "Campo do item"} ${lineIndex + 1}`));
+    });
+  }, [draft]);
   const summary = useMemo(() => draft ? calculateQuote({ rooms: draft.rooms, discountMode: draft.discountMode, discountValue: draft.discountValue, shipping: draft.shipping, pixDiscountMode: draft.pixDiscountMode, pixDiscountValue: draft.pixDiscountValue, installments: draft.installments }) : null, [draft]);
   const activeProducts = useMemo(() => products.filter((product) => product.active), [products]);
-  const changeDraft = (change: Partial<QuoteDraft>) => setDraft((current) => current ? { ...current, ...change } : current);
-  const updateRoom = (roomIndex: number, change: Partial<DraftRoom>) => setDraft((current) => current ? { ...current, rooms: current.rooms.map((room, index) => index === roomIndex ? { ...room, ...change } : room) } : current);
-  const updateItem = (roomIndex: number, itemIndex: number, change: Partial<DraftItem>) => setDraft((current) => current ? { ...current, rooms: current.rooms.map((room, currentRoom) => currentRoom === roomIndex ? { ...room, items: room.items.map((item, currentItem) => currentItem === itemIndex ? { ...item, ...change } : item) } : room) } : current);
+  const preserveFocusedField = () => { const active = document.activeElement; if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) return; const fields = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")); const index = fields.indexOf(active); focusedFieldIndex.current = index >= 0 ? index : null; };
+  useLayoutEffect(() => { const index = focusedFieldIndex.current; if (index === null) return; const field = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")[index]; field?.focus(); focusedFieldIndex.current = null; }, [draft]);
+  const changeDraft = (change: Partial<QuoteDraft>) => { preserveFocusedField(); setDraft((current) => current ? { ...current, ...change } : current); };
+  const updateRoom = (roomIndex: number, change: Partial<DraftRoom>) => { preserveFocusedField(); setDraft((current) => current ? { ...current, rooms: current.rooms.map((room, index) => index === roomIndex ? { ...room, ...change } : room) } : current); };
+  const updateItem = (roomIndex: number, itemIndex: number, change: Partial<DraftItem>) => { preserveFocusedField(); setDraft((current) => current ? { ...current, rooms: current.rooms.map((room, currentRoom) => currentRoom === roomIndex ? { ...room, items: room.items.map((item, currentItem) => currentItem === itemIndex ? { ...item, ...change } : item) } : room) } : current); };
   const addProduct = (roomIndex: number, productId: number) => { const product = products.find((entry) => entry.id === productId); if (!product) return; setDraft((current) => current ? { ...current, rooms: current.rooms.map((room, index) => index === roomIndex ? { ...room, items: [...room.items, { productId: product.id, code: product.code, shortDescription: product.shortDescription, imageUrl: product.imageUrl, unit: product.unit, quantity: 1, unitPrice: Number(product.unitPrice) }] } : room) } : current); setSearches((current) => ({ ...current, [roomIndex]: "" })); };
   const moveRoom = (index: number, direction: -1 | 1) => setDraft((current) => current ? { ...current, rooms: moveDraftRoom(current.rooms, index, direction) } : current);
   const moveItem = (roomIndex: number, fromIndex: number, toIndex: number) => setDraft((current) => current ? { ...current, rooms: current.rooms.map((room, index) => index === roomIndex ? { ...room, items: moveDraftItem(room.items, fromIndex, toIndex) } : room) } : current);

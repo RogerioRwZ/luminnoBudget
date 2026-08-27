@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { expectNoUnnamedFormControls } from "@/test/formAccessibility";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -48,7 +49,8 @@ describe("AuthPage", () => {
   });
 
   it("exibe no toast o rate limit retornado pelo login", () => {
-    render(<AuthPage setupRequired={false} />);
+    const { container } = render(<AuthPage setupRequired={false} />);
+    expectNoUnnamedFormControls(container);
     fireEvent.change(screen.getByLabelText("Usuário"), { target: { value: "ana.silva" } });
     fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "senha-forte-com-12" } });
     fireEvent.click(screen.getByRole("button", { name: "Entrar" }));

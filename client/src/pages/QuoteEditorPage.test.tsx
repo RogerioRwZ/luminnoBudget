@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ setLocation: vi.fn(), mutate: vi.fn(), invalidate: vi.fn() }));
 
@@ -33,6 +33,8 @@ vi.mock("wouter", () => ({
 import QuoteEditorPage from "./QuoteEditorPage";
 
 describe("QuoteEditorPage", () => {
+  afterEach(cleanup);
+
   it("integra o histórico real e a ação de download ao orçamento aberto", () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     render(<QuoteEditorPage />);
@@ -40,5 +42,45 @@ describe("QuoteEditorPage", () => {
 
     expect(screen.getByText("orcamento-0018.pdf")).toBeTruthy();
     expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("mantém o foco ao digitar continuamente o nome de um ambiente", () => {
+    render(<QuoteEditorPage />);
+    const roomName = screen.getByDisplayValue("SALA");
+    roomName.focus();
+
+    fireEvent.change(roomName, { target: { value: "SALA DE ESTAR" } });
+
+    expect(screen.getByDisplayValue("SALA DE ESTAR")).toBe(document.activeElement);
+  });
+
+  it("mantém o foco ao editar o código de um item do ambiente", () => {
+    render(<QuoteEditorPage />);
+    const itemCode = screen.getByDisplayValue("1");
+    itemCode.focus();
+
+    fireEvent.change(itemCode, { target: { value: "A-001" } });
+
+    expect(screen.getByDisplayValue("A-001")).toBe(document.activeElement);
+  });
+
+  it("expõe nomes acessíveis nos campos críticos da proposta", () => {
+    render(<QuoteEditorPage />);
+
+    expect(screen.getByLabelText("Data de emissão")).toBeTruthy();
+    expect(screen.getByLabelText("Nome do cliente")).toBeTruthy();
+    expect(screen.getByLabelText("Nome do ambiente")).toBeTruthy();
+    expect(screen.getByLabelText("Descrição do item 1")).toBeTruthy();
+    expect(screen.getByLabelText("Valor do desconto PIX")).toBeTruthy();
+  });
+
+  it("impede o salvamento e mantém a pessoa no editor quando faltam dados obrigatórios", () => {
+    render(<QuoteEditorPage />);
+    fireEvent.change(screen.getByLabelText("Nome do cliente"), { target: { value: "" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Nome do cliente")).toBeTruthy();
   });
 });
