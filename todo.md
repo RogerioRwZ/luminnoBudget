@@ -144,7 +144,7 @@
 - [x] Auditar campos editáveis semelhantes para prevenir remounts, perda de foco e edição de um caractere por vez.
 - [x] Executar e ampliar a validação de login, logout, emissão de orçamentos, estoque, entregas e financeiro.
 - [x] Revisar desktop e mobile quanto a UX/UI, acessibilidade, carregamento, erros e estados vazios dos fluxos críticos.
-- [ ] Corrigir inconsistências descobertas, repetir a regressão completa e publicar a versão validada.
+- [x] Corrigir inconsistências descobertas, repetir a regressão completa e publicar a versão validada.
 - [x] Validar a reserva e pendência de entrega após aprovar um orçamento com item vinculado ao catálogo; a ausência inicial não se reproduziu quando o salvamento alcançou o servidor.
 - [x] Cobrir a reserva automática e a criação de parcelas em um teste integrado de orçamento aprovado.
 - [x] Validar em mobile autenticado o editor de orçamento, estoque, financeiro, catálogo e clientes, incluindo foco e navegação básica.
