@@ -128,3 +128,8 @@
 - [x] Criar painel financeiro com indicadores, filtros, lista de contas, recebimentos parciais e ações de pagamento.
 - [x] Criar um orçamento de validação, testar os fluxos de pagamento ponta a ponta e remover dados temporários.
 - [x] Executar check, testes, build, auditoria e validação visual dos recursos novos e existentes.
+- [x] Corrigir o login que confirma acesso, mas não mantém ou reconhece a sessão na interface.
+- [x] Adicionar regressão automatizada para o redirecionamento e a sessão após login local.
+- [x] Criar teste de integração do gate de rotas para confirmar que a sessão reconhecida libera o layout protegido após login.
+- [x] Cobrir o logout com redirecionamento ao formulário para garantir a invalidação visual da sessão.
+- [x] Criar teste integrado do Router que confirme a troca da área protegida para o formulário quando a sessão passa a nula após logout.

@@ -18,7 +18,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
-function Router() {
+export function Router() {
   const { data, isLoading, error } = trpc.auth.status.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   if (isLoading) return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Verificando acesso seguro…</div>;
   if (error || !data) return <div className="grid min-h-screen place-items-center bg-background p-6 text-center"><div><p className="font-display text-xl font-bold">Não foi possível verificar o acesso.</p><p className="mt-2 text-sm text-muted-foreground">Confirme a conexão com o banco de dados e tente novamente.</p></div></div>;

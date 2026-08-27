@@ -8,18 +8,28 @@ import { KeyRound, LockKeyhole, UserPlus, UserRound } from "lucide-react";
 import React, { useState } from "react";
 import { toast } from "sonner";
 
-export default function AuthPage({ setupRequired }: { setupRequired: boolean }) {
+type AuthPageProps = {
+  setupRequired: boolean;
+  onAuthenticated?: () => void;
+};
+
+export default function AuthPage({ setupRequired, onAuthenticated = () => window.location.replace("/") }: AuthPageProps) {
   const utils = trpc.useUtils();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const complete = () => {
-    utils.auth.status.invalidate();
-    utils.auth.me.invalidate();
+  const complete = async () => {
+    await Promise.all([
+      utils.auth.status.invalidate(),
+      utils.auth.me.invalidate(),
+    ]);
+    // A recarga elimina qualquer estado de consulta anterior à emissão do cookie.
+    // Assim, a área protegida sempre é avaliada com a sessão recém-criada.
+    onAuthenticated();
   };
-  const setup = trpc.auth.setup.useMutation({ onSuccess: () => { complete(); toast.success("Administrador criado com segurança."); }, onError: (error) => toast.error(error.message) });
-  const login = trpc.auth.login.useMutation({ onSuccess: () => { complete(); toast.success("Acesso liberado."); }, onError: (error) => toast.error(formatLoginError(error)) });
+  const setup = trpc.auth.setup.useMutation({ onSuccess: async () => { toast.success("Administrador criado com segurança."); await complete(); }, onError: (error) => toast.error(error.message) });
+  const login = trpc.auth.login.useMutation({ onSuccess: async () => { toast.success("Acesso liberado."); await complete(); }, onError: (error) => toast.error(formatLoginError(error)) });
   const pending = setup.isPending || login.isPending;
   const submit = () => {
     const validation = validateLoginCredentials({ username, password, setupRequired, name, email });

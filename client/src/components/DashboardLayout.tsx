@@ -42,12 +42,21 @@ const menuItems = [
 
 type LocalUser = { username: string; name: string | null; role: "user" | "admin" };
 
-export default function DashboardLayout({ children, user }: { children: React.ReactNode; user: LocalUser }) {
+type DashboardLayoutProps = {
+  children: React.ReactNode;
+  user: LocalUser;
+  onLoggedOut?: () => void;
+};
+
+export default function DashboardLayout({ children, user, onLoggedOut = () => window.location.replace("/") }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { data: currentUser } = trpc.auth.me.useQuery();
   const utils = trpc.useUtils();
-  const logout = trpc.auth.logout.useMutation({ onSuccess: () => { utils.auth.status.invalidate(); utils.auth.me.invalidate(); } });
+  const logout = trpc.auth.logout.useMutation({ onSuccess: async () => {
+    await Promise.all([utils.auth.status.invalidate(), utils.auth.me.invalidate()]);
+    onLoggedOut();
+  } });
   const activeItem = menuItems.find((item) => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
 
   return (
