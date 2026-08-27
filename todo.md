@@ -120,3 +120,11 @@
 - [x] Exibir no editor o histórico do orçamento atual, com estado vazio, data, tamanho e ações de download.
 - [x] Consumir a consulta de histórico por orçamento e testar o painel integrado ao editor.
 - [x] Testar no editor o painel de histórico com o orçamento atual e a ação de download integrada ao layout.
+- [x] Validar login da conta redefinida e acesso autenticado à interface de histórico de PDFs.
+- [x] Liberar com segurança as tentativas de login após uma redefinição autorizada de senha e repetir a validação da sessão.
+- [x] Mapear contratos existentes de orçamentos, clientes, estoque e painel para integrar o controle de pagamentos.
+- [x] Modelar contas a receber, parcelas, baixas, estornos, vencimentos e vínculo com orçamentos aprovados.
+- [x] Implementar regras, persistência e APIs protegidas do módulo financeiro, incluindo sincronização com status comercial.
+- [x] Criar painel financeiro com indicadores, filtros, lista de contas, recebimentos parciais e ações de pagamento.
+- [x] Criar um orçamento de validação, testar os fluxos de pagamento ponta a ponta e remover dados temporários.
+- [x] Executar check, testes, build, auditoria e validação visual dos recursos novos e existentes.

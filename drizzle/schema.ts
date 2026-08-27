@@ -108,6 +108,35 @@ export const quotePdfHistory = mysqlTable("quotePdfHistory", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const financeReceivables = mysqlTable("financeReceivables", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId"),
+  clientId: int("clientId"),
+  clientName: varchar("clientName", { length: 240 }).notNull(),
+  description: varchar("description", { length: 512 }).notNull(),
+  installmentNumber: int("installmentNumber").notNull().default(1),
+  installmentCount: int("installmentCount").notNull().default(1),
+  originalAmount: decimal("originalAmount", { precision: 12, scale: 2 }).notNull(),
+  dueDate: timestamp("dueDate").notNull(),
+  status: mysqlEnum("status", ["open", "partial", "paid", "cancelled"]).notNull().default("open"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const financePayments = mysqlTable("financePayments", {
+  id: int("id").autoincrement().primaryKey(),
+  receivableId: int("receivableId").notNull(),
+  type: mysqlEnum("type", ["receipt", "reversal"]).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "other"]).notNull().default("other"),
+  paidAt: timestamp("paidAt").notNull().defaultNow(),
+  reference: varchar("reference", { length: 120 }),
+  notes: text("notes"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const quoteItemReservations = mysqlTable("quoteItemReservations", {
   id: int("id").autoincrement().primaryKey(),
   quoteId: int("quoteId").notNull(),

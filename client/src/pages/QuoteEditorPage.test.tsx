@@ -20,6 +20,7 @@ vi.mock("@/lib/trpc", () => {
       customers: { list: { useQuery: () => ({ data: [] }) } },
       settings: { get: { useQuery: () => ({ data: undefined }) } },
       inventory: { picking: { useQuery: () => ({ isFetching: false, refetch: vi.fn() }) } },
+      finance: { byQuote: { useQuery: () => ({ data: [], isLoading: false }) } },
     },
   };
 });

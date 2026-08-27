@@ -23,6 +23,7 @@ import {
   saveSettings,
 } from "../quoteDb";
 import { approvedFulfillments, deliverQuoteItem, inventoryOverview, recordStockMovement } from "../stockDb";
+import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, recordFinancePayment } from "../financeDb";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
@@ -123,9 +124,9 @@ export const businessRouter = router({
     list: protectedProcedure.query(listQuotes),
     get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => getQuote(input.id)),
     create: protectedProcedure.mutation(createQuote),
-    save: protectedProcedure.input(quoteInput).mutation(({ input }) => saveQuote(input)),
+    save: protectedProcedure.input(quoteInput).mutation(({ ctx, input }) => saveQuote(input, ctx.user.id)),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input }) => deleteQuote(input.id)),
-    duplicate: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    duplicate: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const source = await getQuote(input.id);
       if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
       const fresh = await createQuote();
@@ -148,7 +149,7 @@ export const businessRouter = router({
         discountValue: Number(source.discountValue),
         shipping: Number(source.shipping),
         pixDiscountValue: Number(source.pixDiscountValue),
-      });
+      }, ctx.user.id);
     }),
     pdfHistory: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuotePdfHistory(input.quoteId)),
     pdfHistoryAll: protectedProcedure.query(listAllQuotePdfHistory),
@@ -173,6 +174,30 @@ export const businessRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o PDF." });
       }
     }),
+  }),
+  finance: router({
+    overview: protectedProcedure.query(financeOverview),
+    clients: protectedProcedure.query(financeClients),
+    byQuote: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => financeByQuote(input.quoteId)),
+    create: protectedProcedure.input(z.object({
+      quoteId: z.number().int().positive().nullable().optional(),
+      clientId: z.number().int().positive().nullable().optional(),
+      clientName: z.string().trim().min(1, "Informe o cliente").max(240),
+      description: z.string().trim().min(1, "Informe a descrição").max(512),
+      totalAmount: money.refine((value) => value > 0, "Informe um valor maior que zero"),
+      installmentCount: z.coerce.number().int().min(1).max(24).default(1),
+      firstDueDate: z.coerce.date(),
+    })).mutation(({ ctx, input }) => createReceivables(input, ctx.user.id)),
+    recordPayment: protectedProcedure.input(z.object({
+      receivableId: z.number().int().positive(),
+      type: z.enum(["receipt", "reversal"]),
+      amount: money.refine((value) => value > 0, "Informe um valor maior que zero"),
+      paymentMethod: z.enum(["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "other"]),
+      paidAt: z.coerce.date(),
+      reference: z.string().trim().max(120).nullable().optional(),
+      notes: nullableText,
+    })).mutation(({ ctx, input }) => recordFinancePayment(input, ctx.user.id)),
+    cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input }) => cancelReceivable(input.id)),
   }),
   inventory: router({
     overview: protectedProcedure.query(inventoryOverview),
