@@ -133,3 +133,10 @@
 - [x] Criar teste de integração do gate de rotas para confirmar que a sessão reconhecida libera o layout protegido após login.
 - [x] Cobrir o logout com redirecionamento ao formulário para garantir a invalidação visual da sessão.
 - [x] Criar teste integrado do Router que confirme a troca da área protegida para o formulário quando a sessão passa a nula após logout.
+- [x] Reproduzir o bloqueio de login relatado e identificar a etapa que impede a sessão de ser reconhecida no ambiente real.
+- [x] Corrigir a causa identificada sem enfraquecer cookies HTTP-only, rate limit ou validação de credenciais.
+- [x] Criar regressão automatizada do defeito reproduzido e validar login real em sessão limpa.
+- [x] Adicionar teste de segurança que rejeite chave ausente ou curta para o rate limit antes de processar o login.
+- [x] Cobrir automaticamente a chave válida de rate limit usada pelo login local e repetir a validação integral.
+- [x] Adicionar teste do procedimento real de login com chave válida de rate limit e verificar a emissão de sessão.
+- [x] Cobrir a falha de segredo inválido no ponto de entrada do login local para prevenir novo bloqueio de acesso.
