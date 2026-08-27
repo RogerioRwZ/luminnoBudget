@@ -1,10 +1,13 @@
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
   clients,
+  financePayments,
+  financeReceivables,
   products,
   quoteItemDeliveries,
   quoteItems,
   quoteItemReservations,
+  quotePdfHistory,
   quoteRooms,
   quotes,
   stockMovements,
@@ -17,6 +20,7 @@ import { buildPickingList } from "../shared/picking";
 import { nextProductCode } from "../shared/productCodes";
 import { assertReservableQuantity } from "../shared/stock";
 import { getDb } from "./db";
+import { createReceivablesFromQuote, financeOverview } from "./financeDb";
 
 export type QuoteDraft = {
   id?: number;
@@ -241,6 +245,52 @@ export async function getQuote(id: number) {
   return { ...quote, rooms: roomsWithItems, summary: pricingForQuote(quote, roomsWithItems) };
 }
 
+function toQuotePdfHistoryEntry(entry: typeof quotePdfHistory.$inferSelect) {
+  return {
+    id: entry.id,
+    quoteId: entry.quoteId,
+    fileName: entry.fileName,
+    fileSize: entry.fileSize,
+    createdAt: entry.createdAt,
+    downloadUrl: `/api/quote-pdfs/${entry.id}/download`,
+  };
+}
+
+export async function listQuotePdfHistory(quoteId: number) {
+  const db = await database();
+  const entries = await db.select().from(quotePdfHistory).where(eq(quotePdfHistory.quoteId, quoteId)).orderBy(desc(quotePdfHistory.createdAt));
+  return entries.map(toQuotePdfHistoryEntry);
+}
+
+export async function listAllQuotePdfHistory() {
+  const db = await database();
+  const entries = await db.select({ entry: quotePdfHistory, quoteNumber: quotes.quoteNumber, clientName: quotes.clientName })
+    .from(quotePdfHistory)
+    .leftJoin(quotes, eq(quotePdfHistory.quoteId, quotes.id))
+    .orderBy(desc(quotePdfHistory.createdAt));
+  return entries.map(({ entry, quoteNumber, clientName }) => ({
+    ...toQuotePdfHistoryEntry(entry),
+    quoteNumber: quoteNumber ?? null,
+    clientName: clientName ?? null,
+  }));
+}
+
+export async function createQuotePdfHistory(input: { quoteId: number; createdByUserId: number; fileName: string; storageKey: string; fileSize: number }) {
+  const db = await database();
+  const quote = await db.select({ id: quotes.id }).from(quotes).where(eq(quotes.id, input.quoteId)).limit(1);
+  if (!quote[0]) throw new Error("Orçamento não encontrado.");
+  const inserted = await db.insert(quotePdfHistory).values(input).$returningId();
+  const entries = await db.select().from(quotePdfHistory).where(eq(quotePdfHistory.id, inserted[0]!.id)).limit(1);
+  if (!entries[0]) throw new Error("Não foi possível registrar o histórico de PDF.");
+  return toQuotePdfHistoryEntry(entries[0]);
+}
+
+export async function getQuotePdfHistoryEntry(id: number) {
+  const db = await database();
+  const entries = await db.select().from(quotePdfHistory).where(eq(quotePdfHistory.id, id)).limit(1);
+  return entries[0] ?? null;
+}
+
 export async function listQuotes() {
   const db = await database();
   const allQuotes = await db.select().from(quotes).orderBy(desc(quotes.updatedAt));
@@ -304,7 +354,7 @@ export async function createQuote() {
   return saveQuote(draft);
 }
 
-export async function saveQuote(input: QuoteDraft) {
+export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
   const db = await database();
   return db.transaction(async (tx) => {
     if (input.status === "approved") {
@@ -393,7 +443,11 @@ export async function saveQuote(input: QuoteDraft) {
       }
     }
     return quoteId!;
-  }).then((quoteId) => getQuote(quoteId));
+  }).then(async (quoteId) => {
+    const saved = await getQuote(quoteId);
+    if (saved?.status === "approved") await createReceivablesFromQuote(saved, createdByUserId);
+    return saved;
+  });
 }
 
 export async function deleteQuote(id: number) {
@@ -417,8 +471,7 @@ export async function deleteQuote(id: number) {
 }
 
 export async function dashboardMetrics() {
-  const allQuotes = await listQuotes();
-  const settings = await getSettings();
+  const [allQuotes, settings, finance] = await Promise.all([listQuotes(), getSettings(), financeOverview()]);
   const approved = allQuotes.filter((quote) => quote.status === "approved");
   const open = allQuotes.filter((quote) => quote.status === "open" || quote.status === "draft");
   const statusSummary = aggregateDashboardStatuses(allQuotes);
@@ -453,17 +506,21 @@ export async function dashboardMetrics() {
     alertThresholdDays: settings.alertThresholdDays,
     averageTicket: amountBase.length ? amountBase.reduce((sum, quote) => sum + quote.summary.total, 0) / amountBase.length : 0,
     ranking: Array.from(productStats.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5),
+    finance: finance.totals,
   };
 }
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, reservationRows, deliveryRows, movementRows, settingRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
     db.select().from(quoteRooms),
     db.select().from(quoteItems),
+    db.select().from(quotePdfHistory),
+    db.select().from(financeReceivables),
+    db.select().from(financePayments),
     db.select().from(quoteItemReservations),
     db.select().from(quoteItemDeliveries),
     db.select().from(stockMovements),
@@ -473,7 +530,7 @@ export async function exportBackup() {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows },
   };
 }
 
@@ -485,6 +542,9 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     quotes?: Array<typeof quotes.$inferInsert>;
     quoteRooms?: Array<typeof quoteRooms.$inferInsert>;
     quoteItems?: Array<typeof quoteItems.$inferInsert>;
+    quotePdfHistory?: Array<typeof quotePdfHistory.$inferInsert>;
+    financeReceivables?: Array<typeof financeReceivables.$inferInsert>;
+    financePayments?: Array<typeof financePayments.$inferInsert>;
     quoteItemReservations?: Array<typeof quoteItemReservations.$inferInsert>;
     quoteItemDeliveries?: Array<typeof quoteItemDeliveries.$inferInsert>;
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
@@ -493,8 +553,11 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
   await db.transaction(async (tx) => {
     if (input.replace) {
       await tx.delete(stockMovements);
+      await tx.delete(financePayments);
+      await tx.delete(financeReceivables);
       await tx.delete(quoteItemDeliveries);
       await tx.delete(quoteItemReservations);
+      await tx.delete(quotePdfHistory);
       await tx.delete(quoteItems);
       await tx.delete(quoteRooms);
       await tx.delete(quotes);
@@ -507,6 +570,9 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.quotes?.length) await tx.insert(quotes).values(data.quotes).onDuplicateKeyUpdate({ set: { clientName: sql`values(clientName)`, professional: sql`values(professional)`, status: sql`values(status)` } });
     if (data.quoteRooms?.length) await tx.insert(quoteRooms).values(data.quoteRooms).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, sortOrder: sql`values(sortOrder)` } });
     if (data.quoteItems?.length) await tx.insert(quoteItems).values(data.quoteItems).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, quantity: sql`values(quantity)`, unitPrice: sql`values(unitPrice)` } });
+    if (data.quotePdfHistory?.length) await tx.insert(quotePdfHistory).values(data.quotePdfHistory).onDuplicateKeyUpdate({ set: { quoteId: sql`values(quoteId)`, fileName: sql`values(fileName)`, fileSize: sql`values(fileSize)` } });
+    if (data.financeReceivables?.length) await tx.insert(financeReceivables).values(data.financeReceivables).onDuplicateKeyUpdate({ set: { clientName: sql`values(clientName)`, description: sql`values(description)`, originalAmount: sql`values(originalAmount)`, dueDate: sql`values(dueDate)`, status: sql`values(status)` } });
+    if (data.financePayments?.length) await tx.insert(financePayments).values(data.financePayments).onDuplicateKeyUpdate({ set: { amount: sql`values(amount)`, paidAt: sql`values(paidAt)`, reference: sql`values(reference)`, notes: sql`values(notes)` } });
     if (data.quoteItemReservations?.length) await tx.insert(quoteItemReservations).values(data.quoteItemReservations).onDuplicateKeyUpdate({ set: { reservedQuantity: sql`values(reservedQuantity)`, reservedAt: sql`values(reservedAt)` } });
     if (data.quoteItemDeliveries?.length) await tx.insert(quoteItemDeliveries).values(data.quoteItemDeliveries).onDuplicateKeyUpdate({ set: { deliveredQuantity: sql`values(deliveredQuantity)`, deliveredAt: sql`values(deliveredAt)`, responsible: sql`values(responsible)` } });
     if (data.stockMovements?.length) await tx.insert(stockMovements).values(data.stockMovements).onDuplicateKeyUpdate({ set: { quantity: sql`values(quantity)`, afterQuantity: sql`values(afterQuantity)`, occurredAt: sql`values(occurredAt)` } });

@@ -83,3 +83,78 @@
 - [x] Criar cobertura automatizada explícita dos contratos administrativos de criação, edição e redefinição de senha.
 - [x] Registrar evidência automatizada e inspecionável dos elementos principais do painel administrativo para layout mobile.
 - [x] Preparar guia detalhado para exportar o projeto e instalá-lo em VPS Ubuntu com Cloudflare Tunnel, banco, serviço, uploads, backups e operação segura.
+- [x] Auditar o repositório por erros de código, inconsistências de formulários, permissões, upload, PDF/impressão e fluxos críticos; consolidar achados priorizados.
+- [x] Entregar ao usuário o resumo executivo do relatório de auditoria com os bloqueadores e as recomendações de correção.
+
+- [x] Corrigir os quatro erros do `pnpm check` e alinhar o contrato da lista de Separação.
+- [x] Adicionar validação de campos numéricos e datas, rate limit no login e testes de segurança.
+- [x] Corrigir paginação, rodapé e carregamento de imagens na impressão A4/PDF.
+- [x] Tornar check, testes e build obrigatórios no pipeline de produção.
+- [x] Executar auditoria final, criar guia de atualização, publicar nova branch no GitHub e entregar a versão.
+- [x] Validar o segredo `AUTH_RATE_LIMIT_SECRET` com teste automatizado.
+- [x] Corrigir qualquer erro adicional descoberto durante a suíte final.
+- [x] Executar build final e revisar o status do repositório antes do push.
+- [x] Entregar ao usuário o resumo das correções e o guia de atualização em produção.
+- [x] Publicar as correções em nova branch no repositório GitHub.
+
+- [x] Implementar e testar validação explícita do formulário de login no frontend, incluindo mensagens antes do envio e tratamento do rate limit.
+- [x] Confirmar separadamente a ausência de erros em check, testes, build e audit de dependências, registrando cada resultado.
+
+- [x] Adicionar teste explícito para a mensagem exibida pelo formulário de login quando o servidor aplica rate limit.
+- [x] Entregar a versão final ao usuário com a branch publicada e o guia de atualização referenciados.
+
+- [x] Adicionar teste de componente do AuthPage com ambiente DOM, simulando erro de rate limit e verificando o toast exibido.
+- [x] Enviar a resposta final com a branch publicada, commit e guia de atualização após o checkpoint.
+
+- [x] Salvar checkpoint final com o teste DOM do AuthPage, configuração do Vitest, dependências e ajustes finais de login.
+- [x] Enviar a resposta final citando a branch `fix/auditoria-formularios-pdf-auth`, o commit `07befc5` e o arquivo `GUIA-ATUALIZACAO-PRODUCAO.md`.
+- [x] Atualizar dependências de produção e desenvolvimento para eliminar vulnerabilidades moderadas e baixas, preservando compatibilidade.
+- [x] Adicionar feedback visual animado, acessível e não imprimível durante a preparação do PDF/A4.
+- [x] Criar testes para o estado de preparação do PDF e reexecutar check, testes, build e audit.
+- [x] Atualizar dependências de produção e desenvolvimento para eliminar vulnerabilidades moderadas e baixas, preservando compatibilidade.
+- [x] Adicionar feedback visual animado, acessível e não imprimível durante a preparação do PDF/A4.
+- [x] Criar testes para o estado de preparação do PDF e reexecutar check, testes, build e audit.
+- [x] Modelar o histórico persistente de PDFs vinculados a cada orçamento com acesso autenticado.
+- [x] Gerar, armazenar e disponibilizar downloads rápidos de PDFs de orçamento.
+- [x] Adicionar painel de histórico de PDFs ao editor e cobrir os fluxos com testes e validação.
+- [x] Exibir no editor o histórico do orçamento atual, com estado vazio, data, tamanho e ações de download.
+- [x] Consumir a consulta de histórico por orçamento e testar o painel integrado ao editor.
+- [x] Testar no editor o painel de histórico com o orçamento atual e a ação de download integrada ao layout.
+- [x] Validar login da conta redefinida e acesso autenticado à interface de histórico de PDFs.
+- [x] Liberar com segurança as tentativas de login após uma redefinição autorizada de senha e repetir a validação da sessão.
+- [x] Mapear contratos existentes de orçamentos, clientes, estoque e painel para integrar o controle de pagamentos.
+- [x] Modelar contas a receber, parcelas, baixas, estornos, vencimentos e vínculo com orçamentos aprovados.
+- [x] Implementar regras, persistência e APIs protegidas do módulo financeiro, incluindo sincronização com status comercial.
+- [x] Criar painel financeiro com indicadores, filtros, lista de contas, recebimentos parciais e ações de pagamento.
+- [x] Criar um orçamento de validação, testar os fluxos de pagamento ponta a ponta e remover dados temporários.
+- [x] Executar check, testes, build, auditoria e validação visual dos recursos novos e existentes.
+- [x] Corrigir o login que confirma acesso, mas não mantém ou reconhece a sessão na interface.
+- [x] Adicionar regressão automatizada para o redirecionamento e a sessão após login local.
+- [x] Criar teste de integração do gate de rotas para confirmar que a sessão reconhecida libera o layout protegido após login.
+- [x] Cobrir o logout com redirecionamento ao formulário para garantir a invalidação visual da sessão.
+- [x] Criar teste integrado do Router que confirme a troca da área protegida para o formulário quando a sessão passa a nula após logout.
+- [x] Reproduzir o bloqueio de login relatado e identificar a etapa que impede a sessão de ser reconhecida no ambiente real.
+- [x] Corrigir a causa identificada sem enfraquecer cookies HTTP-only, rate limit ou validação de credenciais.
+- [x] Criar regressão automatizada do defeito reproduzido e validar login real em sessão limpa.
+- [x] Adicionar teste de segurança que rejeite chave ausente ou curta para o rate limit antes de processar o login.
+- [x] Cobrir automaticamente a chave válida de rate limit usada pelo login local e repetir a validação integral.
+- [x] Adicionar teste do procedimento real de login com chave válida de rate limit e verificar a emissão de sessão.
+- [x] Cobrir a falha de segredo inválido no ponto de entrada do login local para prevenir novo bloqueio de acesso.
+- [x] Corrigir a perda de foco ao digitar o nome de um ambiente no editor de orçamento.
+- [x] Auditar campos editáveis semelhantes para prevenir remounts, perda de foco e edição de um caractere por vez.
+- [x] Executar e ampliar a validação de login, logout, emissão de orçamentos, estoque, entregas e financeiro.
+- [x] Revisar desktop e mobile quanto a UX/UI, acessibilidade, carregamento, erros e estados vazios dos fluxos críticos.
+- [x] Corrigir inconsistências descobertas, repetir a regressão completa e publicar a versão validada.
+- [x] Validar a reserva e pendência de entrega após aprovar um orçamento com item vinculado ao catálogo; a ausência inicial não se reproduziu quando o salvamento alcançou o servidor.
+- [x] Cobrir a reserva automática e a criação de parcelas em um teste integrado de orçamento aprovado.
+- [x] Validar em mobile autenticado o editor de orçamento, estoque, financeiro, catálogo e clientes, incluindo foco e navegação básica.
+- [x] Cobrir manualmente e por testes os estados de carregamento, vazio e erro dos fluxos críticos.
+- [x] Registrar que a reserva ausente não foi reproduzida quando o salvamento alcança o servidor e manter sua regressão integrada.
+- [x] Corrigir os campos móveis sem nome acessível e validar associação de rótulos nos formulários críticos.
+- [x] Adicionar regressão de acessibilidade básica para impedir novos campos de formulário sem identificação.
+- [x] Remover o aviso de depreciação na limpeza do cookie de sessão sem alterar o contrato de logout seguro.
+- [x] Validar por rota os estados de carregamento, vazio e erro de login, orçamentos, catálogo, estoque, financeiro e clientes.
+- [x] Auditar os formulários móveis de catálogo, clientes, financeiro, configurações e autenticação quanto a nomes acessíveis.
+- [x] Criar uma regressão reutilizável que detecte controles de formulário sem nome acessível nos fluxos críticos.
+- [x] Adicionar teste e evidência explícita dos estados de carregamento e erro na rota de orçamentos.
+- [x] Registrar a validação explícita dos estados aplicáveis ao login: gate de sessão, credenciais/rate limit e ausência de sessão.

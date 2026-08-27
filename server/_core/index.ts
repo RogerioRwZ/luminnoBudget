@@ -1,12 +1,17 @@
 import "dotenv/config";
-import express, { type Request, type Response } from "express";
+import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import { parse } from "cookie";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { ensureUploadDirectory, registerLocalStorage } from "../localStorage";
+import { ensurePdfHistoryDirectory, ensureUploadDirectory, getLocalPdfPath, registerLocalStorage } from "../localStorage";
+import { COOKIE_NAME } from "../../shared/const";
+import { verifyLocalSession } from "../localAuth";
+import { getActiveLocalUserById } from "../localUserDb";
+import { getQuotePdfHistoryEntry } from "../quoteDb";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -27,55 +32,32 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-// Middleware de segurança
-function securityHeaders(req: Request, res: Response, next: Function) {
-  // HSTS - Force HTTPS em produção
-  if (process.env.NODE_ENV === "production") {
-    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
-  }
-  
-  // Previne clickjacking
-  res.setHeader("X-Frame-Options", "DENY");
-  
-  // Previne MIME type sniffing
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  
-  // XSS Protection (legacy, CSP é o novo padrão)
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  
-  // Content Security Policy
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none';"
-  );
-  
-  // Referrer Policy
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  
-  // Permissions Policy
-  res.setHeader("Permissions-Policy", "microphone=(), camera=(), geolocation=(), payment=()");
-  
-  next();
-}
-
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  
-  // Configurações de segurança
   app.set("trust proxy", 1);
-  app.set("x-powered-by", false); // Remove X-Powered-By header
-  
-  // Middleware de segurança
-  app.use(securityHeaders);
-  
-  // Body parser com limite razoável
-  app.use(express.json({ limit: "10mb" })); // Reduzido de 50mb para 10mb
-  app.use(express.urlencoded({ limit: "10mb", extended: true }));
-  
+  // Configure body parser with larger size limit for file uploads
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
   await ensureUploadDirectory();
+  await ensurePdfHistoryDirectory();
   registerLocalStorage(app);
-  
+  app.get("/api/quote-pdfs/:historyId/download", async (req, res) => {
+    const historyId = Number(req.params.historyId);
+    const token = parse(req.headers.cookie ?? "")[COOKIE_NAME];
+    const session = token ? await verifyLocalSession(token) : null;
+    const user = session ? await getActiveLocalUserById(session.userId) : null;
+    if (!user) return res.status(401).send("Autenticação necessária.");
+    if (!Number.isSafeInteger(historyId) || historyId < 1) return res.status(404).send("PDF não encontrado.");
+    const entry = await getQuotePdfHistoryEntry(historyId);
+    if (!entry) return res.status(404).send("PDF não encontrado.");
+    try {
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.download(getLocalPdfPath(entry.storageKey), entry.fileName);
+    } catch {
+      return res.status(404).send("Arquivo PDF não encontrado.");
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",
@@ -84,7 +66,6 @@ async function startServer() {
       createContext,
     })
   );
-  
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
