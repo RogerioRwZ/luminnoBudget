@@ -190,3 +190,9 @@
 - [x] Integrar leitura de código de barras pela câmera do celular, preservando o leitor USB.
 - [x] Criar testes e validar autorização, transação, câmera, fallback, acessibilidade e responsividade; 40 arquivos e 91 testes passaram.
 - [x] Salvar checkpoint e publicar os novos recursos na branch de auditoria.
+
+#### Nova solicitação
+- [x] Adicionar comparação visual lado a lado entre a proposta atual e o snapshot selecionado.
+- [x] Exigir comentário interno obrigatório e persistir a justificativa antes da restauração.
+- [x] Testar bloqueio sem justificativa, comparação acessível e restauração autorizada; 40 arquivos e 92 testes passaram.
+- [x] Salvar checkpoint e publicar os aprimoramentos na branch de auditoria.

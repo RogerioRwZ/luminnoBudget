@@ -21,7 +21,7 @@ export async function createQuoteVersion(input: { quoteId: number; snapshot: unk
   return { id: Number(result[0].insertId), versionNumber };
 }
 
-export async function restoreQuoteVersion(input: { versionId: number; userId: number }) {
+export async function restoreQuoteVersion(input: { versionId: number; userId: number; comment: string }) {
   const db = await database();
   const rows = await db.select().from(quoteVersions).where(eq(quoteVersions.id, input.versionId)).limit(1);
   const version = rows[0];
@@ -30,8 +30,12 @@ export async function restoreQuoteVersion(input: { versionId: number; userId: nu
   try { snapshot = JSON.parse(version.snapshot) as QuoteDraft; }
   catch { throw new Error("Snapshot inválido."); }
   if (!snapshot.id || snapshot.id !== version.quoteId || !Array.isArray(snapshot.rooms)) throw new Error("Snapshot incompatível com o orçamento.");
+  const justification = input.comment.trim();
+  if (justification.length < 10) throw new Error("Informe uma justificativa com pelo menos 10 caracteres.");
   const restored = await saveQuote({ ...snapshot, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
-  return { quoteId: restored?.id ?? version.quoteId, sourceVersion: version.versionNumber };
+  const restoredQuoteId = restored?.id ?? version.quoteId;
+  await db.insert(internalComments).values({ quoteId: restoredQuoteId, body: `Restauração da versão ${version.versionNumber}: ${justification}`, authorUserId: input.userId });
+  return { quoteId: restoredQuoteId, sourceVersion: version.versionNumber };
 }
 
 export async function listComments(quoteId: number) { const db = await database(); return db.select().from(internalComments).where(eq(internalComments.quoteId, quoteId)).orderBy(desc(internalComments.createdAt)); }

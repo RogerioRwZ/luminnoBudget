@@ -163,7 +163,7 @@ export const businessRouter = router({
       if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
       return createQuoteVersion({ quoteId: input.quoteId, snapshot: quote, changeNote: input.changeNote, userId: ctx.user.id });
     }),
-    restoreVersion: protectedProcedure.input(z.object({ versionId: z.number().int().positive() })).mutation(({ ctx, input }) => restoreQuoteVersion({ ...input, userId: ctx.user.id })),
+    restoreVersion: protectedProcedure.input(z.object({ versionId: z.number().int().positive(), comment: z.string().trim().min(10, "Informe uma justificativa com pelo menos 10 caracteres.").max(4000) })).mutation(({ ctx, input }) => restoreQuoteVersion({ ...input, userId: ctx.user.id })),
     comments: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listComments(input.quoteId)),
     addComment: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), body: z.string().trim().min(1).max(4000) })).mutation(({ ctx, input }) => addComment({ ...input, userId: ctx.user.id })),
     resolveComment: protectedProcedure.input(z.object({ id: z.number().int().positive(), resolved: z.boolean() })).mutation(({ input }) => resolveComment(input.id, input.resolved)),

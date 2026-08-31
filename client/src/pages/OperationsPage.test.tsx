@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn(), refetch: vi.fn(), invalidate: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn(),
 }));
 
-const query = (key: "versions" | "comments" | "attachments") => ({ data: [], isLoading: false, error: null, refetch: mocks.refetch });
+const query = (key: "versions" | "comments" | "attachments") => ({ data: key === "versions" ? [{ id: 9, quoteId: 1, versionNumber: 2, snapshot: JSON.stringify({ id: 1, quoteNumber: 12, clientName: "Cliente anterior", status: "open", rooms: [{ name: "Sala", items: [{ shortDescription: "Spot", quantity: 2 }] }] }), changeNote: "Acabamento anterior", createdAt: new Date().toISOString() }] : [], isLoading: false, error: null, refetch: mocks.refetch });
 vi.mock("@/lib/trpc", () => ({ trpc: {
   useUtils: () => ({ product: { list: { invalidate: mocks.invalidate } } }),
   quote: { list: { useQuery: () => mocks.quoteList }, versions: { useQuery: () => query("versions") }, restoreVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, comments: { useQuery: () => query("comments") }, attachments: { useQuery: () => query("attachments") }, createVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, addComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, resolveComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, uploadAttachment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
@@ -33,6 +33,19 @@ describe("OperationsPage", () => {
     expect(screen.getByLabelText("Código de barras")).toBeTruthy();
     expect(screen.getByLabelText("Novo comentário interno")).toBeTruthy();
     expect(container.querySelectorAll("input, textarea, select").length).toBeGreaterThan(3);
+  });
+
+  it("exibe comparação e bloqueia restauração sem justificativa", () => {
+    render(<OperationsPage />);
+    fireEvent.change(screen.getByLabelText("Orçamento das ferramentas operacionais"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Comparar" }));
+    expect(screen.getByText("Comparação antes da restauração")).toBeTruthy();
+    const confirm = screen.getByRole("button", { name: "Confirmar restauração" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Justificativa obrigatória"), { target: { value: "Correção solicitada pelo cliente" } });
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(confirm);
+    expect(mocks.mutate).toHaveBeenCalledWith({ versionId: 9, comment: "Correção solicitada pelo cliente" });
   });
 
   it("envia a consulta quando um leitor USB termina com Enter", () => {
