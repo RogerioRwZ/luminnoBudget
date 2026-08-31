@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 const query = (key: "versions" | "comments" | "attachments") => ({ data: [], isLoading: false, error: null, refetch: mocks.refetch });
 vi.mock("@/lib/trpc", () => ({ trpc: {
   useUtils: () => ({ product: { list: { invalidate: mocks.invalidate } } }),
-  quote: { list: { useQuery: () => mocks.quoteList }, versions: { useQuery: () => query("versions") }, comments: { useQuery: () => query("comments") }, attachments: { useQuery: () => query("attachments") }, createVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, addComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, resolveComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, uploadAttachment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
+  quote: { list: { useQuery: () => mocks.quoteList }, versions: { useQuery: () => query("versions") }, restoreVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, comments: { useQuery: () => query("comments") }, attachments: { useQuery: () => query("attachments") }, createVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, addComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, resolveComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, uploadAttachment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
   product: { findByBarcode: { useQuery: () => mocks.barcode } },
   templates: { list: { useQuery: () => ({ data: [], isLoading: false, error: null, refetch: mocks.refetch }) }, save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
 } }));

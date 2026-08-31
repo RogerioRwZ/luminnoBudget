@@ -184,3 +184,9 @@
 #### Escopo reduzido confirmado
 - [x] Remover a emissão fiscal do escopo desta solicitação conforme confirmação do usuário.
 - [x] Implementar os cinco recursos não fiscais confirmados.
+
+#### Nova solicitação
+- [x] Implementar restauração segura de snapshots de propostas para versões anteriores.
+- [x] Integrar leitura de código de barras pela câmera do celular, preservando o leitor USB.
+- [x] Criar testes e validar autorização, transação, câmera, fallback, acessibilidade e responsividade; 40 arquivos e 91 testes passaram.
+- [x] Salvar checkpoint e publicar os novos recursos na branch de auditoria.

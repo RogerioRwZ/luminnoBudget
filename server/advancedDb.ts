@@ -1,6 +1,7 @@
 import { and, desc, eq, max } from "drizzle-orm";
 import { internalComments, messageTemplates, quoteAttachments, quoteVersions, products } from "../drizzle/schema";
 import { getDb } from "./db";
+import { saveQuote, type QuoteDraft } from "./quoteDb";
 
 async function database() {
   const db = await getDb();
@@ -18,6 +19,19 @@ export async function createQuoteVersion(input: { quoteId: number; snapshot: unk
   const versionNumber = Number(current[0]?.value ?? 0) + 1;
   const result = await db.insert(quoteVersions).values({ quoteId: input.quoteId, versionNumber, snapshot: JSON.stringify(input.snapshot), changeNote: input.changeNote || null, createdByUserId: input.userId });
   return { id: Number(result[0].insertId), versionNumber };
+}
+
+export async function restoreQuoteVersion(input: { versionId: number; userId: number }) {
+  const db = await database();
+  const rows = await db.select().from(quoteVersions).where(eq(quoteVersions.id, input.versionId)).limit(1);
+  const version = rows[0];
+  if (!version) throw new Error("Versão não encontrada.");
+  let snapshot: QuoteDraft;
+  try { snapshot = JSON.parse(version.snapshot) as QuoteDraft; }
+  catch { throw new Error("Snapshot inválido."); }
+  if (!snapshot.id || snapshot.id !== version.quoteId || !Array.isArray(snapshot.rooms)) throw new Error("Snapshot incompatível com o orçamento.");
+  const restored = await saveQuote({ ...snapshot, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
+  return { quoteId: restored?.id ?? version.quoteId, sourceVersion: version.versionNumber };
 }
 
 export async function listComments(quoteId: number) { const db = await database(); return db.select().from(internalComments).where(eq(internalComments.quoteId, quoteId)).orderBy(desc(internalComments.createdAt)); }
