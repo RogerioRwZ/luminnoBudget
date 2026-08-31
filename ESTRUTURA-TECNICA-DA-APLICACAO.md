@@ -75,6 +75,7 @@ Cada página representa uma rota funcional visível no menu ou uma tela de apoio
 | `FinancePage.tsx`       | `/financeiro`                          | Contas a receber, filtros, indicadores, cobranças avulsas, recebimentos parciais, estornos e cancelamentos.                                                                                          |
 | `ProductsPage.tsx`      | `/catalogo`                            | Cadastro, busca, edição, arquivamento e upload de imagem de produtos; preço, código, unidade, fornecedor e ponto de reposição.                                                                       |
 | `InventoryPage.tsx`     | `/estoque`                             | Saldos físico/reservado/disponível, filtros por fornecedor/estoque baixo, entradas, ajustes, devoluções, histórico e entregas parciais.                                                              |
+| `OperationsPage.tsx`    | `/operacao`                            | Centro operacional com versionamento, leitor de código de barras, comentários internos, plantas/anexos autenticados e modelos por evento.                                                             |
 | `CustomersPage.tsx`     | `/clientes`                            | Cadastro simplificado, pesquisa e histórico de orçamentos do cliente.                                                                                                                                |
 | `SettingsPage.tsx`      | `/configuracoes`                       | Dados da empresa, logo local, PIX, desconto à vista, parcelamento, validade, condições comerciais e backup/importação JSON.                                                                          |
 | `AdminPage.tsx`         | `/administracao`                       | Administração de usuários locais, papéis, ativação, redefinição de senha e diagnóstico do sistema. Exibida apenas a administradores.                                                                 |
@@ -89,7 +90,7 @@ Para cada página operacional que possui arquivo `*.test.tsx`, o teste correspon
 
 | Arquivo                       | Responsabilidade                            | Funcionalidade                                                                |
 | ----------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------- |
-| `DashboardLayout.tsx`         | Casca protegida da aplicação.               | Menu lateral, cabeçalho, navegação, troca de tema, dados do usuário e logout. |
+| `DashboardLayout.tsx`         | Casca protegida da aplicação.               | Menu lateral, cabeçalho, navegação, troca de tema, dados do usuário, logout e acesso ao centro operacional. |
 | `DashboardLayoutSkeleton.tsx` | Esqueleto visual do layout.                 | Evita salto de tela enquanto dados de acesso carregam.                        |
 | `ErrorBoundary.tsx`           | Captura erros de renderização React.        | Evita página em branco e oferece recuperação visual.                          |
 | `QuoteFinancePanel.tsx`       | Painel reutilizável de contas do orçamento. | Exibe parcelas e ações financeiras dentro do editor.                          |
@@ -169,8 +170,9 @@ Os principais grupos expostos em `business.ts` são `customers`, `product`, `quo
 | `localUserDb.ts`    | Persistência de usuários locais.                            | Criação, busca, edição, ativação, papéis e redefinição de senha.                                                                         |
 | `localAuth.ts`      | Criptografia e ciclo de sessão.                             | Hash de senha com scrypt, validação, criação/verificação de JWT, expiração de 12 horas e usuário seguro para o cliente.                  |
 | `loginRateLimit.ts` | Proteção contra tentativas repetidas.                       | Limite por usuário/IP, janela de 15 minutos, bloqueio temporário e chave derivada de segredo.                                            |
-| `localStorage.ts`   | Armazenamento de arquivos locais.                           | Upload seguro de imagens, gravação privada de PDFs, validação de assinatura/tamanho e publicação apenas de `/uploads`.                   |
-| `db.ts`             | Inicialização e helpers genéricos de conexão Drizzle/MySQL. | Acesso à conexão do banco e funções base.                                                                                                |
+| `localStorage.ts`   | Armazenamento de arquivos locais.                           | Upload seguro de imagens, PDFs e anexos, validação de tamanho, escrita atômica e resolução protegida de caminhos.                        |
+| `db.ts`              | Inicialização e helpers genéricos de conexão Drizzle/MySQL. | Acesso à conexão do banco e funções base.                                                                                                |
+| `advancedDb.ts`      | Persistência dos recursos operacionais.                    | Versões, comentários, anexos, modelos por evento, consulta e cadastro de códigos de barras.                                               |
 | `storage.ts`        | Adaptador de armazenamento herdado do template.             | Referência de integração de arquivos quando necessária; o fluxo local usa `localStorage.ts`.                                             |
 
 ### 4.4 Testes do servidor
@@ -183,6 +185,8 @@ Os principais grupos expostos em `business.ts` são `customers`, `product`, `quo
 | `localAuth.test.ts`                 | Hash, validação e sessão local.                                                                          |
 | `localAuthorization.test.ts`        | Proteção de rotas e papéis administrativos.                                                              |
 | `localStorage.pdf.test.ts`          | Validação e persistência do PDF privado.                                                                 |
+| `localStorage.attachment.test.ts`   | Limites, persistência e proteção de caminhos dos anexos.                                                    |
+| `OperationsPage.test.tsx`           | Recursos operacionais, nomes acessíveis e consulta pelo leitor USB.                                          |
 | `quoteApproval.integration.test.ts` | Fluxo integrado: produto, entrada, aprovação, reserva, entrega parcial, parcelas, recebimento e estorno. |
 
 ## 5. Banco de dados e migrações: `drizzle/`
@@ -193,6 +197,7 @@ O schema é a fonte de verdade do modelo de dados. As migrações numeradas são
 | --------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `schema.ts`                 | Declara tabelas e tipos Drizzle.   | Usuários, clientes, produtos, orçamentos, ambientes, itens, histórico de PDF, contas a receber, pagamentos, reservas, movimentos, entregas e configurações. |
 | `0000_*.sql` a `0007_*.sql` | Migrações incrementais.            | Criação e evolução do schema, incluindo autenticação local, estoque, histórico de PDF e financeiro.                                                         |
+| `0008_gifted_junta.sql`      | Migração dos recursos operacionais. | Código de barras, versões, comentários, anexos e modelos por evento.                                                                                       |
 | `meta/_journal.json`        | Ordem de aplicação das migrações.  | Controle interno do Drizzle.                                                                                                                                |
 | `meta/*_snapshot.json`      | Estado do schema em cada migração. | Referência técnica para gerar novas migrações.                                                                                                              |
 | `relations.ts`              | Relações auxiliares do Drizzle.    | Navegação tipada entre entidades quando utilizada.                                                                                                          |

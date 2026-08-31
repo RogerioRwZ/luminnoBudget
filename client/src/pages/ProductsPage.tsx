@@ -34,6 +34,7 @@ type ProductForm = {
   fullDescription: string;
   imageUrl: string;
   imageKey: string;
+  barcode: string;
   unit: string;
   supplierName: string;
   unitPrice: number;
@@ -46,6 +47,7 @@ const emptyProduct: ProductForm = {
   fullDescription: "",
   imageUrl: "",
   imageKey: "",
+  barcode: "",
   unit: "UN",
   supplierName: "",
   unitPrice: 0,
@@ -96,6 +98,7 @@ export default function ProductsPage() {
       fullDescription: product.fullDescription ?? "",
       imageUrl: product.imageUrl ?? "",
       imageKey: product.imageKey ?? "",
+      barcode: product.barcode ?? "",
       unit: product.unit,
       supplierName: product.supplierName ?? "",
       unitPrice: Number(product.unitPrice),
@@ -170,8 +173,13 @@ export default function ProductsPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Unidade</Label>
+                <Label htmlFor="product-barcode">Código de barras</Label>
+                <Input id="product-barcode" aria-label="Código de barras do produto" inputMode="numeric" value={form.barcode} onChange={e => setForm({ ...form, barcode: e.target.value.replace(/\D/g, "") })} placeholder="EAN ou código interno" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-unit">Unidade</Label>
                 <Input
+                  id="product-unit"
                   aria-label="Unidade"
                   value={form.unit}
                   onChange={e =>

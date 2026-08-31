@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { saveLocalImage, saveLocalPdf } from "../localStorage";
+import { saveLocalAttachment, saveLocalImage, saveLocalPdf } from "../localStorage";
+import { addAttachment, addComment, createQuoteVersion, findProductByBarcode, listAttachments, listComments, listMessageTemplates, listQuoteVersions, resolveComment, saveMessageTemplate, updateProductBarcode } from "../advancedDb";
 import {
   createQuote,
   createQuotePdfHistory,
@@ -51,6 +52,7 @@ const productInput = z.object({
   fullDescription: nullableText,
   imageUrl: imageLocation.nullable().optional().or(z.literal("")),
   imageKey: nullableText,
+  barcode: z.string().trim().max(64).nullable().optional().or(z.literal("")),
   unit: z.string().trim().min(1).max(16).default("UN"),
   supplierName: z.string().trim().max(240).nullable().optional().or(z.literal("")),
   unitPrice: money,
@@ -105,6 +107,8 @@ export const businessRouter = router({
   product: router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProducts(input?.search)),
     save: protectedProcedure.input(productInput).mutation(({ input }) => saveProduct({ ...input, imageUrl: input.imageUrl || null })),
+    setBarcode: protectedProcedure.input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(({ input }) => updateProductBarcode(input.productId, input.barcode || null)),
+    findByBarcode: protectedProcedure.input(z.object({ barcode: z.string().trim().min(3).max(64) })).query(({ input }) => findProductByBarcode(input.barcode)),
     archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input }) => deleteProduct(input.id)),
     uploadImage: protectedProcedure.input(z.object({
       fileName: z.string().trim().min(1).max(120),
@@ -153,6 +157,23 @@ export const businessRouter = router({
     }),
     pdfHistory: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuotePdfHistory(input.quoteId)),
     pdfHistoryAll: protectedProcedure.query(listAllQuotePdfHistory),
+    versions: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuoteVersions(input.quoteId)),
+    createVersion: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), changeNote: z.string().trim().max(512).nullable().optional() })).mutation(async ({ ctx, input }) => {
+      const quote = await getQuote(input.quoteId);
+      if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
+      return createQuoteVersion({ quoteId: input.quoteId, snapshot: quote, changeNote: input.changeNote, userId: ctx.user.id });
+    }),
+    comments: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listComments(input.quoteId)),
+    addComment: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), body: z.string().trim().min(1).max(4000) })).mutation(({ ctx, input }) => addComment({ ...input, userId: ctx.user.id })),
+    resolveComment: protectedProcedure.input(z.object({ id: z.number().int().positive(), resolved: z.boolean() })).mutation(({ input }) => resolveComment(input.id, input.resolved)),
+    attachments: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listAttachments(input.quoteId)),
+    uploadAttachment: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), fileName: z.string().trim().min(1).max(180), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png", "image/webp"]), dataUrl: z.string().min(32).max(22_000_000) })).mutation(async ({ ctx, input }) => {
+      const separator = input.dataUrl.indexOf(",");
+      if (separator === -1) throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo inválido." });
+      const bytes = Buffer.from(input.dataUrl.slice(separator + 1), "base64");
+      try { const stored = await saveLocalAttachment(input.fileName, input.mimeType, bytes); return addAttachment({ quoteId: input.quoteId, fileName: input.fileName, mimeType: input.mimeType, storageKey: stored.key, fileSize: stored.fileSize, userId: ctx.user.id }); }
+      catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o anexo." }); }
+    }),
     savePdf: protectedProcedure.input(z.object({
       quoteId: z.number().int().positive(),
       dataUrl: z.string().min(32).max(12_000_000),
@@ -262,6 +283,10 @@ export const businessRouter = router({
       defaultTerms: input.defaultTerms || null,
       defaultPixDiscountValue: input.defaultPixDiscountValue.toFixed(2),
     })),
+  }),
+  templates: router({
+    list: protectedProcedure.query(listMessageTemplates),
+    save: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), event: z.enum(["quote_sent", "quote_approved", "quote_expiring", "quote_expired", "payment_due", "payment_overdue", "delivery_scheduled", "delivery_completed"]), name: z.string().trim().min(1).max(160), subject: z.string().trim().max(240).nullable().optional(), body: z.string().trim().min(1).max(12000), active: z.boolean().default(true) })).mutation(({ input }) => saveMessageTemplate(input)),
   }),
   backup: router({
     export: adminProcedure.query(exportBackup),

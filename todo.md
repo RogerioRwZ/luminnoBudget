@@ -161,3 +161,26 @@
 - [x] Verificar a validade atual do guia-exportacao-vps-cloudflared.md contra o projeto e a documentação oficial.
 - [x] Atualizar guia-exportacao-vps-cloudflared.md com requisitos atuais de PDF privado, segredos, backup, migrações e instalação do Cloudflared.
 - [x] Documentar a estrutura atual de diretórios, arquivos e responsabilidades funcionais da aplicação.
+
+- [x] Implementar versionamento de propostas com histórico de snapshots.
+- [x] Implementar leitor de código de barras no catálogo e estoque.
+- [x] Implementar comentários internos vinculados a orçamentos e obras.
+- [x] Implementar plantas e anexos com armazenamento persistente e acesso autenticado.
+- [x] Implementar modelos de mensagens por evento comercial.
+- [x] Não implementar emissão fiscal nesta solicitação, conforme decisão de escopo do usuário.
+- [x] Testar os cinco recursos, acessibilidade, autorização, armazenamento e regressões existentes; 40 arquivos e 91 testes passaram, além de check, build, audit e diff check.
+- [x] Salvar checkpoint e publicar os recursos na branch de auditoria.
+
+#### Histórico de execução desta solicitação
+- [x] Confirmar com o usuário a retirada do módulo fiscal do escopo desta solicitação.
+- [x] Implementar os recursos não fiscais; a emissão fiscal foi removida do escopo.
+- [x] Atualizar o guia técnico e operacional com os novos módulos.
+- [x] Executar check, testes, build, audit e revisar diff antes da entrega.
+- [x] Criar checkpoint e sincronizar somente arquivos aprovados com a branch de auditoria.
+
+#### Retomada após interrupção
+- [x] Retomar a implementação dos recursos solicitados; os cinco recursos não fiscais foram concluídos nesta etapa.
+
+#### Escopo reduzido confirmado
+- [x] Remover a emissão fiscal do escopo desta solicitação conforme confirmação do usuário.
+- [x] Implementar os cinco recursos não fiscais confirmados.

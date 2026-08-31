@@ -9,6 +9,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import FinancePage from "@/pages/FinancePage";
 import InventoryPage from "@/pages/InventoryPage";
 import NotFound from "@/pages/NotFound";
+import OperationsPage from "@/pages/OperationsPage";
 import PdfHistoryPage from "@/pages/PdfHistoryPage";
 import ProductsPage from "@/pages/ProductsPage";
 import QuoteEditorPage from "@/pages/QuoteEditorPage";
@@ -36,6 +37,7 @@ export function Router() {
         <Route path="/estoque" component={InventoryPage} />
         <Route path="/clientes" component={CustomersPage} />
         <Route path="/configuracoes" component={SettingsPage} />
+        <Route path="/operacao" component={OperationsPage} />
         <Route path="/administracao" component={AdminPage} />
         <Route component={NotFound} />
       </Switch>

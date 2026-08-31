@@ -11,6 +11,13 @@ const supportedTypes = new Map([
   ["image/png", "png"],
   ["image/webp", "webp"],
 ]);
+const supportedAttachmentTypes = new Map([
+  ["application/pdf", "pdf"],
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+]);
+const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
 export function getUploadDirectory() {
   return path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
@@ -64,6 +71,22 @@ export async function saveLocalImage(scope: "products" | "store-brand", fileName
   return { key, url: `/uploads/${key}` };
 }
 
+export async function saveLocalAttachment(fileName: string, mimeType: string, bytes: Buffer) {
+  const extension = supportedAttachmentTypes.get(mimeType);
+  if (!extension) throw new Error("Formato de anexo não permitido. Use PDF, JPG, PNG ou WebP.");
+  if (!bytes.length || bytes.length > MAX_ATTACHMENT_BYTES) throw new Error("O anexo deve ter até 15 MB.");
+  await ensureUploadDirectory();
+  const key = `attachments/${safeStem(fileName)}-${randomUUID()}.${extension}`;
+  const destination = path.join(getUploadDirectory(), key);
+  const root = getUploadDirectory();
+  if (!destination.startsWith(`${root}${path.sep}`)) throw new Error("Caminho de anexo inválido.");
+  await mkdir(path.dirname(destination), { recursive: true, mode: 0o750 });
+  const temporary = `${destination}.tmp-${randomUUID()}`;
+  await writeFile(temporary, bytes, { mode: 0o640 });
+  await rename(temporary, destination);
+  return { key, fileSize: bytes.length };
+}
+
 export async function saveLocalPdf(fileName: string, bytes: Buffer) {
   if (bytes.length < 5 || bytes.length > MAX_PDF_BYTES) throw new Error("O PDF deve ter até 8 MB.");
   if (bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("O conteúdo enviado não corresponde a um PDF válido.");
@@ -77,6 +100,15 @@ export async function saveLocalPdf(fileName: string, bytes: Buffer) {
   await writeFile(temporary, bytes, { mode: 0o640 });
   await rename(temporary, destination);
   return { key, fileSize: bytes.length };
+}
+
+export function getLocalAttachmentPath(storageKey: string) {
+  const root = getUploadDirectory();
+  const normalized = path.normalize(storageKey);
+  if (!normalized.startsWith(`attachments${path.sep}`) || normalized.includes(`..${path.sep}`)) throw new Error("Chave de anexo inválida.");
+  const destination = path.join(root, normalized);
+  if (!destination.startsWith(`${root}${path.sep}`)) throw new Error("Caminho de anexo inválido.");
+  return destination;
 }
 
 export function getLocalPdfPath(storageKey: string) {
