@@ -10,6 +10,7 @@ import {
   Moon,
   PackageSearch,
   Warehouse,
+  ScanLine,
   Settings,
   ShieldCheck,
   Sun,
@@ -38,6 +39,7 @@ const menuItems = [
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: UsersRound, label: "Clientes", path: "/clientes" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
+  { icon: ScanLine, label: "Operação", path: "/operacao" },
 ];
 
 type LocalUser = { username: string; name: string | null; role: "user" | "admin" };

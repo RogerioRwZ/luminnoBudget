@@ -44,6 +44,7 @@ export const products = mysqlTable("products", {
   fullDescription: text("fullDescription"),
   imageUrl: text("imageUrl"),
   imageKey: varchar("imageKey", { length: 768 }),
+  barcode: varchar("barcode", { length: 64 }).unique(),
   unit: varchar("unit", { length: 16 }).notNull().default("UN"),
   supplierName: varchar("supplierName", { length: 240 }),
   unitPrice: decimal("unitPrice", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -175,6 +176,48 @@ export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   responsible: varchar("responsible", { length: 240 }),
   notes: text("notes"),
   stockMovementId: int("stockMovementId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const quoteVersions = mysqlTable("quoteVersions", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull(),
+  versionNumber: int("versionNumber").notNull(),
+  snapshot: text("snapshot").notNull(),
+  changeNote: varchar("changeNote", { length: 512 }),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const internalComments = mysqlTable("internalComments", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull(),
+  body: text("body").notNull(),
+  authorUserId: int("authorUserId").notNull(),
+  resolved: boolean("resolved").notNull().default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const quoteAttachments = mysqlTable("quoteAttachments", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull(),
+  fileName: varchar("fileName", { length: 180 }).notNull(),
+  storageKey: varchar("storageKey", { length: 255 }).notNull().unique(),
+  mimeType: varchar("mimeType", { length: 120 }).notNull(),
+  fileSize: int("fileSize").notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const messageTemplates = mysqlTable("messageTemplates", {
+  id: int("id").autoincrement().primaryKey(),
+  event: mysqlEnum("event", ["quote_sent", "quote_approved", "quote_expiring", "quote_expired", "payment_due", "payment_overdue", "delivery_scheduled", "delivery_completed"]).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  subject: varchar("subject", { length: 240 }),
+  body: text("body").notNull(),
+  active: boolean("active").notNull().default(true),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

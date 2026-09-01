@@ -7,7 +7,8 @@ import { parse } from "cookie";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { ensurePdfHistoryDirectory, ensureUploadDirectory, getLocalPdfPath, registerLocalStorage } from "../localStorage";
+import { ensurePdfHistoryDirectory, ensureUploadDirectory, getLocalAttachmentPath, getLocalPdfPath, registerLocalStorage } from "../localStorage";
+import { getAttachment } from "../advancedDb";
 import { COOKIE_NAME } from "../../shared/const";
 import { verifyLocalSession } from "../localAuth";
 import { getActiveLocalUserById } from "../localUserDb";
@@ -42,6 +43,18 @@ async function startServer() {
   await ensureUploadDirectory();
   await ensurePdfHistoryDirectory();
   registerLocalStorage(app);
+  app.get("/api/quote-attachments/:attachmentId/download", async (req, res) => {
+    const attachmentId = Number(req.params.attachmentId);
+    const token = parse(req.headers.cookie ?? "")[COOKIE_NAME];
+    const session = token ? await verifyLocalSession(token) : null;
+    const user = session ? await getActiveLocalUserById(session.userId) : null;
+    if (!user) return res.status(401).send("Autenticação necessária.");
+    if (!Number.isSafeInteger(attachmentId) || attachmentId < 1) return res.status(404).send("Anexo não encontrado.");
+    const entry = await getAttachment(attachmentId);
+    if (!entry) return res.status(404).send("Anexo não encontrado.");
+    try { res.setHeader("Cache-Control", "private, no-store"); return res.download(getLocalAttachmentPath(entry.storageKey), entry.fileName); }
+    catch { return res.status(404).send("Arquivo de anexo não encontrado."); }
+  });
   app.get("/api/quote-pdfs/:historyId/download", async (req, res) => {
     const historyId = Number(req.params.historyId);
     const token = parse(req.headers.cookie ?? "")[COOKIE_NAME];
