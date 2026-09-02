@@ -1,3 +1,8 @@
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,13 +46,25 @@ export default function QuotesPage() {
   const { data, isLoading, error, refetch } = trpc.quote.list.useQuery();
   const create = trpc.quote.create.useMutation({
     onSuccess: quote => quote && setLocation(`/orcamentos/${quote.id}`),
-    onError: error => toast.error(error.message),
+    onError: error =>
+      toast.error(
+        getFormErrorMessage(
+          error,
+          "Não foi possível criar o orçamento. Tente novamente."
+        )
+      ),
   });
   const duplicate = trpc.quote.duplicate.useMutation({
     onSuccess: quote => {
       if (quote) setLocation(`/orcamentos/${quote.id}`);
     },
-    onError: error => toast.error(error.message),
+    onError: error =>
+      toast.error(
+        getFormErrorMessage(
+          error,
+          "Não foi possível duplicar o orçamento. Tente novamente."
+        )
+      ),
   });
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<QuoteStatusFilter>("all");
@@ -84,17 +101,27 @@ export default function QuotesPage() {
             qualquer momento.
           </p>
         </div>
-        <Button
+        <AsyncButton
           onClick={() => create.mutate()}
-          disabled={create.isPending}
+          pending={create.isPending}
+          loadingLabel="Criando orçamento…"
           className="h-11 px-5"
         >
           <Plus className="mr-2 h-4 w-4" />
           Novo orçamento
-        </Button>
+        </AsyncButton>
       </div>
       <Card className="border-border/70 shadow-sm">
         <CardContent className="p-0">
+          {create.error || duplicate.error ? (
+            <FormError
+              className="m-4 mb-0"
+              message={getFormErrorMessage(
+                create.error || duplicate.error,
+                "Não foi possível concluir a ação no orçamento. Tente novamente."
+              )}
+            />
+          ) : null}
           <div className="flex flex-col gap-3 border-b border-border p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="relative max-w-md flex-1">
@@ -263,16 +290,17 @@ export default function QuotesPage() {
                           {quote.rooms.length} ambiente(s)
                         </p>
                       </div>
-                      <Button
+                      <AsyncButton
                         size="sm"
                         variant="outline"
-                        disabled={duplicate.isPending}
+                        pending={duplicate.isPending}
+                        loadingLabel="Duplicando…"
                         onClick={() => duplicate.mutate({ id: quote.id })}
                         title="Duplicar orçamento inteiro"
                       >
                         <Copy className="mr-1.5 h-3.5 w-3.5" />
                         Duplicar
-                      </Button>
+                      </AsyncButton>
                       <Button
                         size="sm"
                         onClick={() => setLocation(`/orcamentos/${quote.id}`)}
@@ -293,14 +321,16 @@ export default function QuotesPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Ajuste os filtros ou crie uma nova proposta para a sua loja.
               </p>
-              <Button
+              <AsyncButton
                 className="mt-5"
                 size="sm"
+                pending={create.isPending}
+                loadingLabel="Criando…"
                 onClick={() => create.mutate()}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 Criar orçamento
-              </Button>
+              </AsyncButton>
             </div>
           )}
         </CardContent>

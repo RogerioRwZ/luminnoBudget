@@ -1,4 +1,11 @@
+import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
+import { useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Button } from "@/components/ui/button";
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "@/components/ui/spinner";
 import { trpc } from "@/lib/trpc";
 import {
   parseFiniteNumber,
@@ -65,13 +73,26 @@ export default function SettingsPage() {
   const utils = trpc.useUtils();
   const { data } = trpc.settings.get.useQuery();
   const [form, setForm] = useState<SettingsForm>(emptySettings);
+  const [formError, setFormError] = useState("");
+  const settingsDraft = useDraftAutosave("settings", form, {
+    enabled: Boolean(data),
+  });
   const save = trpc.settings.save.useMutation({
     onSuccess: () => {
       utils.settings.get.invalidate();
       utils.dashboard.invalidate();
+      setFormError("");
+      settingsDraft.clear();
       toast.success("Configurações atualizadas");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível salvar as configurações. Revise os campos e tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+    },
   });
   const uploadLogo = trpc.settings.uploadLogo.useMutation({
     onSuccess: file => {
@@ -79,8 +100,16 @@ export default function SettingsPage() {
       toast.success(
         "Logotipo armazenado no servidor. Salve as configurações para aplicá-lo."
       );
+      setFormError("");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível enviar o logotipo. Verifique o formato e tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+    },
   });
   const exportBackup = trpc.backup.export.useQuery(undefined, {
     enabled: false,
@@ -88,9 +117,17 @@ export default function SettingsPage() {
   const importBackup = trpc.backup.import.useMutation({
     onSuccess: () => {
       utils.invalidate();
+      setFormError("");
       toast.success("Backup restaurado com sucesso");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível restaurar o backup. Confirme o arquivo JSON e tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+    },
   });
 
   useEffect(() => {
@@ -135,7 +172,17 @@ export default function SettingsPage() {
   };
   const download = async () => {
     const result = await exportBackup.refetch();
-    if (!result.data) return toast.error("Não foi possível gerar o backup");
+    if (result.error) {
+      const message = getFormErrorMessage(
+        result.error,
+        "Não foi possível gerar o backup. Tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+      return;
+    }
+    if (!result.data)
+      return toast.error("Não foi possível gerar o backup. Tente novamente.");
     const blob = new Blob([JSON.stringify(result.data, null, 2)], {
       type: "application/json",
     });
@@ -161,7 +208,10 @@ export default function SettingsPage() {
         )
           importBackup.mutate({ data: parsed, replace: true });
       } catch {
-        toast.error("Arquivo JSON inválido");
+        const message =
+          "O arquivo selecionado não é um JSON válido. Escolha um backup exportado pela Luminno.";
+        setFormError(message);
+        toast.error(message);
       }
     };
     reader.readAsText(file);
@@ -169,11 +219,24 @@ export default function SettingsPage() {
 
   const handleSave = () => {
     const numberError = validateSettingsNumbers(form);
-    if (numberError) return toast.error(numberError);
-    if (!form.companyName.trim() || !form.tradingName.trim())
-      return toast.error("Informe o nome da empresa e o nome de exibição.");
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
-      return toast.error("Informe um e-mail válido.");
+    if (numberError) {
+      setFormError(numberError);
+      toast.error(numberError);
+      return;
+    }
+    if (!form.companyName.trim() || !form.tradingName.trim()) {
+      const message = "Informe o nome da empresa e o nome de exibição.";
+      setFormError(message);
+      toast.error(message);
+      return;
+    }
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      const message = "Informe um e-mail válido, como contato@empresa.com.";
+      setFormError(message);
+      toast.error(message);
+      return;
+    }
+    setFormError("");
     save.mutate(form);
   };
 
@@ -181,7 +244,36 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <p className="eyebrow">Preferências da loja</p>
-        <h2 className="page-title">Configurações</h2>
+        <h2 className="page-title flex flex-wrap items-center gap-3">
+          Configurações <DraftAutosaveStatus status={settingsDraft.status} />
+        </h2>
+        {settingsDraft.hasRecovery ? (
+          <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm">
+            <p className="font-semibold">Rascunho local encontrado</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Recupere as alterações salvas neste dispositivo antes de
+              continuar.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={settingsDraft.discard}
+              >
+                Descartar
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const restored = settingsDraft.restore();
+                  if (restored) setForm(restored);
+                }}
+              >
+                Recuperar
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <p className="page-description">
           Os dados abaixo são usados nos novos orçamentos e no documento
           impresso.
@@ -195,6 +287,7 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
+            <FormError className="sm:col-span-2" message={formError} />
             <Field
               label="Razão social / nome da empresa"
               className="sm:col-span-2"
@@ -274,12 +367,17 @@ export default function SettingsPage() {
                       disabled={uploadLogo.isPending}
                     >
                       <label>
-                        <Upload className="mr-2 h-3.5 w-3.5" />
+                        {uploadLogo.isPending ? (
+                          <Spinner aria-hidden="true" />
+                        ) : (
+                          <Upload className="mr-2 h-3.5 w-3.5" />
+                        )}
                         {uploadLogo.isPending ? "Enviando…" : "Subir logotipo"}
                         <input
                           className="sr-only"
                           type="file"
                           accept="image/png,image/jpeg,image/webp"
+                          disabled={uploadLogo.isPending}
                           onChange={logoFile}
                         />
                       </label>
@@ -425,13 +523,18 @@ export default function SettingsPage() {
               rows={4}
             />
             <div className="mt-4 flex justify-end">
-              <Button
-                disabled={save.isPending || uploadLogo.isPending}
+              <AsyncButton
+                pending={save.isPending || uploadLogo.isPending}
+                loadingLabel={
+                  uploadLogo.isPending
+                    ? "Aguardando logo…"
+                    : "Salvando configurações…"
+                }
                 onClick={handleSave}
               >
                 <Save className="mr-2 h-4 w-4" />
                 Salvar configurações
-              </Button>
+              </AsyncButton>
             </div>
           </CardContent>
         </Card>
@@ -450,26 +553,33 @@ export default function SettingsPage() {
               </p>
             </div>
             <div className="flex shrink-0 gap-2">
-              <Button
+              <AsyncButton
                 variant="outline"
                 onClick={download}
-                disabled={exportBackup.isFetching}
+                pending={exportBackup.isFetching}
+                loadingLabel="Gerando backup…"
               >
                 <Download className="mr-2 h-4 w-4" />
                 Exportar JSON
-              </Button>
+              </AsyncButton>
               <Button
                 variant="outline"
                 asChild
                 disabled={importBackup.isPending}
+                aria-busy={importBackup.isPending || undefined}
               >
                 <label>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Importar JSON
+                  {importBackup.isPending ? (
+                    <Spinner aria-hidden="true" />
+                  ) : (
+                    <Upload className="mr-2 h-4 w-4" />
+                  )}
+                  {importBackup.isPending ? "Restaurando…" : "Importar JSON"}
                   <input
                     className="sr-only"
                     type="file"
                     accept="application/json"
+                    disabled={importBackup.isPending}
                     onChange={importFile}
                   />
                 </label>

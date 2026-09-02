@@ -196,3 +196,38 @@
 - [x] Exigir comentário interno obrigatório e persistir a justificativa antes da restauração.
 - [x] Testar bloqueio sem justificativa, comparação acessível e restauração autorizada; 40 arquivos e 92 testes passaram.
 - [x] Salvar checkpoint e publicar os aprimoramentos na branch de auditoria.
+
+#### Nova solicitação
+- [x] Exibir totais financeiros da proposta atual e do snapshot na comparação visual.
+- [x] Testar cálculo, formatação monetária, acessibilidade e responsividade do resumo financeiro; 40 arquivos e 92 testes passaram.
+- [x] Salvar checkpoint e publicar a melhoria na branch de auditoria.
+
+#### Nova solicitação
+- [x] Exibir comparação financeira detalhada entre proposta atual e snapshot, incluindo composição e variações.
+- [x] Restaurar snapshot criando nova versão identificada, sem sobrescrever o histórico original.
+- [x] Testar transação, numeração/identificação, valores, acessibilidade e regressões; 40 arquivos e 92 testes passaram.
+- [x] Salvar checkpoint e publicar a melhoria na branch de auditoria.
+
+#### Auditoria completa solicitada
+- [x] Executar testes automatizados, type-check, build e auditoria de dependências.
+- [x] Validar autenticação, orçamento, estoque, financeiro, PDFs, anexos, snapshots, câmera e módulos relacionados.
+- [x] Verificar responsividade, acessibilidade, estados de carregamento, vazio e erro nas rotas críticas.
+- [x] Corrigir falhas reproduzidas e repetir a validação.
+- [x] Registrar evidências e entregar o parecer final.
+
+#### Melhoria de experiência dos formulários
+- [x] Mapear formulários críticos, mutações e mensagens de erro atuais.
+- [x] Adicionar indicadores de carregamento consistentes sem permitir submissões duplicadas.
+- [x] Tornar mensagens de erro técnicas mais claras e acionáveis para o usuário.
+- [x] Cobrir estados de carregamento e erro com testes automatizados.
+- [x] Validar responsividade, acessibilidade, check, testes, build e auditoria após a melhoria.
+
+#### Autosave e recuperação de rascunhos
+- [ ] Auditar formulários, dados sensíveis e pontos de persistência para o autosave.
+- [ ] Definir debounce, chaves de armazenamento, expiração e limpeza dos rascunhos locais.
+- [ ] Não persistir credenciais ou senhas no localStorage; manter ações financeiras com confirmação explícita.
+- [ ] Criar infraestrutura reutilizável de autosave local e indicador visual de status.
+- [ ] Integrar salvamento automático seguro do orçamento editável no servidor.
+- [ ] Integrar recuperação local nos formulários aplicáveis sem submissões automáticas perigosas.
+- [ ] Cobrir debounce, recuperação, limpeza e exclusão de dados sensíveis com testes.
+- [ ] Validar check, testes, build, audit, responsividade e sincronizar todas as alterações na branch do GitHub.

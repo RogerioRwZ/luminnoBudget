@@ -1,7 +1,7 @@
 import { and, desc, eq, max } from "drizzle-orm";
 import { internalComments, messageTemplates, quoteAttachments, quoteVersions, products } from "../drizzle/schema";
 import { getDb } from "./db";
-import { saveQuote, type QuoteDraft } from "./quoteDb";
+import { getQuote, saveQuote, type QuoteDraft } from "./quoteDb";
 
 async function database() {
   const db = await getDb();
@@ -32,10 +32,12 @@ export async function restoreQuoteVersion(input: { versionId: number; userId: nu
   if (!snapshot.id || snapshot.id !== version.quoteId || !Array.isArray(snapshot.rooms)) throw new Error("Snapshot incompatível com o orçamento.");
   const justification = input.comment.trim();
   if (justification.length < 10) throw new Error("Informe uma justificativa com pelo menos 10 caracteres.");
-  const restored = await saveQuote({ ...snapshot, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
+  const restored = await saveQuote({ ...snapshot, id: version.quoteId, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
   const restoredQuoteId = restored?.id ?? version.quoteId;
+  const restoredSnapshot = await getQuote(restoredQuoteId);
+  const createdVersion = restoredSnapshot ? await createQuoteVersion({ quoteId: restoredQuoteId, snapshot: restoredSnapshot, changeNote: `Restauração da versão ${version.versionNumber}: ${justification}`, userId: input.userId }) : null;
   await db.insert(internalComments).values({ quoteId: restoredQuoteId, body: `Restauração da versão ${version.versionNumber}: ${justification}`, authorUserId: input.userId });
-  return { quoteId: restoredQuoteId, sourceVersion: version.versionNumber };
+  return { quoteId: restoredQuoteId, sourceVersion: version.versionNumber, restoredVersion: createdVersion?.versionNumber ?? null };
 }
 
 export async function listComments(quoteId: number) { const db = await database(); return db.select().from(internalComments).where(eq(internalComments.quoteId, quoteId)).orderBy(desc(internalComments.createdAt)); }

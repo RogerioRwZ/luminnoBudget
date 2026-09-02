@@ -23,3 +23,7 @@ O painel administrativo exibiu o status da aplicação, a confirmação da conex
 Uma segunda sessão temporária foi criada exclusivamente para a verificação responsiva final do painel administrativo. Ela também será removida antes da entrega.
 
 Em viewport mobile, a tela de criação do administrador foi revisada visualmente com campos e ação principal acessíveis sem sobreposição. O painel administrativo possui cobertura automatizada dos pontos de quebra responsivos para cards, colunas e ações empilhadas; a captura sem sessão em viewport isolado confirma que a proteção de acesso também permanece ativa nessa rota.
+
+## Validação visual final — 25/08/2026
+
+Após a inclusão da validação pré-envio e do feedback específico para rate limit, o formulário de acesso foi revisado em 1280 × 720 e 375 × 812. Em ambos os tamanhos, a marca Luminno, os campos Usuário e Senha, a orientação de formato, o limite mínimo de senha, o botão Entrar e o aviso de cookie seguro permanecem legíveis e sem sobreposição. A mensagem de rate limit é produzida por `formatLoginError` e enviada ao toast do formulário quando a mutação de login falha por tentativas excedidas.

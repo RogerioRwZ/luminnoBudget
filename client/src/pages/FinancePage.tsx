@@ -1,3 +1,10 @@
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
+import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
+import { useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +98,7 @@ export default function FinancePage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Receivable | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [financeError, setFinanceError] = useState("");
   const [createForm, setCreateForm] = useState({
     clientId: "",
     clientName: "",
@@ -107,6 +115,12 @@ export default function FinancePage() {
     reference: "",
     notes: "",
   });
+  const financeCreateDraft = useDraftAutosave("finance-create", createForm, {
+    enabled: createOpen,
+  });
+  const financePaymentDraft = useDraftAutosave("finance-payment", paymentForm, {
+    enabled: paymentOpen,
+  });
   const refresh = () => {
     utils.finance.invalidate();
     utils.dashboard.invalidate();
@@ -115,6 +129,7 @@ export default function FinancePage() {
     onSuccess: ids => {
       refresh();
       setCreateOpen(false);
+      window.localStorage.removeItem("luminno:draft:finance-create");
       setCreateForm({
         clientId: "",
         clientName: "",
@@ -123,29 +138,54 @@ export default function FinancePage() {
         installmentCount: "1",
         firstDueDate: dateInput(),
       });
+      setFinanceError("");
       toast.success(`${ids.length} cobrança(s) criada(s).`);
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível criar a cobrança. Confira os dados e tente novamente."
+      );
+      setFinanceError(message);
+      toast.error(message);
+    },
   });
   const recordPayment = trpc.finance.recordPayment.useMutation({
     onSuccess: result => {
       refresh();
       setPaymentOpen(false);
       setSelected(null);
+      window.localStorage.removeItem("luminno:draft:finance-payment");
       toast.success(
         result.status === "paid"
           ? "Cobrança quitada."
           : "Movimentação registrada."
       );
+      setFinanceError("");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível registrar a movimentação. Confira valor, data e saldo e tente novamente."
+      );
+      setFinanceError(message);
+      toast.error(message);
+    },
   });
   const cancel = trpc.finance.cancel.useMutation({
     onSuccess: () => {
       refresh();
+      setFinanceError("");
       toast.success("Cobrança cancelada.");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível cancelar a cobrança. Atualize a lista e tente novamente."
+      );
+      setFinanceError(message);
+      toast.error(message);
+    },
   });
   const rows = (data?.receivables ?? []) as Receivable[];
   const totals = data?.totals;
@@ -452,12 +492,39 @@ export default function FinancePage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Nova cobrança</DialogTitle>
+            <DialogTitle className="flex items-center gap-3">
+              Nova cobrança{" "}
+              <DraftAutosaveStatus status={financeCreateDraft.status} />
+            </DialogTitle>
             <DialogDescription>
               Crie uma conta a receber avulsa ou divida o valor em parcelas
               mensais.
             </DialogDescription>
           </DialogHeader>
+          <FormError message={financeError} />
+          {financeCreateDraft.hasRecovery ? (
+            <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm">
+              <p className="font-semibold">Rascunho local encontrado</p>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={financeCreateDraft.discard}
+                >
+                  Descartar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const restored = financeCreateDraft.restore();
+                    if (restored) setCreateForm(restored);
+                  }}
+                >
+                  Recuperar
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
               <Label>Cliente cadastrado</Label>
@@ -556,9 +623,10 @@ export default function FinancePage() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancelar
             </Button>
-            <Button
+            <AsyncButton
+              pending={create.isPending}
+              loadingLabel="Criando cobrança…"
               disabled={
-                create.isPending ||
                 !createForm.clientName ||
                 !createForm.description ||
                 Number(createForm.totalAmount) <= 0
@@ -578,7 +646,7 @@ export default function FinancePage() {
               }
             >
               Criar cobrança
-            </Button>
+            </AsyncButton>
           </div>
         </DialogContent>
       </Dialog>
@@ -602,6 +670,7 @@ export default function FinancePage() {
                 : ""}
             </DialogDescription>
           </DialogHeader>
+          <FormError message={financeError} />
           <div className="grid gap-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -700,12 +769,12 @@ export default function FinancePage() {
             <Button variant="outline" onClick={() => setPaymentOpen(false)}>
               Cancelar
             </Button>
-            <Button
-              disabled={
-                recordPayment.isPending ||
-                !selected ||
-                Number(paymentForm.amount) <= 0
+            <AsyncButton
+              pending={recordPayment.isPending}
+              loadingLabel={
+                paymentForm.type === "receipt" ? "Registrando…" : "Confirmando…"
               }
+              disabled={!selected || Number(paymentForm.amount) <= 0}
               onClick={() =>
                 selected &&
                 recordPayment.mutate({
@@ -722,7 +791,7 @@ export default function FinancePage() {
               {paymentForm.type === "receipt"
                 ? "Registrar recebimento"
                 : "Confirmar estorno"}
-            </Button>
+            </AsyncButton>
           </div>
         </DialogContent>
       </Dialog>

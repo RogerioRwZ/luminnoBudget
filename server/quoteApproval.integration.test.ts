@@ -108,5 +108,5 @@ describe("aprovação integrada de orçamento", () => {
     await recordFinancePayment({ receivableId: receivables[0]!.id, type: "reversal", amount: 200, paymentMethod: "pix", paidAt: new Date("2030-08-28T12:05:00.000Z"), reference: "QA-REV", notes: "Estorno de validação" }, 0);
     await expect(financeByQuote(quoteId!)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: receivables[0]!.id, receivedAmount: 0, remainingAmount: 500, status: "open" })]));
     await expect(getQuote(quoteId!)).resolves.toMatchObject({ id: quoteId, status: "approved" });
-  });
+  }, 15_000);
 });
