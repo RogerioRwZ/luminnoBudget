@@ -1,3 +1,10 @@
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
+import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
+import { useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -45,20 +52,40 @@ const emptyCustomer: CustomerForm = {
 
 export default function CustomersPage() {
   const utils = trpc.useUtils();
-  const { data = [], isLoading, error, refetch } = trpc.customers.list.useQuery();
+  const {
+    data = [],
+    isLoading,
+    error,
+    refetch,
+  } = trpc.customers.list.useQuery();
   const { data: quotes = [] } = trpc.quote.list.useQuery();
   const save = trpc.customers.save.useMutation({
     onSuccess: () => {
       utils.customers.list.invalidate();
+      setFormError("");
+      window.localStorage.removeItem(
+        `luminno:draft:customer-${form.id ?? "new"}`
+      );
       toast.success("Cliente salvo com sucesso");
       setOpen(false);
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível salvar o cliente. Confira nome e profissional e tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+    },
   });
   const [open, setOpen] = useState(false);
+  const [formError, setFormError] = useState("");
   const [historyId, setHistoryId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<CustomerForm>(emptyCustomer);
+  const customerDraft = useDraftAutosave(`customer-${form.id ?? "new"}`, form, {
+    enabled: open,
+  });
   const filtered = useMemo(
     () =>
       data.filter(customer =>
@@ -83,6 +110,7 @@ export default function CustomersPage() {
   };
   const close = (value: boolean) => {
     setOpen(value);
+    setFormError("");
     if (!value) setForm(emptyCustomer);
   };
   const historyCustomer = data.find(customer => customer.id === historyId);
@@ -107,13 +135,42 @@ export default function CustomersPage() {
           </DialogTrigger>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
             <DialogHeader>
-              <DialogTitle>
+              <DialogTitle className="flex items-center gap-3">
                 {form.id ? "Editar cliente" : "Novo cliente"}
+                <DraftAutosaveStatus status={customerDraft.status} />
               </DialogTitle>
               <DialogDescription className="sr-only">
                 Informe os dados do cliente para associá-lo a orçamentos.
               </DialogDescription>
             </DialogHeader>
+            <FormError message={formError} />
+            {customerDraft.hasRecovery ? (
+              <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-semibold">Rascunho local encontrado</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Recupere os dados deste cliente ou descarte o rascunho salvo
+                  neste dispositivo.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={customerDraft.discard}
+                  >
+                    Descartar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const restored = customerDraft.restore();
+                      if (restored) setForm(restored);
+                    }}
+                  >
+                    Recuperar
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="grid gap-4 py-2 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Nome do cliente *</Label>
@@ -172,12 +229,13 @@ export default function CustomersPage() {
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancelar
               </Button>
-              <Button
-                disabled={save.isPending}
+              <AsyncButton
+                pending={save.isPending}
+                loadingLabel="Salvando cliente…"
                 onClick={() => save.mutate(form)}
               >
                 Salvar cliente
-              </Button>
+              </AsyncButton>
             </div>
           </DialogContent>
         </Dialog>

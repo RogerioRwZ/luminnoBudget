@@ -1,3 +1,8 @@
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "@/components/ui/spinner";
+import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
+import { useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
@@ -62,10 +70,21 @@ export default function ProductsPage() {
     onSuccess: () => {
       utils.product.list.invalidate();
       utils.inventory.invalidate();
+      setFormError("");
+      window.localStorage.removeItem(
+        `luminno:draft:product-${form.id ?? "new"}`
+      );
       toast.success("Produto salvo com sucesso");
       setOpen(false);
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível salvar o produto. Confira os campos e tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+    },
   });
   const upload = trpc.product.uploadImage.useMutation({
     onSuccess: file => {
@@ -76,11 +95,22 @@ export default function ProductsPage() {
       }));
       toast.success("Imagem enviada");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível enviar a imagem. Verifique o formato e tente novamente."
+      );
+      setFormError(message);
+      toast.error(message);
+    },
   });
   const [open, setOpen] = useState(false);
+  const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<ProductForm>(emptyProduct);
+  const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
+    enabled: open,
+  });
   const filtered = useMemo(
     () =>
       data.filter(product =>
@@ -129,6 +159,7 @@ export default function ProductsPage() {
   };
   const handleOpen = (value: boolean) => {
     setOpen(value);
+    setFormError("");
     if (!value) setForm(emptyProduct);
   };
   return (
@@ -151,13 +182,42 @@ export default function ProductsPage() {
           </DialogTrigger>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>
+              <DialogTitle className="flex items-center gap-3">
                 {form.id ? `Editar produto #${form.code}` : "Novo produto"}
+                <DraftAutosaveStatus status={productDraft.status} />
               </DialogTitle>
               <DialogDescription className="sr-only">
                 Informe os dados do produto para o catálogo.
               </DialogDescription>
             </DialogHeader>
+            <FormError message={formError} />
+            {productDraft.hasRecovery ? (
+              <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-semibold">Rascunho local encontrado</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Recupere os dados deste produto ou descarte o rascunho salvo
+                  neste dispositivo.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={productDraft.discard}
+                  >
+                    Descartar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const restored = productDraft.restore();
+                      if (restored) setForm(restored);
+                    }}
+                  >
+                    Recuperar
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="grid gap-4 py-2 sm:grid-cols-2">
               <div className="rounded-xl border border-dashed border-border bg-muted/30 p-3 sm:col-span-2">
                 <div className="flex items-center gap-2">
@@ -174,7 +234,19 @@ export default function ProductsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="product-barcode">Código de barras</Label>
-                <Input id="product-barcode" aria-label="Código de barras do produto" inputMode="numeric" value={form.barcode} onChange={e => setForm({ ...form, barcode: e.target.value.replace(/\D/g, "") })} placeholder="EAN ou código interno" />
+                <Input
+                  id="product-barcode"
+                  aria-label="Código de barras do produto"
+                  inputMode="numeric"
+                  value={form.barcode}
+                  onChange={e =>
+                    setForm({
+                      ...form,
+                      barcode: e.target.value.replace(/\D/g, ""),
+                    })
+                  }
+                  placeholder="EAN ou código interno"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="product-unit">Unidade</Label>
@@ -283,14 +355,25 @@ export default function ProductsPage() {
                       imagem será armazenada no servidor da Luminno.
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        asChild
+                        disabled={upload.isPending}
+                        aria-busy={upload.isPending || undefined}
+                      >
                         <label>
-                          <ImagePlus className="mr-2 h-3.5 w-3.5" />
-                          Enviar imagem
+                          {upload.isPending ? (
+                            <Spinner aria-hidden="true" />
+                          ) : (
+                            <ImagePlus className="mr-2 h-3.5 w-3.5" />
+                          )}
+                          {upload.isPending ? "Enviando…" : "Enviar imagem"}
                           <input
                             className="sr-only"
                             type="file"
                             accept="image/png,image/jpeg,image/webp"
+                            disabled={upload.isPending}
                             onChange={handleImage}
                           />
                         </label>
@@ -316,12 +399,15 @@ export default function ProductsPage() {
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancelar
               </Button>
-              <Button
-                disabled={save.isPending || upload.isPending}
+              <AsyncButton
+                pending={save.isPending || upload.isPending}
+                loadingLabel={
+                  upload.isPending ? "Aguardando imagem…" : "Salvando produto…"
+                }
                 onClick={() => save.mutate(form)}
               >
                 Salvar produto
-              </Button>
+              </AsyncButton>
             </div>
           </DialogContent>
         </Dialog>

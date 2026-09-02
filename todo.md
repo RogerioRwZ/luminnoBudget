@@ -214,3 +214,20 @@
 - [x] Verificar responsividade, acessibilidade, estados de carregamento, vazio e erro nas rotas críticas.
 - [x] Corrigir falhas reproduzidas e repetir a validação.
 - [x] Registrar evidências e entregar o parecer final.
+
+#### Melhoria de experiência dos formulários
+- [x] Mapear formulários críticos, mutações e mensagens de erro atuais.
+- [x] Adicionar indicadores de carregamento consistentes sem permitir submissões duplicadas.
+- [x] Tornar mensagens de erro técnicas mais claras e acionáveis para o usuário.
+- [x] Cobrir estados de carregamento e erro com testes automatizados.
+- [x] Validar responsividade, acessibilidade, check, testes, build e auditoria após a melhoria.
+
+#### Autosave e recuperação de rascunhos
+- [ ] Auditar formulários, dados sensíveis e pontos de persistência para o autosave.
+- [ ] Definir debounce, chaves de armazenamento, expiração e limpeza dos rascunhos locais.
+- [ ] Não persistir credenciais ou senhas no localStorage; manter ações financeiras com confirmação explícita.
+- [ ] Criar infraestrutura reutilizável de autosave local e indicador visual de status.
+- [ ] Integrar salvamento automático seguro do orçamento editável no servidor.
+- [ ] Integrar recuperação local nos formulários aplicáveis sem submissões automáticas perigosas.
+- [ ] Cobrir debounce, recuperação, limpeza e exclusão de dados sensíveis com testes.
+- [ ] Validar check, testes, build, audit, responsividade e sincronizar todas as alterações na branch do GitHub.

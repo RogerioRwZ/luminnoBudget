@@ -1,4 +1,11 @@
 import { Badge } from "@/components/ui/badge";
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
+import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
+import { useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -78,6 +85,7 @@ export default function InventoryPage() {
     refetch: refetchFulfillments,
   } = trpc.inventory.fulfillments.useQuery();
   const [movementOpen, setMovementOpen] = useState(false);
+  const [inventoryError, setInventoryError] = useState("");
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [selectedLine, setSelectedLine] = useState<
     (typeof fulfillments)[number] | null
@@ -101,6 +109,12 @@ export default function InventoryPage() {
     notes: "",
     deliveredAt: nowInput(),
   });
+  const movementDraft = useDraftAutosave("inventory-movement", movementForm, {
+    enabled: movementOpen,
+  });
+  const deliveryDraft = useDraftAutosave("inventory-delivery", deliveryForm, {
+    enabled: deliveryOpen,
+  });
   const refresh = () => {
     utils.inventory.invalidate();
     utils.product.list.invalidate();
@@ -111,9 +125,17 @@ export default function InventoryPage() {
       toast.success(
         `Movimentação registrada. Saldo atual: ${result.afterQuantity}`
       );
+      setInventoryError("");
       setMovementOpen(false);
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível registrar a movimentação. Confira produto, quantidade e data e tente novamente."
+      );
+      setInventoryError(message);
+      toast.error(message);
+    },
   });
   const deliver = trpc.inventory.deliver.useMutation({
     onSuccess: result => {
@@ -123,8 +145,16 @@ export default function InventoryPage() {
       );
       setDeliveryOpen(false);
       setSelectedLine(null);
+      setInventoryError("");
     },
-    onError: error => toast.error(error.message),
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível registrar a entrega. Confira a quantidade disponível e tente novamente."
+      );
+      setInventoryError(message);
+      toast.error(message);
+    },
   });
   const products = overview?.products ?? [];
   const lowStock = overview?.lowStock ?? [];
@@ -169,7 +199,14 @@ export default function InventoryPage() {
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="eyebrow">Operação e expedição</p>
-          <h2 className="page-title">Estoque</h2>
+          <h2 className="page-title flex flex-wrap items-center gap-3">
+            Estoque{" "}
+            <DraftAutosaveStatus
+              status={
+                movementOpen ? movementDraft.status : deliveryDraft.status
+              }
+            />
+          </h2>
           <p className="page-description">
             Controle entradas, reservas, disponibilidade e entregas parciais de
             orçamentos aprovados.
@@ -647,6 +684,7 @@ export default function InventoryPage() {
               produto.
             </DialogDescription>
           </DialogHeader>
+          <FormError message={inventoryError} />
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
               <Label>Produto</Label>
@@ -694,7 +732,11 @@ export default function InventoryPage() {
                     : "Quantidade"}
                 </Label>
                 <Input
-                  aria-label={movementForm.type === "adjustment" ? "Quantidade (+/-)" : "Quantidade"}
+                  aria-label={
+                    movementForm.type === "adjustment"
+                      ? "Quantidade (+/-)"
+                      : "Quantidade"
+                  }
                   type="number"
                   step="0.01"
                   value={movementForm.quantity}
@@ -752,12 +794,10 @@ export default function InventoryPage() {
             <Button variant="outline" onClick={() => setMovementOpen(false)}>
               Cancelar
             </Button>
-            <Button
-              disabled={
-                move.isPending ||
-                !movementForm.productId ||
-                !movementForm.quantity
-              }
+            <AsyncButton
+              pending={move.isPending}
+              loadingLabel="Registrando…"
+              disabled={!movementForm.productId || !movementForm.quantity}
               onClick={() =>
                 move.mutate({
                   ...movementForm,
@@ -766,7 +806,7 @@ export default function InventoryPage() {
               }
             >
               Registrar
-            </Button>
+            </AsyncButton>
           </div>
         </DialogContent>
       </Dialog>
@@ -786,6 +826,7 @@ export default function InventoryPage() {
                 : ""}
             </DialogDescription>
           </DialogHeader>
+          <FormError message={inventoryError} />
           {selectedLine ? (
             <div className="space-y-4 py-2">
               <div className="rounded-xl bg-muted/60 p-3">
@@ -865,9 +906,10 @@ export default function InventoryPage() {
             <Button variant="outline" onClick={() => setDeliveryOpen(false)}>
               Cancelar
             </Button>
-            <Button
+            <AsyncButton
+              pending={deliver.isPending}
+              loadingLabel="Confirmando…"
               disabled={
-                deliver.isPending ||
                 !selectedLine ||
                 !deliveryForm.quantity ||
                 deliveryForm.quantity >
@@ -889,7 +931,7 @@ export default function InventoryPage() {
               }
             >
               Confirmar retirada
-            </Button>
+            </AsyncButton>
           </div>
         </DialogContent>
       </Dialog>

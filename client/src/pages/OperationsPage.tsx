@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AsyncButton,
+  FormError,
+  getFormErrorMessage,
+} from "@/components/FormFeedback";
+import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
+import { useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,40 +16,281 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Camera, CameraOff } from "lucide-react";
 
-type Detector = { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> };
+type Detector = {
+  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+};
 type DetectorConstructor = new (options?: { formats?: string[] }) => Detector;
-type PreviewQuote = { quoteNumber?: number; clientName?: string; status?: string; rooms?: Array<{ name?: string; items?: Array<{ shortDescription?: string; quantity?: number | string; unitPrice?: number | string }> }>; summary?: { productsSubtotal?: number; discountAmount?: number; shipping?: number; total?: number; pixDiscountAmount?: number; pixTotal?: number; installmentValue?: number } };
-const money = (value?: number | string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value ?? 0));
+type PreviewQuote = {
+  quoteNumber?: number;
+  clientName?: string;
+  status?: string;
+  rooms?: Array<{
+    name?: string;
+    items?: Array<{
+      shortDescription?: string;
+      quantity?: number | string;
+      unitPrice?: number | string;
+    }>;
+  }>;
+  summary?: {
+    productsSubtotal?: number;
+    discountAmount?: number;
+    shipping?: number;
+    total?: number;
+    pixDiscountAmount?: number;
+    pixTotal?: number;
+    installmentValue?: number;
+  };
+};
+const money = (value?: number | string) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+    Number(value ?? 0)
+  );
 const amount = (value?: number | string) => Number(value ?? 0) || 0;
-function FinancialComparison({ current, snapshot }: { current?: PreviewQuote; snapshot?: PreviewQuote }) { const rows = [{ label: "Subtotal de produtos", key: "productsSubtotal" }, { label: "Desconto comercial", key: "discountAmount" }, { label: "Frete", key: "shipping" }, { label: "Total", key: "total" }, { label: "Desconto no PIX", key: "pixDiscountAmount" }, { label: "Total no PIX", key: "pixTotal" }, { label: "Valor da parcela", key: "installmentValue" }] as const; return <div aria-label="Comparação financeira detalhada" className="rounded-lg border bg-background p-3"><h4 className="font-semibold">Variação financeira</h4><p className="mt-1 text-xs text-muted-foreground">Diferença calculada como snapshot menos proposta atual.</p><dl className="mt-3 space-y-2 text-xs">{rows.map(({ label, key }) => { const currentValue = amount(current?.summary?.[key]); const snapshotValue = amount(snapshot?.summary?.[key]); const difference = snapshotValue - currentValue; const percentage = currentValue ? (difference / currentValue) * 100 : null; return <div key={key} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2"><dt className="text-muted-foreground">{label}</dt><dd>{money(currentValue)}</dd><dd>{money(snapshotValue)}</dd><dd className={difference > 0 ? "text-amber-600" : difference < 0 ? "text-emerald-600" : "text-muted-foreground"}>{difference > 0 ? "+" : ""}{money(difference)}{percentage === null ? "" : ` (${percentage > 0 ? "+" : ""}${percentage.toFixed(1)}%)`}</dd></div>; })}</dl></div>; }
-function QuoteSnapshotPreview({ title, quote }: { title: string; quote?: PreviewQuote }) { return <div className="rounded-lg border bg-background p-3"><h4 className="font-semibold">{title}</h4>{quote ? <><p className="mt-1 text-sm">#{quote.quoteNumber ?? "—"} — {quote.clientName || "Sem cliente"}</p><p className="text-xs text-muted-foreground">Status: {quote.status ?? "—"}</p><div className="mt-3 space-y-2">{quote.rooms?.map((room, index) => <div key={`${room.name ?? "ambiente"}-${index}`}><p className="text-xs font-semibold uppercase tracking-wide">{room.name || "Ambiente"}</p>{room.items?.map((item, itemIndex) => <p key={`${item.shortDescription ?? "item"}-${itemIndex}`} className="text-xs text-muted-foreground">{item.quantity ?? 0} × {item.shortDescription || "Item"}</p>)}</div>)}</div><dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-3 text-xs"><dt className="text-muted-foreground">Subtotal</dt><dd className="text-right">{money(quote.summary?.productsSubtotal)}</dd><dt className="text-muted-foreground">Desconto</dt><dd className="text-right">− {money(quote.summary?.discountAmount)}</dd><dt className="text-muted-foreground">Frete</dt><dd className="text-right">{money(quote.summary?.shipping)}</dd><dt className="font-semibold">Total</dt><dd className="text-right font-semibold">{money(quote.summary?.total)}</dd><dt className="text-muted-foreground">Total no PIX</dt><dd className="text-right">{money(quote.summary?.pixTotal)}</dd><dt className="text-muted-foreground">Parcela</dt><dd className="text-right">{money(quote.summary?.installmentValue)}</dd></dl></> : <p className="mt-1 text-sm text-muted-foreground">Selecione uma versão para comparar.</p>}</div>; }
+function FinancialComparison({
+  current,
+  snapshot,
+}: {
+  current?: PreviewQuote;
+  snapshot?: PreviewQuote;
+}) {
+  const rows = [
+    { label: "Subtotal de produtos", key: "productsSubtotal" },
+    { label: "Desconto comercial", key: "discountAmount" },
+    { label: "Frete", key: "shipping" },
+    { label: "Total", key: "total" },
+    { label: "Desconto no PIX", key: "pixDiscountAmount" },
+    { label: "Total no PIX", key: "pixTotal" },
+    { label: "Valor da parcela", key: "installmentValue" },
+  ] as const;
+  return (
+    <div
+      aria-label="Comparação financeira detalhada"
+      className="rounded-lg border bg-background p-3"
+    >
+      <h4 className="font-semibold">Variação financeira</h4>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Diferença calculada como snapshot menos proposta atual.
+      </p>
+      <dl className="mt-3 space-y-2 text-xs">
+        {rows.map(({ label, key }) => {
+          const currentValue = amount(current?.summary?.[key]);
+          const snapshotValue = amount(snapshot?.summary?.[key]);
+          const difference = snapshotValue - currentValue;
+          const percentage = currentValue
+            ? (difference / currentValue) * 100
+            : null;
+          return (
+            <div
+              key={key}
+              className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2"
+            >
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd>{money(currentValue)}</dd>
+              <dd>{money(snapshotValue)}</dd>
+              <dd
+                className={
+                  difference > 0
+                    ? "text-amber-600"
+                    : difference < 0
+                      ? "text-emerald-600"
+                      : "text-muted-foreground"
+                }
+              >
+                {difference > 0 ? "+" : ""}
+                {money(difference)}
+                {percentage === null
+                  ? ""
+                  : ` (${percentage > 0 ? "+" : ""}${percentage.toFixed(1)}%)`}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+}
+function QuoteSnapshotPreview({
+  title,
+  quote,
+}: {
+  title: string;
+  quote?: PreviewQuote;
+}) {
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <h4 className="font-semibold">{title}</h4>
+      {quote ? (
+        <>
+          <p className="mt-1 text-sm">
+            #{quote.quoteNumber ?? "—"} — {quote.clientName || "Sem cliente"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Status: {quote.status ?? "—"}
+          </p>
+          <div className="mt-3 space-y-2">
+            {quote.rooms?.map((room, index) => (
+              <div key={`${room.name ?? "ambiente"}-${index}`}>
+                <p className="text-xs font-semibold uppercase tracking-wide">
+                  {room.name || "Ambiente"}
+                </p>
+                {room.items?.map((item, itemIndex) => (
+                  <p
+                    key={`${item.shortDescription ?? "item"}-${itemIndex}`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    {item.quantity ?? 0} × {item.shortDescription || "Item"}
+                  </p>
+                ))}
+              </div>
+            ))}
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-3 text-xs">
+            <dt className="text-muted-foreground">Subtotal</dt>
+            <dd className="text-right">
+              {money(quote.summary?.productsSubtotal)}
+            </dd>
+            <dt className="text-muted-foreground">Desconto</dt>
+            <dd className="text-right">
+              − {money(quote.summary?.discountAmount)}
+            </dd>
+            <dt className="text-muted-foreground">Frete</dt>
+            <dd className="text-right">{money(quote.summary?.shipping)}</dd>
+            <dt className="font-semibold">Total</dt>
+            <dd className="text-right font-semibold">
+              {money(quote.summary?.total)}
+            </dd>
+            <dt className="text-muted-foreground">Total no PIX</dt>
+            <dd className="text-right">{money(quote.summary?.pixTotal)}</dd>
+            <dt className="text-muted-foreground">Parcela</dt>
+            <dd className="text-right">
+              {money(quote.summary?.installmentValue)}
+            </dd>
+          </dl>
+        </>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Selecione uma versão para comparar.
+        </p>
+      )}
+    </div>
+  );
+}
 
-function CameraBarcodeScanner({ onDetected }: { onDetected: (value: string) => void }) {
+function CameraBarcodeScanner({
+  onDetected,
+}: {
+  onDetected: (value: string) => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [active, setActive] = useState(false);
   const [message, setMessage] = useState("");
-  useEffect(() => () => { streamRef.current?.getTracks().forEach(track => track.stop()); }, []);
+  useEffect(
+    () => () => {
+      streamRef.current?.getTracks().forEach(track => track.stop());
+    },
+    []
+  );
   async function toggle() {
-    if (active) { streamRef.current?.getTracks().forEach(track => track.stop()); streamRef.current = null; setActive(false); return; }
-    const DetectorClass = (window as Window & { BarcodeDetector?: DetectorConstructor }).BarcodeDetector;
-    if (!DetectorClass) { setMessage("Seu navegador não oferece leitura por câmera. Use o leitor USB ou digite o código."); return; }
-    if (!navigator.mediaDevices?.getUserMedia) { setMessage("A câmera não está disponível neste dispositivo."); return; }
+    if (active) {
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setActive(false);
+      return;
+    }
+    const DetectorClass = (
+      window as Window & { BarcodeDetector?: DetectorConstructor }
+    ).BarcodeDetector;
+    if (!DetectorClass) {
+      setMessage(
+        "Seu navegador não oferece leitura por câmera. Use o leitor USB ou digite o código."
+      );
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage("A câmera não está disponível neste dispositivo.");
+      return;
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
-      streamRef.current = stream; setActive(true); setMessage("");
-      const video = videoRef.current; if (!video) return;
-      video.srcObject = stream; await video.play();
-      const detector = new DetectorClass({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39"] });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setActive(true);
+      setMessage("");
+      const video = videoRef.current;
+      if (!video) return;
+      video.srcObject = stream;
+      await video.play();
+      const detector = new DetectorClass({
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39"],
+      });
       let running = true;
-      const scan = async () => { if (!running || !streamRef.current) return; try { const result = await detector.detect(video); const value = result[0]?.rawValue?.trim(); if (value) { onDetected(value); stream.getTracks().forEach(track => track.stop()); streamRef.current = null; setActive(false); return; } } catch { /* câmera pode falhar entre frames */ } window.setTimeout(scan, 180); };
+      const scan = async () => {
+        if (!running || !streamRef.current) return;
+        try {
+          const result = await detector.detect(video);
+          const value = result[0]?.rawValue?.trim();
+          if (value) {
+            onDetected(value);
+            stream.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+            setActive(false);
+            return;
+          }
+        } catch {
+          /* câmera pode falhar entre frames */
+        }
+        window.setTimeout(scan, 180);
+      };
       void scan();
-    } catch { setMessage("Não foi possível acessar a câmera. Verifique a permissão e use o leitor USB se necessário."); }
+    } catch {
+      setMessage(
+        "Não foi possível acessar a câmera. Verifique a permissão e use o leitor USB se necessário."
+      );
+    }
   }
-  return <div className="mt-3"><Button type="button" variant="outline" onClick={toggle}><span className="mr-2">{active ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}</span>{active ? "Parar câmera" : "Ler pela câmera"}</Button>{active ? <video ref={videoRef} className="mt-3 aspect-video w-full max-w-sm rounded-xl bg-black object-cover" muted playsInline /> : null}{message ? <p role="status" className="mt-2 text-xs text-muted-foreground">{message}</p> : null}</div>;
+  return (
+    <div className="mt-3">
+      <Button type="button" variant="outline" onClick={toggle}>
+        <span className="mr-2">
+          {active ? (
+            <CameraOff className="h-4 w-4" />
+          ) : (
+            <Camera className="h-4 w-4" />
+          )}
+        </span>
+        {active ? "Parar câmera" : "Ler pela câmera"}
+      </Button>
+      {active ? (
+        <video
+          ref={videoRef}
+          className="mt-3 aspect-video w-full max-w-sm rounded-xl bg-black object-cover"
+          muted
+          playsInline
+        />
+      ) : null}
+      {message ? (
+        <p role="status" className="mt-2 text-xs text-muted-foreground">
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
-const eventLabels: Record<string, string> = { quote_sent: "Orçamento enviado", quote_approved: "Orçamento aprovado", quote_expiring: "Orçamento vencendo", quote_expired: "Orçamento vencido", payment_due: "Parcela a vencer", payment_overdue: "Parcela vencida", delivery_scheduled: "Entrega agendada", delivery_completed: "Entrega concluída" };
+const eventLabels: Record<string, string> = {
+  quote_sent: "Orçamento enviado",
+  quote_approved: "Orçamento aprovado",
+  quote_expiring: "Orçamento vencendo",
+  quote_expired: "Orçamento vencido",
+  payment_due: "Parcela a vencer",
+  payment_overdue: "Parcela vencida",
+  delivery_scheduled: "Entrega agendada",
+  delivery_completed: "Entrega concluída",
+};
 
 export default function OperationsPage() {
   const [quoteId, setQuoteId] = useState<number | undefined>();
@@ -51,39 +299,602 @@ export default function OperationsPage() {
   const [changeNote, setChangeNote] = useState("");
   const [selectedVersionId, setSelectedVersionId] = useState<number>();
   const [restoreComment, setRestoreComment] = useState("");
+  const [operationError, setOperationError] = useState("");
   const [templateEvent, setTemplateEvent] = useState("quote_sent");
   const [templateName, setTemplateName] = useState("Mensagem padrão");
-  const [templateBody, setTemplateBody] = useState("Olá, {{cliente}}. Segue o orçamento {{numero}}.");
+  const [templateBody, setTemplateBody] = useState(
+    "Olá, {{cliente}}. Segue o orçamento {{numero}}."
+  );
+  const commentDraft = useDraftAutosave(
+    "operation-comment",
+    { comment },
+    { enabled: Boolean(quoteId) }
+  );
+  const restoreDraft = useDraftAutosave(
+    "operation-restore",
+    { restoreComment, changeNote },
+    { enabled: Boolean(selectedVersionId) }
+  );
+  const templateDraft = useDraftAutosave(
+    "operation-template",
+    { templateEvent, templateName, templateBody },
+    { enabled: true }
+  );
   const quotes = trpc.quote.list.useQuery();
-  const versions = trpc.quote.versions.useQuery({ quoteId: quoteId! }, { enabled: Boolean(quoteId) });
-  const comments = trpc.quote.comments.useQuery({ quoteId: quoteId! }, { enabled: Boolean(quoteId) });
-  const attachments = trpc.quote.attachments.useQuery({ quoteId: quoteId! }, { enabled: Boolean(quoteId) });
+  const versions = trpc.quote.versions.useQuery(
+    { quoteId: quoteId! },
+    { enabled: Boolean(quoteId) }
+  );
+  const comments = trpc.quote.comments.useQuery(
+    { quoteId: quoteId! },
+    { enabled: Boolean(quoteId) }
+  );
+  const attachments = trpc.quote.attachments.useQuery(
+    { quoteId: quoteId! },
+    { enabled: Boolean(quoteId) }
+  );
   const templates = trpc.templates.list.useQuery();
-  const productLookup = trpc.product.findByBarcode.useQuery({ barcode }, { enabled: false });
+  const productLookup = trpc.product.findByBarcode.useQuery(
+    { barcode },
+    { enabled: false }
+  );
   const utils = trpc.useUtils();
-  const createVersion = trpc.quote.createVersion.useMutation({ onSuccess: () => { toast.success("Versão registrada"); setChangeNote(""); versions.refetch(); } });
-  const restoreVersion = trpc.quote.restoreVersion.useMutation({ onSuccess: (result) => { toast.success(`Versão ${result.sourceVersion} restaurada como rascunho editável`); window.location.href = `/orcamentos/${result.quoteId}`; }, onError: error => toast.error(error.message) });
-  const addComment = trpc.quote.addComment.useMutation({ onSuccess: () => { toast.success("Comentário adicionado"); setComment(""); comments.refetch(); } });
-  const resolveComment = trpc.quote.resolveComment.useMutation({ onSuccess: () => comments.refetch() });
-  const uploadAttachment = trpc.quote.uploadAttachment.useMutation({ onSuccess: () => { toast.success("Anexo salvo"); attachments.refetch(); } });
-  const saveTemplate = trpc.templates.save.useMutation({ onSuccess: () => { toast.success("Modelo salvo"); templates.refetch(); } });
-  const selectedQuote = useMemo(() => quotes.data?.find((quote) => quote.id === quoteId), [quotes.data, quoteId]);
-  const selectedVersion = useMemo(() => versions.data?.find((version) => version.id === selectedVersionId), [versions.data, selectedVersionId]);
-  const selectedSnapshot = useMemo<PreviewQuote | undefined>(() => { if (!selectedVersion) return undefined; try { return JSON.parse(selectedVersion.snapshot) as PreviewQuote; } catch { return undefined; } }, [selectedVersion]);
+  const createVersion = trpc.quote.createVersion.useMutation({
+    onSuccess: () => {
+      setOperationError("");
+      toast.success("Versão registrada");
+      setChangeNote("");
+      versions.refetch();
+    },
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível registrar a versão. Confira o orçamento e tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+    },
+  });
+  const restoreVersion = trpc.quote.restoreVersion.useMutation({
+    onSuccess: result => {
+      setOperationError("");
+      toast.success(
+        `Versão ${result.sourceVersion} restaurada como rascunho editável`
+      );
+      window.location.href = `/orcamentos/${result.quoteId}`;
+    },
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível restaurar a versão. Confira a justificativa e tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+    },
+  });
+  const addComment = trpc.quote.addComment.useMutation({
+    onSuccess: () => {
+      setOperationError("");
+      toast.success("Comentário adicionado");
+      setComment("");
+      comments.refetch();
+    },
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível adicionar o comentário. Confira o orçamento e tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+    },
+  });
+  const resolveComment = trpc.quote.resolveComment.useMutation({
+    onSuccess: () => {
+      setOperationError("");
+      comments.refetch();
+    },
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível atualizar o comentário. Tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+    },
+  });
+  const uploadAttachment = trpc.quote.uploadAttachment.useMutation({
+    onSuccess: () => {
+      setOperationError("");
+      toast.success("Anexo salvo");
+      attachments.refetch();
+    },
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível salvar o anexo. Verifique o arquivo e tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+    },
+  });
+  const saveTemplate = trpc.templates.save.useMutation({
+    onSuccess: () => {
+      setOperationError("");
+      toast.success("Modelo salvo");
+      templates.refetch();
+    },
+    onError: error => {
+      const message = getFormErrorMessage(
+        error,
+        "Não foi possível salvar o modelo. Confira nome e mensagem e tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+    },
+  });
+  const selectedQuote = useMemo(
+    () => quotes.data?.find(quote => quote.id === quoteId),
+    [quotes.data, quoteId]
+  );
+  const selectedVersion = useMemo(
+    () => versions.data?.find(version => version.id === selectedVersionId),
+    [versions.data, selectedVersionId]
+  );
+  const selectedSnapshot = useMemo<PreviewQuote | undefined>(() => {
+    if (!selectedVersion) return undefined;
+    try {
+      return JSON.parse(selectedVersion.snapshot) as PreviewQuote;
+    } catch {
+      return undefined;
+    }
+  }, [selectedVersion]);
 
-  async function scanBarcode(event: React.FormEvent) { event.preventDefault(); if (!barcode.trim()) return; const result = await productLookup.refetch(); if (result.data) toast.success(`${result.data.code} — ${result.data.shortDescription}`); else toast.error("Produto não encontrado"); }
-  function onCameraDetected(value: string) { setBarcode(value); toast.success(`Código lido: ${value}. Clique em Consultar para localizar o produto.`); }
-  async function uploadFile(file?: File) { if (!file || !quoteId) return; if (!(["application/pdf", "image/jpeg", "image/png", "image/webp"] as string[]).includes(file.type)) { toast.error("Use PDF, JPG, PNG ou WebP"); return; } const reader = new FileReader(); reader.onload = () => uploadAttachment.mutate({ quoteId, fileName: file.name, mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png" | "image/webp", dataUrl: String(reader.result) }); reader.readAsDataURL(file); }
+  async function scanBarcode(event: React.FormEvent) {
+    event.preventDefault();
+    if (!barcode.trim()) {
+      const message = "Digite ou leia um código de barras antes de consultar.";
+      setOperationError(message);
+      toast.error(message);
+      return;
+    }
+    const result = await productLookup.refetch();
+    if (result.error) {
+      const message = getFormErrorMessage(
+        result.error,
+        "Não foi possível consultar o código de barras. Tente novamente."
+      );
+      setOperationError(message);
+      toast.error(message);
+      return;
+    }
+    if (result.data) {
+      setOperationError("");
+      toast.success(`${result.data.code} — ${result.data.shortDescription}`);
+    } else {
+      const message =
+        "Produto não encontrado. Confira o código ou cadastre o produto no catálogo.";
+      setOperationError(message);
+      toast.error(message);
+    }
+  }
+  function onCameraDetected(value: string) {
+    setBarcode(value);
+    toast.success(
+      `Código lido: ${value}. Clique em Consultar para localizar o produto.`
+    );
+  }
+  async function uploadFile(file?: File) {
+    if (!file || !quoteId) return;
+    if (
+      !(
+        ["application/pdf", "image/jpeg", "image/png", "image/webp"] as string[]
+      ).includes(file.type)
+    ) {
+      const message =
+        "Use um arquivo PDF, JPG, PNG ou WebP de até o limite permitido.";
+      setOperationError(message);
+      toast.error(message);
+      return;
+    }
+    setOperationError("");
+    const reader = new FileReader();
+    reader.onerror = () => {
+      const message =
+        "Não foi possível ler este arquivo. Escolha o arquivo novamente e tente.";
+      setOperationError(message);
+      toast.error(message);
+    };
+    reader.onload = () =>
+      uploadAttachment.mutate({
+        quoteId,
+        fileName: file.name,
+        mimeType: file.type as
+          | "application/pdf"
+          | "image/jpeg"
+          | "image/png"
+          | "image/webp",
+        dataUrl: String(reader.result),
+      });
+    reader.readAsDataURL(file);
+  }
 
-  return <div className="space-y-6">
-    <header><p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Operação</p><h1 className="font-display text-3xl font-bold tracking-tight">Ferramentas do dia a dia</h1><p className="mt-2 text-muted-foreground">Versione propostas, consulte produtos e organize informações internas da obra.</p></header>
-    <Card><CardHeader><CardTitle>Selecionar orçamento</CardTitle></CardHeader><CardContent><select aria-label="Orçamento das ferramentas operacionais" className="h-10 w-full rounded-lg border bg-background px-3 text-sm" value={quoteId ?? ""} onChange={(event) => setQuoteId(Number(event.target.value) || undefined)}><option value="">Selecione um orçamento</option>{quotes.data?.map((quote) => <option key={quote.id} value={quote.id}>#{quote.quoteNumber} — {quote.clientName}</option>)}</select>{selectedQuote ? <p className="mt-2 text-xs text-muted-foreground">Status: {selectedQuote.status}</p> : null}</CardContent></Card>
-    <div className="grid gap-6 xl:grid-cols-2">
-      <Card><CardHeader><CardTitle>Leitor de código de barras</CardTitle></CardHeader><CardContent><form onSubmit={scanBarcode} className="flex gap-2"><Input aria-label="Código de barras" autoFocus placeholder="Use leitor USB ou digite o código" value={barcode} onChange={(event) => setBarcode(event.target.value)} /><Button type="submit" disabled={productLookup.isFetching}>Consultar</Button></form><CameraBarcodeScanner onDetected={onCameraDetected} />{productLookup.data ? <div className="mt-4 rounded-lg bg-muted p-3 text-sm"><strong>{productLookup.data.code}</strong> — {productLookup.data.shortDescription}<br /><span className="text-muted-foreground">Saldo: {productLookup.data.stockQuantity} {productLookup.data.unit}</span></div> : null}</CardContent></Card>
-      <Card><CardHeader><CardTitle>Nova versão da proposta</CardTitle></CardHeader><CardContent><Label htmlFor="change-note">Motivo da alteração</Label><Input id="change-note" className="mt-2" value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="Ex.: ajuste de acabamento e prazo" /><Button className="mt-3" disabled={!quoteId || createVersion.isPending} onClick={() => quoteId && createVersion.mutate({ quoteId, changeNote: changeNote || null })}>Registrar versão atual</Button><div className="mt-4 space-y-2">{versions.data?.map((version) => <div key={version.id} className="flex items-center justify-between rounded-lg border p-3 text-sm"><span>Versão {version.versionNumber}{version.changeNote ? ` — ${version.changeNote}` : ""}</span><div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</span><Button variant="outline" size="sm" onClick={() => { setSelectedVersionId(version.id); setRestoreComment(""); }}>Comparar</Button></div></div>)}</div>{selectedVersion ? <div className="mt-4 space-y-3 rounded-xl border-2 border-primary/20 bg-primary/5 p-3"><div><p className="font-semibold">Comparação antes da restauração</p><p className="text-xs text-muted-foreground">Versão {selectedVersion.versionNumber}. Confira os ambientes e itens antes de confirmar.</p></div><div className="grid gap-3 md:grid-cols-2"><QuoteSnapshotPreview title="Atual" quote={selectedQuote} /><QuoteSnapshotPreview title={`Snapshot ${selectedVersion.versionNumber}`} quote={selectedSnapshot} /></div><FinancialComparison current={selectedQuote} snapshot={selectedSnapshot} /><Label htmlFor="restore-comment">Justificativa obrigatória</Label><Textarea id="restore-comment" aria-describedby="restore-comment-help" value={restoreComment} onChange={(event) => setRestoreComment(event.target.value)} placeholder="Explique por que esta versão deve ser restaurada" /><p id="restore-comment-help" className="text-xs text-muted-foreground">Mínimo de 10 caracteres. A justificativa será registrada como comentário interno.</p><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setSelectedVersionId(undefined)}>Cancelar</Button><Button disabled={!selectedSnapshot || restoreComment.trim().length < 10 || restoreVersion.isPending} onClick={() => restoreVersion.mutate({ versionId: selectedVersion.id, comment: restoreComment.trim() })}>Confirmar restauração</Button></div></div> : null}</CardContent></Card>
-      <Card><CardHeader><CardTitle>Comentários internos</CardTitle></CardHeader><CardContent><Textarea aria-label="Novo comentário interno" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Visível somente para a equipe" /><Button className="mt-3" disabled={!quoteId || !comment.trim() || addComment.isPending} onClick={() => quoteId && addComment.mutate({ quoteId, body: comment })}>Adicionar comentário</Button><div className="mt-4 space-y-2">{comments.data?.map((item) => <div key={item.id} className="rounded-lg border p-3 text-sm"><div className="flex justify-between gap-2"><span className={item.resolved ? "line-through text-muted-foreground" : ""}>{item.body}</span><Button variant="ghost" size="sm" onClick={() => resolveComment.mutate({ id: item.id, resolved: !item.resolved })}>{item.resolved ? "Reabrir" : "Resolver"}</Button></div><p className="mt-1 text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</p></div>)}</div></CardContent></Card>
-      <Card><CardHeader><CardTitle>Plantas e anexos</CardTitle></CardHeader><CardContent><Label htmlFor="quote-attachment">Adicionar PDF ou imagem</Label><Input id="quote-attachment" className="mt-2" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={!quoteId || uploadAttachment.isPending} onChange={(event) => uploadFile(event.target.files?.[0])} /><div className="mt-4 space-y-2">{attachments.data?.map((file) => <div key={file.id} className="flex justify-between rounded-lg border p-3 text-sm"><a className="truncate underline decoration-primary/40 underline-offset-4 hover:text-primary" href={`/api/quote-attachments/${file.id}/download`}>{file.fileName}</a><Badge variant="secondary">{Math.ceil(file.fileSize / 1024)} KB</Badge></div>)}</div></CardContent></Card>
+  return (
+    <div className="space-y-6">
+      <header>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          Operação
+        </p>
+        <div className="mt-2 flex flex-wrap gap-3">
+          <DraftAutosaveStatus status={commentDraft.status} />
+          <DraftAutosaveStatus status={restoreDraft.status} />
+          <DraftAutosaveStatus status={templateDraft.status} />
+        </div>
+        <h1 className="font-display text-3xl font-bold tracking-tight">
+          Ferramentas do dia a dia
+        </h1>
+        <p className="mt-2 text-muted-foreground">
+          Versione propostas, consulte produtos e organize informações internas
+          da obra.
+        </p>
+      </header>
+      <Card>
+        <CardHeader>
+          <CardTitle>Selecionar orçamento</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FormError message={operationError} />
+          <select
+            aria-label="Orçamento das ferramentas operacionais"
+            className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
+            value={quoteId ?? ""}
+            onChange={event =>
+              setQuoteId(Number(event.target.value) || undefined)
+            }
+          >
+            <option value="">Selecione um orçamento</option>
+            {quotes.data?.map(quote => (
+              <option key={quote.id} value={quote.id}>
+                #{quote.quoteNumber} — {quote.clientName}
+              </option>
+            ))}
+          </select>
+          {selectedQuote ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Status: {selectedQuote.status}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Leitor de código de barras</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={scanBarcode} className="flex gap-2">
+              <Input
+                aria-label="Código de barras"
+                autoFocus
+                placeholder="Use leitor USB ou digite o código"
+                value={barcode}
+                onChange={event => setBarcode(event.target.value)}
+              />
+              <AsyncButton
+                type="submit"
+                pending={productLookup.isFetching}
+                loadingLabel="Consultando…"
+              >
+                Consultar
+              </AsyncButton>
+            </form>
+            <CameraBarcodeScanner onDetected={onCameraDetected} />
+            {productLookup.data ? (
+              <div className="mt-4 rounded-lg bg-muted p-3 text-sm">
+                <strong>{productLookup.data.code}</strong> —{" "}
+                {productLookup.data.shortDescription}
+                <br />
+                <span className="text-muted-foreground">
+                  Saldo: {productLookup.data.stockQuantity}{" "}
+                  {productLookup.data.unit}
+                </span>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Nova versão da proposta</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Label htmlFor="change-note">Motivo da alteração</Label>
+            <Input
+              id="change-note"
+              className="mt-2"
+              value={changeNote}
+              onChange={event => setChangeNote(event.target.value)}
+              placeholder="Ex.: ajuste de acabamento e prazo"
+            />
+            <AsyncButton
+              className="mt-3"
+              pending={createVersion.isPending}
+              loadingLabel="Registrando…"
+              disabled={!quoteId}
+              onClick={() =>
+                quoteId &&
+                createVersion.mutate({
+                  quoteId,
+                  changeNote: changeNote || null,
+                })
+              }
+            >
+              Registrar versão atual
+            </AsyncButton>
+            <div className="mt-4 space-y-2">
+              {versions.data?.map(version => (
+                <div
+                  key={version.id}
+                  className="flex items-center justify-between rounded-lg border p-3 text-sm"
+                >
+                  <span>
+                    Versão {version.versionNumber}
+                    {version.changeNote ? ` — ${version.changeNote}` : ""}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(version.createdAt).toLocaleString()}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedVersionId(version.id);
+                        setRestoreComment("");
+                      }}
+                    >
+                      Comparar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {selectedVersion ? (
+              <div className="mt-4 space-y-3 rounded-xl border-2 border-primary/20 bg-primary/5 p-3">
+                <div>
+                  <p className="font-semibold">
+                    Comparação antes da restauração
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Versão {selectedVersion.versionNumber}. Confira os ambientes
+                    e itens antes de confirmar.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <QuoteSnapshotPreview title="Atual" quote={selectedQuote} />
+                  <QuoteSnapshotPreview
+                    title={`Snapshot ${selectedVersion.versionNumber}`}
+                    quote={selectedSnapshot}
+                  />
+                </div>
+                <FinancialComparison
+                  current={selectedQuote}
+                  snapshot={selectedSnapshot}
+                />
+                <Label htmlFor="restore-comment">
+                  Justificativa obrigatória
+                </Label>
+                <Textarea
+                  id="restore-comment"
+                  aria-describedby="restore-comment-help"
+                  value={restoreComment}
+                  onChange={event => setRestoreComment(event.target.value)}
+                  placeholder="Explique por que esta versão deve ser restaurada"
+                />
+                <p
+                  id="restore-comment-help"
+                  className="text-xs text-muted-foreground"
+                >
+                  Mínimo de 10 caracteres. A justificativa será registrada como
+                  comentário interno.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedVersionId(undefined)}
+                  >
+                    Cancelar
+                  </Button>
+                  <AsyncButton
+                    pending={restoreVersion.isPending}
+                    loadingLabel="Restaurando…"
+                    disabled={
+                      !selectedSnapshot || restoreComment.trim().length < 10
+                    }
+                    onClick={() =>
+                      restoreVersion.mutate({
+                        versionId: selectedVersion.id,
+                        comment: restoreComment.trim(),
+                      })
+                    }
+                  >
+                    Confirmar restauração
+                  </AsyncButton>
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Comentários internos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              aria-label="Novo comentário interno"
+              value={comment}
+              onChange={event => setComment(event.target.value)}
+              placeholder="Visível somente para a equipe"
+            />
+            <AsyncButton
+              className="mt-3"
+              pending={addComment.isPending}
+              loadingLabel="Adicionando…"
+              disabled={!quoteId || !comment.trim()}
+              onClick={() =>
+                quoteId && addComment.mutate({ quoteId, body: comment })
+              }
+            >
+              Adicionar comentário
+            </AsyncButton>
+            <div className="mt-4 space-y-2">
+              {comments.data?.map(item => (
+                <div key={item.id} className="rounded-lg border p-3 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <span
+                      className={
+                        item.resolved
+                          ? "line-through text-muted-foreground"
+                          : ""
+                      }
+                    >
+                      {item.body}
+                    </span>
+                    <AsyncButton
+                      variant="ghost"
+                      size="sm"
+                      pending={resolveComment.isPending}
+                      loadingLabel="Atualizando…"
+                      onClick={() =>
+                        resolveComment.mutate({
+                          id: item.id,
+                          resolved: !item.resolved,
+                        })
+                      }
+                    >
+                      {item.resolved ? "Reabrir" : "Resolver"}
+                    </AsyncButton>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Plantas e anexos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Label htmlFor="quote-attachment">Adicionar PDF ou imagem</Label>
+            <Input
+              id="quote-attachment"
+              className="mt-2"
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              disabled={!quoteId || uploadAttachment.isPending}
+              onChange={event => uploadFile(event.target.files?.[0])}
+            />
+            {uploadAttachment.isPending ? (
+              <p role="status" className="mt-2 text-xs text-muted-foreground">
+                Enviando anexo… Aguarde a confirmação antes de selecionar outro
+                arquivo.
+              </p>
+            ) : null}
+            <div className="mt-4 space-y-2">
+              {attachments.data?.map(file => (
+                <div
+                  key={file.id}
+                  className="flex justify-between rounded-lg border p-3 text-sm"
+                >
+                  <a
+                    className="truncate underline decoration-primary/40 underline-offset-4 hover:text-primary"
+                    href={`/api/quote-attachments/${file.id}/download`}
+                  >
+                    {file.fileName}
+                  </a>
+                  <Badge variant="secondary">
+                    {Math.ceil(file.fileSize / 1024)} KB
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Modelos por evento</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <Label htmlFor="template-event">Evento</Label>
+              <select
+                id="template-event"
+                aria-label="Evento do modelo"
+                className="mt-2 h-10 w-full rounded-lg border bg-background px-3 text-sm"
+                value={templateEvent}
+                onChange={event => setTemplateEvent(event.target.value)}
+              >
+                {Object.entries(eventLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="template-name">Nome</Label>
+              <Input
+                id="template-name"
+                className="mt-2"
+                value={templateName}
+                onChange={event => setTemplateName(event.target.value)}
+              />
+            </div>
+            <div className="md:col-span-3">
+              <Label htmlFor="template-body">Mensagem</Label>
+              <Textarea
+                id="template-body"
+                className="mt-2"
+                value={templateBody}
+                onChange={event => setTemplateBody(event.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Variáveis disponíveis: {"{{cliente}}"}, {"{{numero}}"},{" "}
+                {"{{valor}}"}, {"{{vencimento}}"}.
+              </p>
+            </div>
+          </div>
+          <AsyncButton
+            className="mt-3"
+            pending={saveTemplate.isPending}
+            loadingLabel="Salvando…"
+            onClick={() =>
+              saveTemplate.mutate({
+                event: templateEvent as "quote_sent",
+                name: templateName,
+                body: templateBody,
+                active: true,
+              })
+            }
+          >
+            Salvar modelo
+          </AsyncButton>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {templates.data?.map(template => (
+              <div key={template.id} className="rounded-lg border p-3 text-sm">
+                <strong>{template.name}</strong>
+                <p className="text-muted-foreground">
+                  {eventLabels[template.event] ?? template.event}
+                </p>
+                <p className="mt-1 line-clamp-2">{template.body}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
-    <Card><CardHeader><CardTitle>Modelos por evento</CardTitle></CardHeader><CardContent><div className="grid gap-3 md:grid-cols-3"><div><Label htmlFor="template-event">Evento</Label><select id="template-event" aria-label="Evento do modelo" className="mt-2 h-10 w-full rounded-lg border bg-background px-3 text-sm" value={templateEvent} onChange={(event) => setTemplateEvent(event.target.value)}>{Object.entries(eventLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div><Label htmlFor="template-name">Nome</Label><Input id="template-name" className="mt-2" value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></div><div className="md:col-span-3"><Label htmlFor="template-body">Mensagem</Label><Textarea id="template-body" className="mt-2" value={templateBody} onChange={(event) => setTemplateBody(event.target.value)} /><p className="mt-1 text-xs text-muted-foreground">Variáveis disponíveis: {'{{cliente}}'}, {'{{numero}}'}, {'{{valor}}'}, {'{{vencimento}}'}.</p></div></div><Button className="mt-3" disabled={saveTemplate.isPending} onClick={() => saveTemplate.mutate({ event: templateEvent as "quote_sent", name: templateName, body: templateBody, active: true })}>Salvar modelo</Button><div className="mt-4 grid gap-2 md:grid-cols-2">{templates.data?.map((template) => <div key={template.id} className="rounded-lg border p-3 text-sm"><strong>{template.name}</strong><p className="text-muted-foreground">{eventLabels[template.event] ?? template.event}</p><p className="mt-1 line-clamp-2">{template.body}</p></div>)}</div></CardContent></Card>
-  </div>;
+  );
 }
