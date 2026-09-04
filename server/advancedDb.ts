@@ -32,7 +32,7 @@ export async function restoreQuoteVersion(input: { versionId: number; userId: nu
   if (!snapshot.id || snapshot.id !== version.quoteId || !Array.isArray(snapshot.rooms)) throw new Error("Snapshot incompatível com o orçamento.");
   const justification = input.comment.trim();
   if (justification.length < 10) throw new Error("Informe uma justificativa com pelo menos 10 caracteres.");
-  const restored = await saveQuote({ ...snapshot, id: version.quoteId, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
+  const restored = await saveQuote({ ...snapshot, id: version.quoteId, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
   const restoredQuoteId = restored?.id ?? version.quoteId;
   const restoredSnapshot = await getQuote(restoredQuoteId);
   const createdVersion = restoredSnapshot ? await createQuoteVersion({ quoteId: restoredQuoteId, snapshot: restoredSnapshot, changeNote: `Restauração da versão ${version.versionNumber}: ${justification}`, userId: input.userId }) : null;

@@ -44,7 +44,7 @@ export function validateLoginCredentials(input: { username: string; password: st
   if (!/^[a-z0-9][a-z0-9._-]{2,79}$/.test(input.username.trim().toLowerCase())) return "Informe um usuário válido (3 a 80 caracteres).";
   if (input.password.length < 12 || input.password.length > 200) return "A senha deve ter entre 12 e 200 caracteres.";
   if (input.setupRequired && (!input.name || input.name.trim().length < 2)) return "Informe o nome completo do administrador.";
-  if (input.setupRequired && input.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(input.email)) return "Informe um e-mail válido.";
+  if (input.setupRequired && input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) return "Informe um e-mail válido.";
   return null;
 }
 

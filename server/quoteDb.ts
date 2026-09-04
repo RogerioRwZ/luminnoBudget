@@ -327,31 +327,51 @@ export async function getPickingList(quoteId: number) {
   };
 }
 
+export function isDuplicateQuoteNumberError(error: unknown) {
+  const mysqlError = error as { code?: string; errno?: number; message?: string } | null;
+  if (!mysqlError) return false;
+  const isDuplicateEntry = mysqlError.code === "ER_DUP_ENTRY" || mysqlError.errno === 1062;
+  return isDuplicateEntry && (!mysqlError.message || mysqlError.message.includes("quoteNumber"));
+}
+
 export async function createQuote() {
   const settings = await getSettings();
   const db = await database();
-  const highest = await db.select({ value: sql<number>`coalesce(max(${quotes.quoteNumber}), 0)` }).from(quotes);
-  const quoteNumber = Number(highest[0]?.value ?? 0) + 1;
-  const date = new Date();
-  const validUntil = new Date(date);
-  validUntil.setDate(validUntil.getDate() + 7);
-  const draft: QuoteDraft = {
-    quoteNumber,
-    clientName: "",
-    professional: "",
-    status: "draft",
-    issueDate: date,
-    validUntil,
-    discountMode: "percentage",
-    discountValue: 0,
-    shipping: 0,
-    pixDiscountMode: settings.defaultPixDiscountMode,
-    pixDiscountValue: toNumber(settings.defaultPixDiscountValue),
-    installments: settings.defaultInstallments,
-    notes: settings.defaultTerms,
-    rooms: [{ name: "GERAL", items: [] }],
-  };
-  return saveQuote(draft);
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    // O próximo número é "maior nº existente + 1", calculado fora de um
+    // lock: duas criações quase simultâneas podem calcular o mesmo valor.
+    // Como quoteNumber é UNIQUE no banco, a segunda tentativa falha aqui —
+    // em vez de propagar esse erro cru, recalculamos e tentamos de novo.
+    const highest = await db.select({ value: sql<number>`coalesce(max(${quotes.quoteNumber}), 0)` }).from(quotes);
+    const quoteNumber = Number(highest[0]?.value ?? 0) + 1;
+    const date = new Date();
+    const validUntil = new Date(date);
+    validUntil.setDate(validUntil.getDate() + 7);
+    const draft: QuoteDraft = {
+      quoteNumber,
+      clientName: "",
+      professional: "",
+      status: "draft",
+      issueDate: date,
+      validUntil,
+      discountMode: "percentage",
+      discountValue: 0,
+      shipping: 0,
+      pixDiscountMode: settings.defaultPixDiscountMode,
+      pixDiscountValue: toNumber(settings.defaultPixDiscountValue),
+      installments: settings.defaultInstallments,
+      notes: settings.defaultTerms,
+      rooms: [{ name: "GERAL", items: [] }],
+    };
+    try {
+      return await saveQuote(draft);
+    } catch (error) {
+      if (isDuplicateQuoteNumberError(error) && attempt < maxAttempts) continue;
+      throw error;
+    }
+  }
+  throw new Error("Não foi possível gerar um novo número de orçamento. Tente novamente.");
 }
 
 export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {

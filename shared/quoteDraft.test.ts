@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { duplicateDraftRoom, moveDraftItem, moveDraftRoom, removeDraftRoom } from "./quoteDraft";
+import {
+  duplicateArrayItem,
+  duplicateDraftRoom,
+  moveArrayItem,
+  moveDraftItem,
+  moveDraftRoom,
+  removeArrayItem,
+  removeDraftRoom,
+} from "./quoteDraft";
 
 describe("operações de ambientes do orçamento", () => {
   const rooms = [
@@ -27,5 +35,20 @@ describe("operações de ambientes do orçamento", () => {
   it("reordena produtos dentro do mesmo ambiente", () => {
     const result = moveDraftItem([{ code: "A" }, { code: "B" }, { code: "C" }], 2, 0);
     expect(result.map((item) => item.code)).toEqual(["C", "A", "B"]);
+  });
+});
+
+describe("utilitários genéricos de reindexação (usados também para manter estados auxiliares, como a busca de produtos por ambiente, sincronizados com a lista de ambientes)", () => {
+  it("move um valor mantendo os demais alinhados por posição", () => {
+    expect(moveArrayItem(["a", "b", "c"], 0, 1)).toEqual(["b", "a", "c"]);
+    expect(moveArrayItem(["a", "b", "c"], 0, -1)).toEqual(["a", "b", "c"]);
+  });
+
+  it("duplica um valor na posição seguinte ao original", () => {
+    expect(duplicateArrayItem(["a", "b"], 0, "a-cópia")).toEqual(["a", "a-cópia", "b"]);
+  });
+
+  it("remove um valor deslocando os índices seguintes", () => {
+    expect(removeArrayItem(["a", "b", "c"], 1)).toEqual(["a", "c"]);
   });
 });

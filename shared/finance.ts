@@ -13,8 +13,17 @@ export function splitInstallments(total: number, installmentCount: number) {
 }
 
 export function dueDateForInstallment(firstDueDate: Date, installmentNumber: number) {
+  const monthsToAdd = Math.max(0, installmentNumber - 1);
   const dueDate = new Date(firstDueDate);
-  dueDate.setMonth(dueDate.getMonth() + Math.max(0, installmentNumber - 1));
+  const targetMonthIndex = dueDate.getMonth() + monthsToAdd;
+  // Quando o dia da primeira parcela não existe no mês de destino (ex.: dia
+  // 31 e o mês seguinte tem 28/29/30 dias), o JS "estoura" para o mês
+  // seguinte (31/jan + 1 mês vira 3/mar em vez de 28/fev). Por isso
+  // calculamos quantos dias o mês de destino tem e limitamos o dia ANTES de
+  // trocar de mês, evitando esse estouro.
+  const daysInTargetMonth = new Date(dueDate.getFullYear(), targetMonthIndex + 1, 0).getDate();
+  dueDate.setDate(Math.min(dueDate.getDate(), daysInTargetMonth));
+  dueDate.setMonth(targetMonthIndex);
   return dueDate;
 }
 
