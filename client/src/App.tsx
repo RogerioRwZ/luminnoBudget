@@ -2,22 +2,33 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
-import AdminPage from "@/pages/AdminPage";
 import AuthPage from "@/pages/AuthPage";
-import CustomersPage from "@/pages/CustomersPage";
-import DashboardPage from "@/pages/DashboardPage";
-import FinancePage from "@/pages/FinancePage";
-import InventoryPage from "@/pages/InventoryPage";
-import NotFound from "@/pages/NotFound";
-import OperationsPage from "@/pages/OperationsPage";
-import PdfHistoryPage from "@/pages/PdfHistoryPage";
-import ProductsPage from "@/pages/ProductsPage";
-import QuoteEditorPage from "@/pages/QuoteEditorPage";
-import QuotesPage from "@/pages/QuotesPage";
-import SettingsPage from "@/pages/SettingsPage";
 import { Route, Switch } from "wouter";
+import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+
+// Cada página roteada vira seu próprio "chunk" JS, carregado sob demanda ao
+// navegar até ela — em vez de todas (e suas dependências, como jsPDF) irem
+// juntas no bundle inicial que todo mundo baixa só para abrir o sistema.
+const AdminPage = lazy(() => import("@/pages/AdminPage"));
+const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
+const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const FinancePage = lazy(() => import("@/pages/FinancePage"));
+const InventoryPage = lazy(() => import("@/pages/InventoryPage"));
+const NotFound = lazy(() => import("@/pages/NotFound"));
+const OperationsPage = lazy(() => import("@/pages/OperationsPage"));
+const PdfHistoryPage = lazy(() => import("@/pages/PdfHistoryPage"));
+const ProductsPage = lazy(() => import("@/pages/ProductsPage"));
+const QuoteEditorPage = lazy(() => import("@/pages/QuoteEditorPage"));
+const QuotesPage = lazy(() => import("@/pages/QuotesPage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+
+const RouteFallback = () => (
+  <div className="grid min-h-[50vh] place-items-center text-sm text-muted-foreground">
+    Carregando…
+  </div>
+);
 
 export function Router() {
   const { data, isLoading, error } = trpc.auth.status.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
@@ -26,21 +37,23 @@ export function Router() {
   if (!data.user) return <AuthPage setupRequired={data.setupRequired} />;
   return (
     <DashboardLayout user={data.user}>
-      <Switch>
-        <Route path="/" component={DashboardPage} />
-        <Route path="/orcamentos" component={QuotesPage} />
-        <Route path="/orcamentos/novo" component={QuoteEditorPage} />
-        <Route path="/orcamentos/:id" component={QuoteEditorPage} />
-        <Route path="/historico-pdfs" component={PdfHistoryPage} />
-        <Route path="/financeiro" component={FinancePage} />
-        <Route path="/catalogo" component={ProductsPage} />
-        <Route path="/estoque" component={InventoryPage} />
-        <Route path="/clientes" component={CustomersPage} />
-        <Route path="/configuracoes" component={SettingsPage} />
-        <Route path="/operacao" component={OperationsPage} />
-        <Route path="/administracao" component={AdminPage} />
-        <Route component={NotFound} />
-      </Switch>
+      <Suspense fallback={<RouteFallback />}>
+        <Switch>
+          <Route path="/" component={DashboardPage} />
+          <Route path="/orcamentos" component={QuotesPage} />
+          <Route path="/orcamentos/novo" component={QuoteEditorPage} />
+          <Route path="/orcamentos/:id" component={QuoteEditorPage} />
+          <Route path="/historico-pdfs" component={PdfHistoryPage} />
+          <Route path="/financeiro" component={FinancePage} />
+          <Route path="/catalogo" component={ProductsPage} />
+          <Route path="/estoque" component={InventoryPage} />
+          <Route path="/clientes" component={CustomersPage} />
+          <Route path="/configuracoes" component={SettingsPage} />
+          <Route path="/operacao" component={OperationsPage} />
+          <Route path="/administracao" component={AdminPage} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
     </DashboardLayout>
   );
 }

@@ -187,7 +187,10 @@ export default function InventoryPage() {
   const openDelivery = (line: (typeof fulfillments)[number]) => {
     setSelectedLine(line);
     setDeliveryForm({
-      quantity: Math.min(line.pendingQuantity, line.stockQuantity),
+      // Usa o estoque disponível (físico menos reservas de outros orçamentos
+      // aprovados para o mesmo produto), não o estoque físico total — evita
+      // sugerir uma quantidade maior do que a que está realmente livre.
+      quantity: Math.max(0, Math.min(line.pendingQuantity, line.availableQuantity)),
       responsible: "",
       notes: "",
       deliveredAt: nowInput(),
@@ -833,7 +836,7 @@ export default function InventoryPage() {
                 <p className="font-semibold">{selectedLine.shortDescription}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Reservado: {selectedLine.reservedQuantity} {selectedLine.unit}{" "}
-                  · Físico: {selectedLine.stockQuantity} {selectedLine.unit}
+                  · Disponível: {selectedLine.availableQuantity} {selectedLine.unit}
                 </p>
               </div>
               <div className="space-y-2">
@@ -844,7 +847,7 @@ export default function InventoryPage() {
                   min="0.01"
                   max={Math.min(
                     selectedLine.reservedQuantity,
-                    selectedLine.stockQuantity
+                    selectedLine.availableQuantity
                   )}
                   step="0.01"
                   value={deliveryForm.quantity}
@@ -915,7 +918,7 @@ export default function InventoryPage() {
                 deliveryForm.quantity >
                   Math.min(
                     selectedLine.reservedQuantity,
-                    selectedLine.stockQuantity
+                    selectedLine.availableQuantity
                   )
               }
               onClick={() =>

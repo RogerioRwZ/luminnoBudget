@@ -40,7 +40,7 @@ import { Router } from "./App";
 describe("Router de autenticação", () => {
   afterEach(cleanup);
 
-  it("troca do formulário para a área protegida assim que auth.status reconhece a sessão", () => {
+  it("troca do formulário para a área protegida assim que auth.status reconhece a sessão", async () => {
     state.authenticated = false;
     const view = render(<Router />);
     expect(screen.getByText("Formulário de login")).toBeTruthy();
@@ -49,13 +49,16 @@ describe("Router de autenticação", () => {
     view.rerender(<Router />);
 
     expect(screen.getByRole("region", { name: "Área protegida" })).toBeTruthy();
-    expect(screen.getByText("Painel protegido")).toBeTruthy();
+    // DashboardPage agora é carregada sob demanda (code-splitting) — aguarda
+    // o chunk resolver em vez de assumir que já está pronto de imediato.
+    expect(await screen.findByText("Painel protegido")).toBeTruthy();
   });
 
-  it("retorna ao formulário quando auth.status passa a não ter usuário após logout", () => {
+  it("retorna ao formulário quando auth.status passa a não ter usuário após logout", async () => {
     state.authenticated = true;
     const view = render(<Router />);
     expect(screen.getByRole("region", { name: "Área protegida" })).toBeTruthy();
+    await screen.findByText("Painel protegido");
 
     // Após logout bem-sucedido, a consulta de status não deve mais reconhecer a sessão.
     state.authenticated = false;

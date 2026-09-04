@@ -1,0 +1,1749 @@
+diff -ruN a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+--- a/.github/workflows/ci.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/.github/workflows/ci.yml	2026-09-04 03:00:49.064600615 +0000
+@@ -0,0 +1,69 @@
++name: CI
++
++on:
++  push:
++    branches: [main]
++  pull_request:
++
++jobs:
++  test:
++    runs-on: ubuntu-latest
++
++    # Sobe um MySQL real para o job, para que os testes de integração que
++    # dependem de banco (autenticação local, aprovação de orçamento, etc.)
++    # rodem de verdade em vez de serem silenciosamente pulados/reprovados
++    # por "Banco de dados indisponível".
++    services:
++      mysql:
++        image: mysql:8.4
++        env:
++          MYSQL_ROOT_PASSWORD: root
++          MYSQL_DATABASE: luminno_ci
++        ports:
++          - 3306:3306
++        options: >-
++          --health-cmd="mysqladmin ping -proot"
++          --health-interval=5s
++          --health-timeout=5s
++          --health-retries=10
++
++    env:
++      DATABASE_URL: mysql://root:root@127.0.0.1:3306/luminno_ci
++      JWT_SECRET: ci-test-secret-not-for-production
++
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: pnpm/action-setup@v4
++        with:
++          version: 11.24.0
++
++      - uses: actions/setup-node@v4
++        with:
++          node-version: 22
++          cache: pnpm
++
++      - name: Instalar dependências
++        run: pnpm install --frozen-lockfile
++
++      - name: Aguardar o MySQL aceitar conexões
++        run: |
++          for i in $(seq 1 30); do
++            mysqladmin ping -h127.0.0.1 -uroot -proot --silent && break
++            echo "Aguardando MySQL... ($i)"
++            sleep 2
++          done
++
++      - name: Aplicar migrações do banco
++        run: pnpm db:push
++
++      - name: Checagem de tipos
++        run: pnpm check
++
++      - name: Testes
++        run: pnpm test
++
++      - name: Build de produção
++        run: |
++          pnpm exec vite build
++          pnpm exec esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+diff -ruN a/client/src/App.test.tsx b/client/src/App.test.tsx
+--- a/client/src/App.test.tsx	2026-09-04 03:00:41.798329358 +0000
++++ b/client/src/App.test.tsx	2026-09-04 03:00:41.900199710 +0000
+@@ -40,7 +40,7 @@
+ describe("Router de autenticação", () => {
+   afterEach(cleanup);
+ 
+-  it("troca do formulário para a área protegida assim que auth.status reconhece a sessão", () => {
++  it("troca do formulário para a área protegida assim que auth.status reconhece a sessão", async () => {
+     state.authenticated = false;
+     const view = render(<Router />);
+     expect(screen.getByText("Formulário de login")).toBeTruthy();
+@@ -49,13 +49,16 @@
+     view.rerender(<Router />);
+ 
+     expect(screen.getByRole("region", { name: "Área protegida" })).toBeTruthy();
+-    expect(screen.getByText("Painel protegido")).toBeTruthy();
++    // DashboardPage agora é carregada sob demanda (code-splitting) — aguarda
++    // o chunk resolver em vez de assumir que já está pronto de imediato.
++    expect(await screen.findByText("Painel protegido")).toBeTruthy();
+   });
+ 
+-  it("retorna ao formulário quando auth.status passa a não ter usuário após logout", () => {
++  it("retorna ao formulário quando auth.status passa a não ter usuário após logout", async () => {
+     state.authenticated = true;
+     const view = render(<Router />);
+     expect(screen.getByRole("region", { name: "Área protegida" })).toBeTruthy();
++    await screen.findByText("Painel protegido");
+ 
+     // Após logout bem-sucedido, a consulta de status não deve mais reconhecer a sessão.
+     state.authenticated = false;
+diff -ruN a/client/src/App.tsx b/client/src/App.tsx
+--- a/client/src/App.tsx	2026-09-04 03:00:41.798420882 +0000
++++ b/client/src/App.tsx	2026-09-04 03:00:41.900215593 +0000
+@@ -2,23 +2,34 @@
+ import { TooltipProvider } from "@/components/ui/tooltip";
+ import DashboardLayout from "@/components/DashboardLayout";
+ import { trpc } from "@/lib/trpc";
+-import AdminPage from "@/pages/AdminPage";
+ import AuthPage from "@/pages/AuthPage";
+-import CustomersPage from "@/pages/CustomersPage";
+-import DashboardPage from "@/pages/DashboardPage";
+-import FinancePage from "@/pages/FinancePage";
+-import InventoryPage from "@/pages/InventoryPage";
+-import NotFound from "@/pages/NotFound";
+-import OperationsPage from "@/pages/OperationsPage";
+-import PdfHistoryPage from "@/pages/PdfHistoryPage";
+-import ProductsPage from "@/pages/ProductsPage";
+-import QuoteEditorPage from "@/pages/QuoteEditorPage";
+-import QuotesPage from "@/pages/QuotesPage";
+-import SettingsPage from "@/pages/SettingsPage";
+ import { Route, Switch } from "wouter";
++import { lazy, Suspense } from "react";
+ import ErrorBoundary from "./components/ErrorBoundary";
+ import { ThemeProvider } from "./contexts/ThemeContext";
+ 
++// Cada página roteada vira seu próprio "chunk" JS, carregado sob demanda ao
++// navegar até ela — em vez de todas (e suas dependências, como jsPDF) irem
++// juntas no bundle inicial que todo mundo baixa só para abrir o sistema.
++const AdminPage = lazy(() => import("@/pages/AdminPage"));
++const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
++const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
++const FinancePage = lazy(() => import("@/pages/FinancePage"));
++const InventoryPage = lazy(() => import("@/pages/InventoryPage"));
++const NotFound = lazy(() => import("@/pages/NotFound"));
++const OperationsPage = lazy(() => import("@/pages/OperationsPage"));
++const PdfHistoryPage = lazy(() => import("@/pages/PdfHistoryPage"));
++const ProductsPage = lazy(() => import("@/pages/ProductsPage"));
++const QuoteEditorPage = lazy(() => import("@/pages/QuoteEditorPage"));
++const QuotesPage = lazy(() => import("@/pages/QuotesPage"));
++const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
++
++const RouteFallback = () => (
++  <div className="grid min-h-[50vh] place-items-center text-sm text-muted-foreground">
++    Carregando…
++  </div>
++);
++
+ export function Router() {
+   const { data, isLoading, error } = trpc.auth.status.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+   if (isLoading) return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Verificando acesso seguro…</div>;
+@@ -26,21 +37,23 @@
+   if (!data.user) return <AuthPage setupRequired={data.setupRequired} />;
+   return (
+     <DashboardLayout user={data.user}>
+-      <Switch>
+-        <Route path="/" component={DashboardPage} />
+-        <Route path="/orcamentos" component={QuotesPage} />
+-        <Route path="/orcamentos/novo" component={QuoteEditorPage} />
+-        <Route path="/orcamentos/:id" component={QuoteEditorPage} />
+-        <Route path="/historico-pdfs" component={PdfHistoryPage} />
+-        <Route path="/financeiro" component={FinancePage} />
+-        <Route path="/catalogo" component={ProductsPage} />
+-        <Route path="/estoque" component={InventoryPage} />
+-        <Route path="/clientes" component={CustomersPage} />
+-        <Route path="/configuracoes" component={SettingsPage} />
+-        <Route path="/operacao" component={OperationsPage} />
+-        <Route path="/administracao" component={AdminPage} />
+-        <Route component={NotFound} />
+-      </Switch>
++      <Suspense fallback={<RouteFallback />}>
++        <Switch>
++          <Route path="/" component={DashboardPage} />
++          <Route path="/orcamentos" component={QuotesPage} />
++          <Route path="/orcamentos/novo" component={QuoteEditorPage} />
++          <Route path="/orcamentos/:id" component={QuoteEditorPage} />
++          <Route path="/historico-pdfs" component={PdfHistoryPage} />
++          <Route path="/financeiro" component={FinancePage} />
++          <Route path="/catalogo" component={ProductsPage} />
++          <Route path="/estoque" component={InventoryPage} />
++          <Route path="/clientes" component={CustomersPage} />
++          <Route path="/configuracoes" component={SettingsPage} />
++          <Route path="/operacao" component={OperationsPage} />
++          <Route path="/administracao" component={AdminPage} />
++          <Route component={NotFound} />
++        </Switch>
++      </Suspense>
+     </DashboardLayout>
+   );
+ }
+diff -ruN a/client/src/components/ErrorBoundary.test.tsx b/client/src/components/ErrorBoundary.test.tsx
+--- a/client/src/components/ErrorBoundary.test.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/client/src/components/ErrorBoundary.test.tsx	2026-09-04 03:00:41.902249327 +0000
+@@ -0,0 +1,48 @@
++// @vitest-environment jsdom
++import React from "react";
++import { cleanup, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import ErrorBoundary from "./ErrorBoundary";
++
++function Bomb(): React.ReactElement {
++  throw new Error("falha proposital para o teste");
++}
++
++describe("ErrorBoundary", () => {
++  afterEach(cleanup);
++
++  it("mostra uma mensagem em português, consistente com o resto do app, ao capturar um erro", () => {
++    const spy = vi
++      .spyOn(console, "error")
++      .mockImplementation(() => undefined);
++    render(
++      <ErrorBoundary>
++        <Bomb />
++      </ErrorBoundary>
++    );
++
++    expect(screen.getByText("Ocorreu um erro inesperado.")).toBeTruthy();
++    expect(screen.getByRole("button", { name: "Recarregar página" })).toBeTruthy();
++    expect(screen.queryByText("An unexpected error occurred.")).toBeNull();
++    spy.mockRestore();
++  });
++
++  it("mostra o stack trace apenas em ambiente de desenvolvimento (não em produção)", () => {
++    const spy = vi
++      .spyOn(console, "error")
++      .mockImplementation(() => undefined);
++    render(
++      <ErrorBoundary>
++        <Bomb />
++      </ErrorBoundary>
++    );
++
++    // No ambiente de testes (equivalente a desenvolvimento), o stack trace
++    // é exibido para ajudar quem está desenvolvendo — mas isso só acontece
++    // porque a exibição está condicionada a `import.meta.env.DEV`, que é
++    // `false` em produção (ver componente).
++    expect(import.meta.env.DEV).toBe(true);
++    expect(screen.getByText(/falha proposital para o teste/)).toBeTruthy();
++    spy.mockRestore();
++  });
++});
+diff -ruN a/client/src/components/ErrorBoundary.tsx b/client/src/components/ErrorBoundary.tsx
+--- a/client/src/components/ErrorBoundary.tsx	2026-09-04 03:00:41.799123801 +0000
++++ b/client/src/components/ErrorBoundary.tsx	2026-09-04 03:00:41.900610804 +0000
+@@ -31,13 +31,19 @@
+               className="text-destructive mb-6 flex-shrink-0"
+             />
+ 
+-            <h2 className="text-xl mb-4">An unexpected error occurred.</h2>
++            <h2 className="text-xl mb-4">Ocorreu um erro inesperado.</h2>
++            <p className="mb-6 text-center text-sm text-muted-foreground">
++              Recarregue a página. Se o problema continuar, entre em contato
++              com o suporte.
++            </p>
+ 
+-            <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
+-              <pre className="text-sm text-muted-foreground whitespace-break-spaces">
+-                {this.state.error?.stack}
+-              </pre>
+-            </div>
++            {import.meta.env.DEV ? (
++              <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
++                <pre className="text-sm text-muted-foreground whitespace-break-spaces">
++                  {this.state.error?.stack}
++                </pre>
++              </div>
++            ) : null}
+ 
+             <button
+               onClick={() => window.location.reload()}
+@@ -48,7 +54,7 @@
+               )}
+             >
+               <RotateCcw size={16} />
+-              Reload Page
++              Recarregar página
+             </button>
+           </div>
+         </div>
+diff -ruN a/client/src/lib/quotePdf.test.ts b/client/src/lib/quotePdf.test.ts
+--- a/client/src/lib/quotePdf.test.ts	2026-09-04 03:00:41.886530483 +0000
++++ b/client/src/lib/quotePdf.test.ts	2026-09-04 03:00:41.902553936 +0000
+@@ -1,31 +1,114 @@
+-import { describe, expect, it } from "vitest";
++import { afterEach, describe, expect, it, vi } from "vitest";
+ import { createQuotePdfDataUrl } from "./quotePdf";
+ 
++// PNG 1x1 válido, usado como imagem de teste para logotipo/fotos de produto.
++const ONE_PIXEL_PNG_BASE64 =
++  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
++
++function pngArrayBuffer(): ArrayBuffer {
++  const binary = atob(ONE_PIXEL_PNG_BASE64);
++  const bytes = new Uint8Array(binary.length);
++  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
++  return bytes.buffer;
++}
++
++function mockFetchOk() {
++  return vi.fn(async () => ({
++    ok: true,
++    headers: { get: () => "image/png" },
++    arrayBuffer: async () => pngArrayBuffer(),
++  })) as unknown as typeof fetch;
++}
++
++const baseInput = {
++  quoteNumber: 42,
++  clientName: "Cliente de teste",
++  professional: "Arquiteta",
++  document: "12.345.678/0001-90",
++  stateRegistration: "",
++  phone: "(11) 99999-9999",
++  address: "Rua das Luzes, 100",
++  issueDate: new Date("2026-08-25T12:00:00.000Z"),
++  validUntil: new Date("2026-09-01T12:00:00.000Z"),
++  discountMode: "percentage" as const,
++  discountValue: 5,
++  shipping: 20,
++  pixDiscountMode: "percentage" as const,
++  pixDiscountValue: 3,
++  installments: 6,
++  notes: "Prazo conforme disponibilidade.",
++  summary: { rooms: [300], productsSubtotal: 300, discountAmount: 15, shipping: 20, total: 305, pixDiscountAmount: 9.15, pixTotal: 295.85 },
++};
++
+ describe("geração de PDF de orçamento", () => {
+-  it("produz um documento PDF com os dados comerciais do orçamento", () => {
+-    const dataUrl = createQuotePdfDataUrl({
+-      quoteNumber: 42,
+-      clientName: "Cliente de teste",
+-      professional: "Arquiteta",
+-      document: "12.345.678/0001-90",
+-      stateRegistration: "",
+-      phone: "(11) 99999-9999",
+-      address: "Rua das Luzes, 100",
+-      issueDate: new Date("2026-08-25T12:00:00.000Z"),
+-      validUntil: new Date("2026-09-01T12:00:00.000Z"),
+-      discountMode: "percentage",
+-      discountValue: 5,
+-      shipping: 20,
+-      pixDiscountMode: "percentage",
+-      pixDiscountValue: 3,
+-      installments: 6,
+-      notes: "Prazo conforme disponibilidade.",
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it("produz um documento PDF com os dados comerciais do orçamento", async () => {
++    const dataUrl = await createQuotePdfDataUrl({
++      ...baseInput,
+       rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", unit: "UN", quantity: 2, unitPrice: 150 }] }],
+-      summary: { rooms: [300], productsSubtotal: 300, discountAmount: 15, shipping: 20, total: 305, pixDiscountAmount: 9.15, pixTotal: 295.85 },
+       settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
+     });
+ 
+     expect(dataUrl).toMatch(/^data:application\/pdf/);
+     expect(dataUrl.length).toBeGreaterThan(500);
+   });
++
++  it("incorpora o logotipo da empresa e as fotos dos produtos quando disponíveis", async () => {
++    const fetchMock = mockFetchOk();
++    vi.stubGlobal("fetch", fetchMock);
++
++    const dataUrl = await createQuotePdfDataUrl({
++      ...baseInput,
++      rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 2, unitPrice: 150 }] }],
++      settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", logoUrl: "/uploads/logo.png", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
++    });
++
++    expect(dataUrl).toMatch(/^data:application\/pdf/);
++    // Uma imagem por URL único (logo + foto do produto), buscada uma única vez cada.
++    const requestedUrls = fetchMock.mock.calls.map(call => call[0]);
++    expect(requestedUrls).toContain("/uploads/logo.png");
++    expect(requestedUrls).toContain("/uploads/produto.png");
++    expect(fetchMock).toHaveBeenCalledTimes(2);
++  });
++
++  it("não busca a mesma foto de produto mais de uma vez quando reutilizada em vários itens", async () => {
++    const fetchMock = mockFetchOk();
++    vi.stubGlobal("fetch", fetchMock);
++
++    await createQuotePdfDataUrl({
++      ...baseInput,
++      rooms: [
++        {
++          name: "SALA",
++          items: [
++            { code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 2, unitPrice: 150 },
++            { code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 1, unitPrice: 150 },
++          ],
++        },
++      ],
++      summary: { rooms: [450], productsSubtotal: 450, discountAmount: 0, shipping: 0, total: 450, pixDiscountAmount: 0, pixTotal: 450 },
++    });
++
++    expect(fetchMock).toHaveBeenCalledTimes(1);
++  });
++
++  it("gera o PDF normalmente mesmo quando a imagem falha ao carregar", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () => {
++        throw new Error("network down");
++      })
++    );
++
++    const dataUrl = await createQuotePdfDataUrl({
++      ...baseInput,
++      rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 2, unitPrice: 150 }] }],
++      settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", logoUrl: "/uploads/logo.png", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
++    });
++
++    expect(dataUrl).toMatch(/^data:application\/pdf/);
++  });
+ });
+diff -ruN a/client/src/lib/quotePdf.ts b/client/src/lib/quotePdf.ts
+--- a/client/src/lib/quotePdf.ts	2026-09-04 03:00:41.886583271 +0000
++++ b/client/src/lib/quotePdf.ts	2026-09-04 03:00:41.902568080 +0000
+@@ -17,18 +17,111 @@
+   pixDiscountValue: number;
+   installments: number;
+   notes: string;
+-  rooms: Array<{ name: string; items: Array<{ code: string; shortDescription: string; unit: string; quantity: number; unitPrice: number }> }>;
++  rooms: Array<{ name: string; items: Array<{ code: string; shortDescription: string; imageUrl?: string | null; unit: string; quantity: number; unitPrice: number }> }>;
+   summary: { rooms: number[]; productsSubtotal: number; discountAmount: number; shipping: number; total: number; pixDiscountAmount: number; pixTotal: number };
+-  settings?: { companyName: string; tradingName: string; document: string | null; address: string | null; phone: string | null; pixKey: string | null; pixRecipient: string | null };
++  settings?: { companyName: string; tradingName: string; logoUrl?: string | null; document: string | null; address: string | null; phone: string | null; pixKey: string | null; pixRecipient: string | null };
+ };
+ 
+ const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+ const date = (value: Date | null) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(value) : "—";
+ 
+-export function createQuotePdfDataUrl(input: QuotePdfInput) {
++type LoadedImage = { dataUrl: string; format: "JPEG" | "PNG" | "WEBP"; width: number; height: number };
++
++function guessMimeType(url: string): string | null {
++  const extension = url.split(".").pop()?.toLowerCase().split(/[?#]/)[0];
++  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
++  if (extension === "png") return "image/png";
++  if (extension === "webp") return "image/webp";
++  return null;
++}
++
++function imageFormatFromMime(mimeType: string): "JPEG" | "PNG" | "WEBP" | null {
++  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "JPEG";
++  if (mimeType === "image/png") return "PNG";
++  if (mimeType === "image/webp") return "WEBP";
++  return null;
++}
++
++async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
++  const bytes = new Uint8Array(buffer);
++  let binary = "";
++  const chunkSize = 0x8000;
++  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
++    const chunk = bytes.subarray(offset, offset + chunkSize);
++    for (let index = 0; index < chunk.length; index += 1) {
++      binary += String.fromCharCode(chunk[index]!);
++    }
++  }
++  return btoa(binary);
++}
++
++// Busca uma imagem (logotipo ou foto de produto) e a converte para um data URI
++// que o jsPDF consegue incorporar diretamente no PDF. Qualquer falha (imagem
++// ausente, rede indisponível, formato não suportado) é silenciosamente
++// ignorada: a geração do PDF nunca deve travar por causa de uma imagem.
++async function loadImage(url: string): Promise<LoadedImage | null> {
++  try {
++    const response = await fetch(url);
++    if (!response.ok) return null;
++    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || guessMimeType(url);
++    const format = mimeType ? imageFormatFromMime(mimeType) : null;
++    if (!format || !mimeType) return null;
++    const buffer = await response.arrayBuffer();
++    if (!buffer.byteLength) return null;
++    const base64 = await arrayBufferToBase64(buffer);
++    const dataUrl = `data:${mimeType};base64,${base64}`;
++    // jsPDF já sabe interpretar cabeçalhos JPEG/PNG/WEBP para nos dizer as
++    // dimensões reais da imagem, o que usamos para preservar a proporção.
++    const tempPdf = new jsPDF();
++    const properties = tempPdf.getImageProperties(dataUrl);
++    if (!properties.width || !properties.height) return null;
++    return { dataUrl, format, width: properties.width, height: properties.height };
++  } catch {
++    return null;
++  }
++}
++
++// Carrega, em paralelo e sem duplicar requisições repetidas, todas as
++// imagens (logotipo + fotos de produto) referenciadas pelo orçamento.
++async function preloadImages(input: QuotePdfInput): Promise<Map<string, LoadedImage>> {
++  const urls = new Set<string>();
++  if (input.settings?.logoUrl) urls.add(input.settings.logoUrl);
++  for (const room of input.rooms) {
++    for (const item of room.items) {
++      if (item.imageUrl) urls.add(item.imageUrl);
++    }
++  }
++  const cache = new Map<string, LoadedImage>();
++  await Promise.all(
++    Array.from(urls).map(async url => {
++      const loaded = await loadImage(url);
++      if (loaded) cache.set(url, loaded);
++    })
++  );
++  return cache;
++}
++
++// Ajusta uma imagem dentro de um quadrado de `box` mm, preservando a
++// proporção original (equivalente ao `object-fit: contain` usado na tela).
++function containInBox(image: LoadedImage, box: number) {
++  const scale = Math.min(box / image.width, box / image.height);
++  const width = image.width * scale;
++  const height = image.height * scale;
++  return { width, height, offsetX: (box - width) / 2, offsetY: (box - height) / 2 };
++}
++
++export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<string> {
++  const images = await preloadImages(input);
+   const pdf = new jsPDF({ format: "a4", unit: "mm" });
++  pdf.setProperties({
++    title: `Orçamento nº ${input.quoteNumber} — ${input.clientName || "Cliente"}`,
++    subject: `Orçamento gerado em ${date(input.issueDate)}`,
++    author: input.settings?.tradingName || input.settings?.companyName || "Luminno",
++    creator: "Luminno Orçamentos",
++  });
+   const margin = 15;
+   const contentWidth = 180;
++  const thumbBox = 10;
+   let y = 15;
+   const ensureSpace = (height: number) => {
+     if (y + height <= 280) return;
+@@ -42,17 +135,38 @@
+     y += lines.length * lineHeight;
+   };
+   const line = () => { pdf.setDrawColor(206, 206, 206); pdf.line(margin, y, margin + contentWidth, y); y += 5; };
++  const drawThumbnail = (imageUrl: string | null | undefined, x: number, top: number) => {
++    pdf.setDrawColor(225, 225, 225);
++    pdf.rect(x, top, thumbBox, thumbBox);
++    const loaded = imageUrl ? images.get(imageUrl) : undefined;
++    if (!loaded) return;
++    const fit = containInBox(loaded, thumbBox - 1);
++    pdf.addImage(
++      loaded.dataUrl,
++      loaded.format,
++      x + 0.5 + fit.offsetX,
++      top + 0.5 + fit.offsetY,
++      fit.width,
++      fit.height
++    );
++  };
+ 
+   pdf.setFillColor(24, 22, 18);
+   pdf.rect(0, 0, 210, 35, "F");
++  const logo = input.settings?.logoUrl ? images.get(input.settings.logoUrl) : undefined;
++  const textStartX = logo ? margin + 26 : margin;
++  if (logo) {
++    const fit = containInBox(logo, 22);
++    pdf.addImage(logo.dataUrl, logo.format, margin + fit.offsetX, 6.5 + fit.offsetY, fit.width, fit.height);
++  }
+   pdf.setTextColor(244, 216, 66);
+   pdf.setFont("helvetica", "bold");
+   pdf.setFontSize(18);
+-  pdf.text(input.settings?.tradingName || "Luminno", margin, 17);
++  pdf.text(input.settings?.tradingName || "Luminno", textStartX, 17);
+   pdf.setTextColor(255, 255, 255);
+   pdf.setFontSize(10);
+   pdf.setFont("helvetica", "normal");
+-  pdf.text(input.settings?.companyName || "Luminno Iluminação", margin, 24);
++  pdf.text(input.settings?.companyName || "Luminno Iluminação", textStartX, 24);
+   pdf.text(`ORÇAMENTO Nº ${input.quoteNumber}`, 195, 17, { align: "right" });
+   pdf.text(`Emissão: ${date(input.issueDate)}`, 195, 24, { align: "right" });
+   y = 45;
+@@ -77,7 +191,9 @@
+   pdf.text("DETALHAMENTO", margin, y);
+   y += 7;
+   input.rooms.forEach((room, roomIndex) => {
+-    ensureSpace(16);
++    // Reserva espaço para o cabeçalho do ambiente E ao menos um item, para
++    // que o cabeçalho nunca fique "órfão" sozinho no final de uma página.
++    ensureSpace(room.items.length ? 16 + thumbBox + 3 : 16);
+     pdf.setFillColor(244, 216, 66);
+     pdf.rect(margin, y - 4, contentWidth, 7, "F");
+     pdf.setTextColor(20, 20, 20);
+@@ -87,11 +203,13 @@
+     y += 6;
+     pdf.setFont("helvetica", "normal");
+     room.items.forEach((item) => {
+-      const description = pdf.splitTextToSize(`${item.code} · ${item.shortDescription}`, 100) as string[];
+-      const height = Math.max(7, description.length * 4.3 + 3);
++      const descriptionX = margin + 3 + thumbBox + 3;
++      const description = pdf.splitTextToSize(`${item.code} · ${item.shortDescription}`, 100 - thumbBox - 3) as string[];
++      const height = Math.max(thumbBox + 3, description.length * 4.3 + 3);
+       ensureSpace(height + 2);
++      drawThumbnail(item.imageUrl, margin + 3, y - 4);
+       pdf.setFontSize(8.5);
+-      pdf.text(description, margin + 3, y);
++      pdf.text(description, descriptionX, y);
+       pdf.text(`${item.quantity} ${item.unit}`, 122, y);
+       pdf.text(currency(item.unitPrice), 150, y, { align: "right" });
+       pdf.text(currency(item.quantity * item.unitPrice), 195, y, { align: "right" });
+diff -ruN a/client/src/pages/InventoryPage.test.tsx b/client/src/pages/InventoryPage.test.tsx
+--- a/client/src/pages/InventoryPage.test.tsx	2026-09-04 03:00:41.887652859 +0000
++++ b/client/src/pages/InventoryPage.test.tsx	2026-09-04 03:00:41.903136637 +0000
+@@ -69,4 +69,43 @@
+     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+     expect(mocks.refetchOverview).toHaveBeenCalledOnce();
+   });
++
++  it("usa o estoque disponível (não o físico total) ao sugerir e limitar a quantidade de entrega", () => {
++    mocks.overview.data = emptyOverview;
++    // Produto com 10un físicas, mas com 6un já reservadas por outro
++    // orçamento aprovado: para este item, sobram apenas 4un disponíveis,
++    // mesmo ele próprio tendo reservado (para si) até 6un.
++    mocks.fulfillments.data = [
++      {
++        quoteId: 1,
++        quoteNumber: 55,
++        clientName: "Cliente Teste",
++        phone: null,
++        quoteItemId: 900,
++        roomName: "SALA",
++        productId: 10,
++        code: "1",
++        shortDescription: "Perfil de LED",
++        unit: "UN",
++        orderedQuantity: 6,
++        deliveredQuantity: 0,
++        pendingQuantity: 6,
++        reservedQuantity: 6,
++        stockQuantity: 10,
++        availableQuantity: 4,
++        deliveries: [],
++      },
++    ];
++    render(<InventoryPage />);
++
++    fireEvent.click(screen.getByRole("button", { name: "Registrar entrega" }));
++
++    const quantityInput = screen.getByLabelText(
++      "Quantidade entregue"
++    ) as HTMLInputElement;
++    // Pré-preenchido com o disponível (4), não com o físico total (10) nem
++    // com o reservado deste item (6).
++    expect(quantityInput.value).toBe("4");
++    expect(quantityInput.max).toBe("4");
++  });
+ });
+diff -ruN a/client/src/pages/InventoryPage.tsx b/client/src/pages/InventoryPage.tsx
+--- a/client/src/pages/InventoryPage.tsx	2026-09-04 03:00:41.887717552 +0000
++++ b/client/src/pages/InventoryPage.tsx	2026-09-04 03:00:41.903149960 +0000
+@@ -187,7 +187,10 @@
+   const openDelivery = (line: (typeof fulfillments)[number]) => {
+     setSelectedLine(line);
+     setDeliveryForm({
+-      quantity: Math.min(line.pendingQuantity, line.stockQuantity),
++      // Usa o estoque disponível (físico menos reservas de outros orçamentos
++      // aprovados para o mesmo produto), não o estoque físico total — evita
++      // sugerir uma quantidade maior do que a que está realmente livre.
++      quantity: Math.max(0, Math.min(line.pendingQuantity, line.availableQuantity)),
+       responsible: "",
+       notes: "",
+       deliveredAt: nowInput(),
+@@ -833,7 +836,7 @@
+                 <p className="font-semibold">{selectedLine.shortDescription}</p>
+                 <p className="mt-1 text-xs text-muted-foreground">
+                   Reservado: {selectedLine.reservedQuantity} {selectedLine.unit}{" "}
+-                  · Físico: {selectedLine.stockQuantity} {selectedLine.unit}
++                  · Disponível: {selectedLine.availableQuantity} {selectedLine.unit}
+                 </p>
+               </div>
+               <div className="space-y-2">
+@@ -844,7 +847,7 @@
+                   min="0.01"
+                   max={Math.min(
+                     selectedLine.reservedQuantity,
+-                    selectedLine.stockQuantity
++                    selectedLine.availableQuantity
+                   )}
+                   step="0.01"
+                   value={deliveryForm.quantity}
+@@ -915,7 +918,7 @@
+                 deliveryForm.quantity >
+                   Math.min(
+                     selectedLine.reservedQuantity,
+-                    selectedLine.stockQuantity
++                    selectedLine.availableQuantity
+                   )
+               }
+               onClick={() =>
+diff -ruN a/client/src/pages/QuoteEditorPage.test.tsx b/client/src/pages/QuoteEditorPage.test.tsx
+--- a/client/src/pages/QuoteEditorPage.test.tsx	2026-09-04 03:00:41.888254808 +0000
++++ b/client/src/pages/QuoteEditorPage.test.tsx	2026-09-04 03:00:41.903435768 +0000
+@@ -1,9 +1,15 @@
+ // @vitest-environment jsdom
+ import React from "react";
+-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+ import { afterEach, describe, expect, it, vi } from "vitest";
+ 
+-const mocks = vi.hoisted(() => ({ setLocation: vi.fn(), mutate: vi.fn(), invalidate: vi.fn() }));
++const mocks = vi.hoisted(() => ({
++  setLocation: vi.fn(),
++  mutate: vi.fn(),
++  invalidate: vi.fn(),
++  saveMutate: vi.fn(),
++  saveOnSuccess: null as ((quote: unknown) => void) | null,
++}));
+ 
+ vi.mock("@/lib/trpc", () => {
+   const quote = {
+@@ -15,7 +21,19 @@
+   return {
+     trpc: {
+       useUtils: () => ({ quote: { list: { invalidate: mocks.invalidate }, pdfHistory: { invalidate: mocks.invalidate }, pdfHistoryAll: { invalidate: mocks.invalidate } }, dashboard: { invalidate: mocks.invalidate } }),
+-      quote: { get: { useQuery: () => ({ data: quote, isLoading: false }) }, pdfHistory: { useQuery: () => ({ data: [{ id: 7, fileName: "orcamento-0018.pdf", fileSize: 1200, createdAt: new Date("2026-08-25T12:00:00.000Z"), downloadUrl: "/api/quote-pdfs/7/download" }], isLoading: false, isError: false }) }, create: { useMutation: mutation }, savePdf: { useMutation: mutation }, save: { useMutation: mutation }, delete: { useMutation: mutation } },
++      quote: {
++        get: { useQuery: () => ({ data: quote, isLoading: false }) },
++        pdfHistory: { useQuery: () => ({ data: [{ id: 7, fileName: "orcamento-0018.pdf", fileSize: 1200, createdAt: new Date("2026-08-25T12:00:00.000Z"), downloadUrl: "/api/quote-pdfs/7/download" }], isLoading: false, isError: false }) },
++        create: { useMutation: mutation },
++        savePdf: { useMutation: mutation },
++        save: {
++          useMutation: (options?: { onSuccess?: (quote: unknown) => void }) => {
++            mocks.saveOnSuccess = options?.onSuccess ?? null;
++            return { isPending: false, mutate: mocks.saveMutate };
++          },
++        },
++        delete: { useMutation: mutation },
++      },
+       product: { list: { useQuery: () => ({ data: [] }) } },
+       customers: { list: { useQuery: () => ({ data: [] }) } },
+       settings: { get: { useQuery: () => ({ data: undefined }) } },
+@@ -67,20 +85,96 @@
+   it("expõe nomes acessíveis nos campos críticos da proposta", () => {
+     render(<QuoteEditorPage />);
+ 
+-    expect(screen.getByLabelText("Data de emissão")).toBeTruthy();
++    expect(screen.getByLabelText("Emissão")).toBeTruthy();
+     expect(screen.getByLabelText("Nome do cliente")).toBeTruthy();
+-    expect(screen.getByLabelText("Nome do ambiente")).toBeTruthy();
++    expect(screen.getByLabelText("Nome do ambiente 1")).toBeTruthy();
+     expect(screen.getByLabelText("Descrição do item 1")).toBeTruthy();
+     expect(screen.getByLabelText("Valor do desconto PIX")).toBeTruthy();
+   });
+ 
++  it("mantém os rótulos corretos mesmo com múltiplos ambientes", () => {
++    render(<QuoteEditorPage />);
++    fireEvent.click(screen.getByRole("button", { name: "Adicionar ambiente" }));
++
++    expect(screen.getByLabelText("Nome do ambiente 1")).toBeTruthy();
++    expect(screen.getByLabelText("Nome do ambiente 2")).toBeTruthy();
++    expect(screen.getByLabelText("Frete")).toBeTruthy();
++    expect(screen.getByLabelText("Valor do desconto PIX")).toBeTruthy();
++  });
++
+   it("impede o salvamento e mantém a pessoa no editor quando faltam dados obrigatórios", () => {
+     render(<QuoteEditorPage />);
+     fireEvent.change(screen.getByLabelText("Nome do cliente"), { target: { value: "" } });
+ 
+     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+ 
+-    expect(mocks.mutate).not.toHaveBeenCalled();
++    expect(mocks.saveMutate).not.toHaveBeenCalled();
+     expect(screen.getByLabelText("Nome do cliente")).toBeTruthy();
+   });
++
++  it("não reverte um ambiente recém-digitado quando o autosave confirma um valor anterior", () => {
++    vi.useFakeTimers();
++    try {
++      render(<QuoteEditorPage />);
++      const roomName = screen.getByDisplayValue("SALA");
++
++      // Usuário renomeia o ambiente; o autosave dispara após o debounce com esse valor.
++      fireEvent.change(roomName, { target: { value: "SALA A" } });
++      act(() => {
++        vi.advanceTimersByTime(1200);
++      });
++      expect(mocks.saveMutate).toHaveBeenCalledTimes(1);
++      expect(mocks.saveMutate).toHaveBeenLastCalledWith(
++        expect.objectContaining({ rooms: [expect.objectContaining({ name: "SALA A" })] })
++      );
++
++      // Enquanto a requisição está em andamento, a pessoa continua digitando.
++      fireEvent.change(screen.getByDisplayValue("SALA A"), {
++        target: { value: "SALA AZUL" },
++      });
++
++      // A resposta do servidor chega atrasada, confirmando o valor antigo ("SALA A").
++      const staleQuote = {
++        id: 3, quoteNumber: 18, clientId: null, clientName: "Clínica Aurora", professional: "Arquiteta", document: null, stateRegistration: null, phone: null, address: null,
++        status: "open", issueDate: new Date("2026-08-25T12:00:00.000Z"), validUntil: null, discountMode: "percentage", discountValue: "0", shipping: "0", pixDiscountMode: "percentage", pixDiscountValue: "0", installments: 6, notes: null,
++        rooms: [{ name: "SALA A", items: [{ productId: null, code: "1", shortDescription: "Perfil LED", imageUrl: null, unit: "UN", quantity: "2", unitPrice: "150" }] }],
++      };
++      act(() => {
++        mocks.saveOnSuccess?.(staleQuote);
++      });
++
++      // O texto digitado por último deve permanecer, sem reverter para o valor confirmado pelo servidor.
++      expect(screen.getByDisplayValue("SALA AZUL")).toBeTruthy();
++      expect(screen.queryByDisplayValue("SALA A")).toBeFalsy();
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  it("mantém a busca de produtos junto do ambiente correto ao reordenar ambientes", () => {
++    render(<QuoteEditorPage />);
++    const searchInputs = () =>
++      screen.getAllByPlaceholderText(
++        "Buscar e adicionar um produto do catálogo"
++      ) as HTMLInputElement[];
++
++    // Cria um segundo ambiente, ficando: [0] SALA, [1] NOVO AMBIENTE.
++    fireEvent.click(screen.getByRole("button", { name: "Adicionar ambiente" }));
++    expect(searchInputs()).toHaveLength(2);
++
++    // Digita uma busca apenas no primeiro ambiente (SALA).
++    fireEvent.change(searchInputs()[0]!, { target: { value: "led" } });
++    expect(searchInputs()[0]!.value).toBe("led");
++    expect(searchInputs()[1]!.value).toBe("");
++
++    // Move SALA (posição 0) para baixo, trocando de lugar com NOVO AMBIENTE.
++    fireEvent.click(screen.getAllByTitle("Descer ambiente")[0]!);
++    expect(screen.getByDisplayValue("NOVO AMBIENTE")).toBeTruthy();
++
++    // A busca "led" deve continuar associada ao ambiente SALA, agora na 2ª posição —
++    // e não "grudada" na posição 0, que agora pertence a outro ambiente.
++    const reordered = searchInputs();
++    expect(reordered[0]!.value).toBe("");
++    expect(reordered[1]!.value).toBe("led");
++  });
+ });
+diff -ruN a/client/src/pages/QuoteEditorPage.tsx b/client/src/pages/QuoteEditorPage.tsx
+--- a/client/src/pages/QuoteEditorPage.tsx	2026-09-04 03:00:41.888374205 +0000
++++ b/client/src/pages/QuoteEditorPage.tsx	2026-09-04 03:00:41.903454032 +0000
+@@ -29,9 +29,12 @@
+ import { trpc } from "@/lib/trpc";
+ import { calculateQuote } from "@shared/quote";
+ import {
++  duplicateArrayItem,
+   duplicateDraftRoom,
++  moveArrayItem,
+   moveDraftItem,
+   moveDraftRoom,
++  removeArrayItem,
+   removeDraftRoom,
+ } from "@shared/quoteDraft";
+ import { openPickingPrintDocument } from "@shared/pickingPrint";
+@@ -282,10 +285,10 @@
+           <span>Vr.Total</span>
+         </div>
+         {draft.rooms.map((room, index) => (
+-          <section className="print-room" key={`${room.name}-${index}`}>
++          <section className="print-room" key={index}>
+             <h4>{room.name}</h4>
+             {room.items.map((item, itemIndex) => (
+-              <div className="print-item" key={`${item.code}-${itemIndex}`}>
++              <div className="print-item" key={itemIndex}>
+                 <span className="print-product-image">
+                   {item.imageUrl ? <img src={item.imageUrl} /> : null}
+                 </span>
+@@ -367,6 +370,7 @@
+   const quoteId = Number(params?.id);
+   const utils = trpc.useUtils();
+   const serverFingerprint = useRef("");
++  const pendingSaveFingerprint = useRef("");
+   const [serverAutosaveStatus, setServerAutosaveStatus] =
+     useState<AutosaveStatus>("idle");
+   const quoteQuery = trpc.quote.get.useQuery(
+@@ -423,7 +427,18 @@
+         serverFingerprint.current = JSON.stringify(savedDraft);
+         setServerAutosaveStatus("saved");
+         setEditorError("");
+-        setDraft(savedDraft);
++        // Only replace the local draft with the server response if nothing
++        // changed locally while the request was in flight. Otherwise this
++        // would overwrite fresh keystrokes (e.g. renaming an ambiente) with
++        // the older value that was actually submitted, making the field
++        // appear to "revert" while the person is still typing.
++        setDraft(current => {
++          if (!current) return current;
++          if (JSON.stringify(current) !== pendingSaveFingerprint.current) {
++            return current;
++          }
++          return savedDraft;
++        });
+         utils.quote.list.invalidate();
+         utils.dashboard.invalidate();
+         toast.success("Orçamento salvo");
+@@ -463,7 +478,7 @@
+     draft,
+     { enabled: Boolean(draft) }
+   );
+-  const [searches, setSearches] = useState<Record<number, string>>({});
++  const [searches, setSearches] = useState<string[]>([]);
+   const [preview, setPreview] = useState(false);
+   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
+   const focusedFieldIndex = useRef<number | null>(null);
+@@ -487,6 +502,7 @@
+     setServerAutosaveStatus("waiting");
+     const timer = window.setTimeout(() => {
+       setServerAutosaveStatus("saving");
++      pendingSaveFingerprint.current = JSON.stringify(draft);
+       save.mutate(draft);
+     }, 1200);
+     return () => window.clearTimeout(timer);
+@@ -494,53 +510,6 @@
+   useEffect(() => {
+     if (isNewRoute && !draft && !createNew.isPending) createNew.mutate();
+   }, [isNewRoute, draft, createNew]);
+-  useEffect(() => {
+-    const editor = document.querySelector(".quote-editor");
+-    if (!editor) return;
+-    const staticLabels = [
+-      "Data de emissão",
+-      "Data de validade",
+-      "Nome do cliente",
+-      "Profissional responsável",
+-      "CPF ou CNPJ",
+-      "Telefone",
+-      "Endereço",
+-      "Nome do ambiente",
+-      "Buscar e adicionar produto",
+-      "Observações comerciais",
+-      "Valor do desconto",
+-      "Frete",
+-      "Valor do desconto PIX",
+-    ];
+-    const staticControls = Array.from(
+-      editor.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+-        "input, textarea"
+-      )
+-    ).filter(control => !control.closest(".quote-line"));
+-    staticControls.forEach((control, index) =>
+-      control.setAttribute(
+-        "aria-label",
+-        staticLabels[index] ?? "Campo do orçamento"
+-      )
+-    );
+-    editor.querySelectorAll(".quote-line").forEach((line, lineIndex) => {
+-      const itemLabels = [
+-        "Descrição do item",
+-        "Código do item",
+-        "Unidade do item",
+-        "Quantidade do item",
+-        "Valor unitário do item",
+-      ];
+-      line
+-        .querySelectorAll<HTMLInputElement>("input")
+-        .forEach((control, index) =>
+-          control.setAttribute(
+-            "aria-label",
+-            `${itemLabels[index] ?? "Campo do item"} ${lineIndex + 1}`
+-          )
+-        );
+-    });
+-  }, [draft]);
+   const summary = useMemo(
+     () =>
+       draft
+@@ -560,6 +529,17 @@
+     () => products.filter(product => product.active),
+     [products]
+   );
++  // Deslocamento (offset) do item global de cada ambiente, para numerar os
++  // campos de item de forma contínua entre ambientes (item 1, 2, 3...),
++  // independentemente de quantos ambientes existam.
++  const itemGlobalOffsets = useMemo(() => {
++    let running = 0;
++    return (draft?.rooms ?? []).map(room => {
++      const start = running;
++      running += room.items.length;
++      return start;
++    });
++  }, [draft]);
+   const preserveFocusedField = () => {
+     const active = document.activeElement;
+     if (
+@@ -627,6 +607,17 @@
+         : current
+     );
+   };
++  // Mantém o estado de busca de produtos (por ambiente) alinhado por posição
++  // com `draft.rooms`, para que reordenar, duplicar, remover ou adicionar um
++  // ambiente não deixe um texto de busca "grudado" na posição errada.
++  const padSearches = (list: string[], length: number) =>
++    list.length >= length ? list : [...list, ...Array(length - list.length).fill("")];
++  const setSearchAt = (index: number, value: string) =>
++    setSearches(current => {
++      const next = padSearches(current, index + 1).slice();
++      next[index] = value;
++      return next;
++    });
+   const addProduct = (roomIndex: number, productId: number) => {
+     const product = products.find(entry => entry.id === productId);
+     if (!product) return;
+@@ -656,14 +647,18 @@
+           }
+         : current
+     );
+-    setSearches(current => ({ ...current, [roomIndex]: "" }));
++    setSearchAt(roomIndex, "");
+   };
+-  const moveRoom = (index: number, direction: -1 | 1) =>
++  const moveRoom = (index: number, direction: -1 | 1) => {
+     setDraft(current =>
+       current
+         ? { ...current, rooms: moveDraftRoom(current.rooms, index, direction) }
+         : current
+     );
++    setSearches(current =>
++      moveArrayItem(padSearches(current, draft?.rooms.length ?? current.length), index, direction)
++    );
++  };
+   const moveItem = (roomIndex: number, fromIndex: number, toIndex: number) =>
+     setDraft(current =>
+       current
+@@ -680,12 +675,37 @@
+           }
+         : current
+     );
+-  const duplicateRoom = (index: number) =>
++  const duplicateRoom = (index: number) => {
+     setDraft(current =>
+       current
+         ? { ...current, rooms: duplicateDraftRoom(current.rooms, index) }
+         : current
+     );
++    setSearches(current =>
++      duplicateArrayItem(padSearches(current, draft?.rooms.length ?? current.length), index, "")
++    );
++  };
++  const removeRoom = (index: number) => {
++    setDraft(current =>
++      current
++        ? { ...current, rooms: removeDraftRoom(current.rooms, index) }
++        : current
++    );
++    setSearches(current =>
++      removeArrayItem(padSearches(current, draft?.rooms.length ?? current.length), index)
++    );
++  };
++  const addRoom = () => {
++    setDraft(current =>
++      current
++        ? {
++            ...current,
++            rooms: [...current.rooms, { name: "NOVO AMBIENTE", items: [] }],
++          }
++        : current
++    );
++    setSearches(current => [...padSearches(current, draft?.rooms.length ?? current.length), ""]);
++  };
+   const selectCustomer = (id: string) => {
+     const customer = customers.find(entry => entry.id === Number(id));
+     if (!customer) return;
+@@ -746,14 +766,20 @@
+     );
+     if (!opened) toast.error("Permita pop-ups para exportar a separação");
+   };
+-  const generatePdfHistory = () => {
++  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
++  const generatePdfHistory = async () => {
+     if (!draft || !summary) return;
+     const validation = validateQuoteDraft(draft);
+     if (validation) return toast.error(validation);
+-    savePdf.mutate({
+-      quoteId: draft.id,
+-      dataUrl: createQuotePdfDataUrl({ ...draft, summary, settings }),
+-    });
++    setIsGeneratingPdf(true);
++    try {
++      const dataUrl = await createQuotePdfDataUrl({ ...draft, summary, settings });
++      savePdf.mutate({ quoteId: draft.id, dataUrl });
++    } catch {
++      toast.error("Não foi possível gerar o PDF. Tente novamente.");
++    } finally {
++      setIsGeneratingPdf(false);
++    }
+   };
+   const printA4 = async () => {
+     setIsPreparingPrint(true);
+@@ -883,6 +909,7 @@
+               }
+               setEditorError("");
+               setServerAutosaveStatus("saving");
++              pendingSaveFingerprint.current = JSON.stringify(draft);
+               save.mutate(draft);
+             }}
+             pending={save.isPending}
+@@ -923,8 +950,9 @@
+                 </Select>
+               </div>
+               <div className="space-y-2">
+-                <Label>Emissão</Label>
++                <Label htmlFor="quote-issue-date">Emissão</Label>
+                 <Input
++                  id="quote-issue-date"
+                   type="date"
+                   value={formatDateInput(draft.issueDate)}
+                   onChange={e => {
+@@ -936,8 +964,9 @@
+                 />
+               </div>
+               <div className="space-y-2">
+-                <Label>Validade</Label>
++                <Label htmlFor="quote-valid-until">Validade</Label>
+                 <Input
++                  id="quote-valid-until"
+                   type="date"
+                   value={formatDateInput(draft.validUntil)}
+                   onChange={e =>
+@@ -978,8 +1007,9 @@
+                 </Select>
+               </div>
+               <div className="space-y-2">
+-                <Label>Nome do cliente</Label>
++                <Label htmlFor="quote-client-name">Nome do cliente</Label>
+                 <Input
++                  id="quote-client-name"
+                   value={draft.clientName}
+                   onChange={e =>
+                     changeDraft({ clientName: e.target.value, clientId: null })
+@@ -987,8 +1017,11 @@
+                 />
+               </div>
+               <div className="space-y-2">
+-                <Label>Profissional responsável</Label>
++                <Label htmlFor="quote-professional">
++                  Profissional responsável
++                </Label>
+                 <Input
++                  id="quote-professional"
+                   value={draft.professional}
+                   onChange={e =>
+                     changeDraft({
+@@ -999,22 +1032,25 @@
+                 />
+               </div>
+               <div className="space-y-2">
+-                <Label>CPF/CNPJ</Label>
++                <Label htmlFor="quote-document">CPF/CNPJ</Label>
+                 <Input
++                  id="quote-document"
+                   value={draft.document}
+                   onChange={e => changeDraft({ document: e.target.value })}
+                 />
+               </div>
+               <div className="space-y-2">
+-                <Label>Telefone</Label>
++                <Label htmlFor="quote-phone">Telefone</Label>
+                 <Input
++                  id="quote-phone"
+                   value={draft.phone}
+                   onChange={e => changeDraft({ phone: e.target.value })}
+                 />
+               </div>
+               <div className="space-y-2 md:col-span-2">
+-                <Label>Endereço</Label>
++                <Label htmlFor="quote-address">Endereço</Label>
+                 <Input
++                  id="quote-address"
+                   value={draft.address}
+                   onChange={e => changeDraft({ address: e.target.value })}
+                 />
+@@ -1035,7 +1071,7 @@
+                 : [];
+               return (
+                 <Card
+-                  key={`${room.name}-${roomIndex}`}
++                  key={roomIndex}
+                   className="overflow-hidden border-border/70 shadow-sm"
+                 >
+                   <CardHeader className="bg-muted/40 pb-4">
+@@ -1051,6 +1087,7 @@
+                               name: e.target.value.toUpperCase(),
+                             })
+                           }
++                          aria-label={`Nome do ambiente ${roomIndex + 1}`}
+                           className="h-9 border-0 bg-transparent px-0 font-display text-base font-bold shadow-none focus-visible:ring-0"
+                         />
+                       </div>
+@@ -1086,19 +1123,7 @@
+                           variant="ghost"
+                           className="text-destructive hover:text-destructive"
+                           disabled={draft.rooms.length === 1}
+-                          onClick={() =>
+-                            setDraft(current =>
+-                              current
+-                                ? {
+-                                    ...current,
+-                                    rooms: removeDraftRoom(
+-                                      current.rooms,
+-                                      roomIndex
+-                                    ),
+-                                  }
+-                                : current
+-                            )
+-                          }
++                          onClick={() => removeRoom(roomIndex)}
+                           title="Excluir ambiente"
+                         >
+                           <Trash2 className="h-4 w-4" />
+@@ -1112,13 +1137,9 @@
+                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                         <Input
+                           value={query}
+-                          onChange={e =>
+-                            setSearches(current => ({
+-                              ...current,
+-                              [roomIndex]: e.target.value,
+-                            }))
+-                          }
++                          onChange={e => setSearchAt(roomIndex, e.target.value)}
+                           placeholder="Buscar e adicionar um produto do catálogo"
++                          aria-label={`Buscar produto no ambiente ${roomIndex + 1}`}
+                           className="h-10 pl-9"
+                         />
+                       </div>
+@@ -1184,7 +1205,7 @@
+                           }}
+                           className="quote-line cursor-grab active:cursor-grabbing"
+                           title="Arraste esta linha para reordenar"
+-                          key={`${item.code}-${itemIndex}`}
++                          key={itemIndex}
+                         >
+                           <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg border bg-muted">
+                             {item.imageUrl ? (
+@@ -1204,6 +1225,7 @@
+                                   shortDescription: e.target.value,
+                                 })
+                               }
++                              aria-label={`Descrição do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
+                               className="h-8 border-0 bg-transparent px-0 text-sm font-semibold shadow-none focus-visible:ring-0"
+                             />
+                             <div className="flex gap-2">
+@@ -1214,6 +1236,7 @@
+                                     code: e.target.value,
+                                   })
+                                 }
++                                aria-label={`Código do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
+                                 className="h-6 max-w-20 border-0 bg-transparent px-0 font-mono text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
+                               />
+                               <Input
+@@ -1223,6 +1246,7 @@
+                                     unit: e.target.value.toUpperCase(),
+                                   })
+                                 }
++                                aria-label={`Unidade do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
+                                 className="h-6 w-10 border-0 bg-transparent px-0 font-mono text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
+                               />
+                             </div>
+@@ -1237,6 +1261,7 @@
+                                 quantity: parseFiniteNumber(e.target.value),
+                               })
+                             }
++                            aria-label={`Quantidade do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
+                             className="h-9"
+                           />
+                           <Input
+@@ -1249,6 +1274,7 @@
+                                 unitPrice: parseFiniteNumber(e.target.value),
+                               })
+                             }
++                            aria-label={`Valor unitário do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
+                             className="h-9"
+                           />
+                           <b className="text-right text-sm">
+@@ -1307,19 +1333,7 @@
+           <Button
+             variant="outline"
+             className="w-full border-dashed"
+-            onClick={() =>
+-              setDraft(current =>
+-                current
+-                  ? {
+-                      ...current,
+-                      rooms: [
+-                        ...current.rooms,
+-                        { name: "NOVO AMBIENTE", items: [] },
+-                      ],
+-                    }
+-                  : current
+-              )
+-            }
++            onClick={addRoom}
+           >
+             <Plus className="mr-2 h-4 w-4" />
+             Adicionar ambiente
+@@ -1332,10 +1346,12 @@
+             </CardHeader>
+             <CardContent>
+               <Textarea
++                id="quote-notes"
+                 rows={4}
+                 value={draft.notes}
+                 onChange={e => changeDraft({ notes: e.target.value })}
+                 placeholder="Condições, prazo de entrega, garantia e outras observações."
++                aria-label="Observações comerciais"
+               />
+             </CardContent>
+           </Card>
+@@ -1380,6 +1396,7 @@
+                       discountValue: parseFiniteNumber(e.target.value),
+                     })
+                   }
++                  aria-label="Valor do desconto"
+                 />
+               </div>
+               <div className="flex justify-between text-xs text-muted-foreground">
+@@ -1387,8 +1404,9 @@
+                 <span>− {money(summary.discountAmount)}</span>
+               </div>
+               <div className="grid grid-cols-[1fr_90px] items-center gap-2">
+-                <Label className="text-xs text-muted-foreground">Frete</Label>
++                <Label htmlFor="quote-shipping" className="text-xs text-muted-foreground">Frete</Label>
+                 <Input
++                  id="quote-shipping"
+                   className="h-9"
+                   type="number"
+                   min="0"
+@@ -1443,6 +1461,7 @@
+                       pixDiscountValue: parseFiniteNumber(e.target.value),
+                     })
+                   }
++                  aria-label="Valor do desconto PIX"
+                 />
+               </div>
+               <div className="rounded-xl bg-emerald-500/10 p-3">
+@@ -1515,10 +1534,10 @@
+         <Button
+           size="sm"
+           onClick={generatePdfHistory}
+-          disabled={savePdf.isPending || isPreparingPrint}
++          disabled={savePdf.isPending || isPreparingPrint || isGeneratingPdf}
+         >
+           <FileText className="mr-1.5 h-3.5 w-3.5" />
+-          {savePdf.isPending ? "Gerando PDF…" : "Gerar e salvar PDF"}
++          {savePdf.isPending || isGeneratingPdf ? "Gerando PDF…" : "Gerar e salvar PDF"}
+         </Button>
+       </div>
+     </div>
+diff -ruN a/pnpm-lock.yaml b/pnpm-lock.yaml
+--- a/pnpm-lock.yaml	2026-09-04 03:00:41.892037732 +0000
++++ b/pnpm-lock.yaml	2026-09-04 03:00:49.062399473 +0000
+@@ -9,7 +9,7 @@
+   path-to-regexp: 0.1.13
+   lodash-es: 4.18.1
+   lodash: 4.18.1
+-  qs: 6.15.2
++  qs: 6.16.0
+   body-parser: 1.20.6
+   esbuild: 0.28.2
+ 
+@@ -2836,8 +2836,8 @@
+     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
+     engines: {node: '>=6'}
+ 
+-  qs@6.15.2:
+-    resolution: {integrity: sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==}
++  qs@6.16.0:
++    resolution: {integrity: sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==}
+     engines: {node: '>=0.6'}
+ 
+   raf@3.4.1:
+@@ -3011,8 +3011,8 @@
+   setprototypeof@1.2.0:
+     resolution: {integrity: sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==}
+ 
+-  side-channel-list@1.0.0:
+-    resolution: {integrity: sha512-FCLHtRD/gnpCiCHEiJLOwdmFP+wzCmDEkc9y7NsYxeF4u7Btsn1ZuwgwJGxImImHicJArLP4R0yX4c2KCrMrTA==}
++  side-channel-list@1.0.1:
++    resolution: {integrity: sha512-mjn/0bi/oUURjc5Xl7IaWi/OJJJumuoJFQJfDDyO46+hBWsfaVM65TBHq2eoZBhzl9EchxOijpkbRC8SVBQU0w==}
+     engines: {node: '>= 0.4'}
+ 
+   side-channel-map@1.0.1:
+@@ -3023,8 +3023,8 @@
+     resolution: {integrity: sha512-WPS/HvHQTYnHisLo9McqBHOJk2FkHO/tlpvldyrnem4aeQp4hai3gythswg6p01oSoTl58rcpiFAjF2br2Ak2A==}
+     engines: {node: '>= 0.4'}
+ 
+-  side-channel@1.1.0:
+-    resolution: {integrity: sha512-ZX99e6tRweoUXqR+VBrslhda51Nh5MTQwou5tnUDgbtyM0dBgmhEDtWGP/xbKn6hqfPRHujUNwz5fy/wbbhnpw==}
++  side-channel@1.1.1:
++    resolution: {integrity: sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==}
+     engines: {node: '>= 0.4'}
+ 
+   siginfo@2.0.0:
+@@ -4678,7 +4678,7 @@
+       http-errors: 2.0.1
+       iconv-lite: 0.4.24
+       on-finished: 2.4.1
+-      qs: 6.15.2
++      qs: 6.16.0
+       raw-body: 2.5.3
+       type-is: 1.6.18
+       unpipe: 1.0.0
+@@ -5022,7 +5022,7 @@
+       parseurl: 1.3.3
+       path-to-regexp: 0.1.13
+       proxy-addr: 2.0.7
+-      qs: 6.15.2
++      qs: 6.16.0
+       range-parser: 1.2.1
+       safe-buffer: 5.2.1
+       send: 0.19.0
+@@ -5961,9 +5961,10 @@
+ 
+   punycode@2.3.1: {}
+ 
+-  qs@6.15.2:
++  qs@6.16.0:
+     dependencies:
+-      side-channel: 1.1.0
++      es-define-property: 1.0.1
++      side-channel: 1.1.1
+ 
+   raf@3.4.1:
+     dependencies:
+@@ -6192,7 +6193,7 @@
+ 
+   setprototypeof@1.2.0: {}
+ 
+-  side-channel-list@1.0.0:
++  side-channel-list@1.0.1:
+     dependencies:
+       es-errors: 1.3.0
+       object-inspect: 1.13.4
+@@ -6212,11 +6213,11 @@
+       object-inspect: 1.13.4
+       side-channel-map: 1.0.1
+ 
+-  side-channel@1.1.0:
++  side-channel@1.1.1:
+     dependencies:
+       es-errors: 1.3.0
+       object-inspect: 1.13.4
+-      side-channel-list: 1.0.0
++      side-channel-list: 1.0.1
+       side-channel-map: 1.0.1
+       side-channel-weakmap: 1.0.2
+ 
+diff -ruN a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+--- a/pnpm-workspace.yaml	2026-09-04 03:00:41.892228197 +0000
++++ b/pnpm-workspace.yaml	2026-09-04 03:00:41.906221213 +0000
+@@ -6,7 +6,7 @@
+   path-to-regexp: 0.1.13
+   lodash-es: 4.18.1
+   lodash: 4.18.1
+-  qs: 6.15.2
++  qs: 6.16.0
+   body-parser: 1.20.6
+   esbuild: 0.28.2
+ 
+diff -ruN a/server/advancedDb.ts b/server/advancedDb.ts
+--- a/server/advancedDb.ts	2026-09-04 03:00:41.893722584 +0000
++++ b/server/advancedDb.ts	2026-09-04 03:00:41.907245027 +0000
+@@ -32,7 +32,7 @@
+   if (!snapshot.id || snapshot.id !== version.quoteId || !Array.isArray(snapshot.rooms)) throw new Error("Snapshot incompatível com o orçamento.");
+   const justification = input.comment.trim();
+   if (justification.length < 10) throw new Error("Informe uma justificativa com pelo menos 10 caracteres.");
+-  const restored = await saveQuote({ ...snapshot, id: version.quoteId, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
++  const restored = await saveQuote({ ...snapshot, id: version.quoteId, status: snapshot.status === "lost" ? "open" : snapshot.status, notes: `${snapshot.notes ?? ""}${snapshot.notes ? "\n" : ""}Restaurado da versão ${version.versionNumber}.` }, input.userId);
+   const restoredQuoteId = restored?.id ?? version.quoteId;
+   const restoredSnapshot = await getQuote(restoredQuoteId);
+   const createdVersion = restoredSnapshot ? await createQuoteVersion({ quoteId: restoredQuoteId, snapshot: restoredSnapshot, changeNote: `Restauração da versão ${version.versionNumber}: ${justification}`, userId: input.userId }) : null;
+diff -ruN a/server/quoteDb.test.ts b/server/quoteDb.test.ts
+--- a/server/quoteDb.test.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/server/quoteDb.test.ts	2026-09-04 03:00:41.908118122 +0000
+@@ -0,0 +1,34 @@
++import { describe, expect, it } from "vitest";
++import { isDuplicateQuoteNumberError } from "./quoteDb";
++
++describe("isDuplicateQuoteNumberError", () => {
++  it("reconhece uma violação de unicidade do quoteNumber (mysql2)", () => {
++    expect(
++      isDuplicateQuoteNumberError({
++        code: "ER_DUP_ENTRY",
++        errno: 1062,
++        message: "Duplicate entry '5' for key 'quotes.quoteNumber'",
++      })
++    ).toBe(true);
++  });
++
++  it("também reconhece pelo errno quando o code não está presente", () => {
++    expect(isDuplicateQuoteNumberError({ errno: 1062 })).toBe(true);
++  });
++
++  it("ignora violações de unicidade de outras colunas (ex.: barcode de produto)", () => {
++    expect(
++      isDuplicateQuoteNumberError({
++        code: "ER_DUP_ENTRY",
++        errno: 1062,
++        message: "Duplicate entry '789' for key 'products.barcode'",
++      })
++    ).toBe(false);
++  });
++
++  it("ignora erros que não são de chave duplicada", () => {
++    expect(isDuplicateQuoteNumberError(new Error("Banco de dados indisponível."))).toBe(false);
++    expect(isDuplicateQuoteNumberError(null)).toBe(false);
++    expect(isDuplicateQuoteNumberError(undefined)).toBe(false);
++  });
++});
+diff -ruN a/server/quoteDb.ts b/server/quoteDb.ts
+--- a/server/quoteDb.ts	2026-09-04 03:00:41.894632487 +0000
++++ b/server/quoteDb.ts	2026-09-04 03:00:41.907642093 +0000
+@@ -327,31 +327,51 @@
+   };
+ }
+ 
++export function isDuplicateQuoteNumberError(error: unknown) {
++  const mysqlError = error as { code?: string; errno?: number; message?: string } | null;
++  if (!mysqlError) return false;
++  const isDuplicateEntry = mysqlError.code === "ER_DUP_ENTRY" || mysqlError.errno === 1062;
++  return isDuplicateEntry && (!mysqlError.message || mysqlError.message.includes("quoteNumber"));
++}
++
+ export async function createQuote() {
+   const settings = await getSettings();
+   const db = await database();
+-  const highest = await db.select({ value: sql<number>`coalesce(max(${quotes.quoteNumber}), 0)` }).from(quotes);
+-  const quoteNumber = Number(highest[0]?.value ?? 0) + 1;
+-  const date = new Date();
+-  const validUntil = new Date(date);
+-  validUntil.setDate(validUntil.getDate() + 7);
+-  const draft: QuoteDraft = {
+-    quoteNumber,
+-    clientName: "",
+-    professional: "",
+-    status: "draft",
+-    issueDate: date,
+-    validUntil,
+-    discountMode: "percentage",
+-    discountValue: 0,
+-    shipping: 0,
+-    pixDiscountMode: settings.defaultPixDiscountMode,
+-    pixDiscountValue: toNumber(settings.defaultPixDiscountValue),
+-    installments: settings.defaultInstallments,
+-    notes: settings.defaultTerms,
+-    rooms: [{ name: "GERAL", items: [] }],
+-  };
+-  return saveQuote(draft);
++  const maxAttempts = 5;
++  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
++    // O próximo número é "maior nº existente + 1", calculado fora de um
++    // lock: duas criações quase simultâneas podem calcular o mesmo valor.
++    // Como quoteNumber é UNIQUE no banco, a segunda tentativa falha aqui —
++    // em vez de propagar esse erro cru, recalculamos e tentamos de novo.
++    const highest = await db.select({ value: sql<number>`coalesce(max(${quotes.quoteNumber}), 0)` }).from(quotes);
++    const quoteNumber = Number(highest[0]?.value ?? 0) + 1;
++    const date = new Date();
++    const validUntil = new Date(date);
++    validUntil.setDate(validUntil.getDate() + 7);
++    const draft: QuoteDraft = {
++      quoteNumber,
++      clientName: "",
++      professional: "",
++      status: "draft",
++      issueDate: date,
++      validUntil,
++      discountMode: "percentage",
++      discountValue: 0,
++      shipping: 0,
++      pixDiscountMode: settings.defaultPixDiscountMode,
++      pixDiscountValue: toNumber(settings.defaultPixDiscountValue),
++      installments: settings.defaultInstallments,
++      notes: settings.defaultTerms,
++      rooms: [{ name: "GERAL", items: [] }],
++    };
++    try {
++      return await saveQuote(draft);
++    } catch (error) {
++      if (isDuplicateQuoteNumberError(error) && attempt < maxAttempts) continue;
++      throw error;
++    }
++  }
++  throw new Error("Não foi possível gerar um novo número de orçamento. Tente novamente.");
+ }
+ 
+ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
+diff -ruN a/shared/finance.test.ts b/shared/finance.test.ts
+--- a/shared/finance.test.ts	2026-09-04 03:00:41.895381962 +0000
++++ b/shared/finance.test.ts	2026-09-04 03:00:41.908259768 +0000
+@@ -12,6 +12,18 @@
+     expect(dueDateForInstallment(new Date("2026-01-15T12:00:00Z"), 3).toISOString()).toBe("2026-03-15T12:00:00.000Z");
+   });
+ 
++  it("não pula fevereiro quando a primeira parcela vence no dia 31", () => {
++    const firstDueDate = new Date("2026-01-31T12:00:00Z");
++    // 2026 não é bissexto: fevereiro tem 28 dias.
++    expect(dueDateForInstallment(firstDueDate, 2).toISOString()).toBe("2026-02-28T12:00:00.000Z");
++    expect(dueDateForInstallment(firstDueDate, 3).toISOString()).toBe("2026-03-31T12:00:00.000Z");
++  });
++
++  it("usa o dia 29 de fevereiro em ano bissexto ao invés de estourar para março", () => {
++    const firstDueDate = new Date("2028-01-31T12:00:00Z");
++    expect(dueDateForInstallment(firstDueDate, 2).toISOString()).toBe("2028-02-29T12:00:00.000Z");
++  });
++
+   it("distingue cobrança aberta, parcial, paga, vencida e cancelada", () => {
+     const dueDate = new Date("2026-02-01T12:00:00Z");
+     const now = new Date("2026-01-15T12:00:00Z");
+diff -ruN a/shared/finance.ts b/shared/finance.ts
+--- a/shared/finance.ts	2026-09-04 03:00:41.895431200 +0000
++++ b/shared/finance.ts	2026-09-04 03:00:41.908270891 +0000
+@@ -13,8 +13,17 @@
+ }
+ 
+ export function dueDateForInstallment(firstDueDate: Date, installmentNumber: number) {
++  const monthsToAdd = Math.max(0, installmentNumber - 1);
+   const dueDate = new Date(firstDueDate);
+-  dueDate.setMonth(dueDate.getMonth() + Math.max(0, installmentNumber - 1));
++  const targetMonthIndex = dueDate.getMonth() + monthsToAdd;
++  // Quando o dia da primeira parcela não existe no mês de destino (ex.: dia
++  // 31 e o mês seguinte tem 28/29/30 dias), o JS "estoura" para o mês
++  // seguinte (31/jan + 1 mês vira 3/mar em vez de 28/fev). Por isso
++  // calculamos quantos dias o mês de destino tem e limitamos o dia ANTES de
++  // trocar de mês, evitando esse estouro.
++  const daysInTargetMonth = new Date(dueDate.getFullYear(), targetMonthIndex + 1, 0).getDate();
++  dueDate.setDate(Math.min(dueDate.getDate(), daysInTargetMonth));
++  dueDate.setMonth(targetMonthIndex);
+   return dueDate;
+ }
+ 
+diff -ruN a/shared/formValidation.test.ts b/shared/formValidation.test.ts
+--- a/shared/formValidation.test.ts	2026-09-04 03:00:41.895487607 +0000
++++ b/shared/formValidation.test.ts	2026-09-04 03:00:41.908307760 +0000
+@@ -27,6 +27,11 @@
+     expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: false })).toBeNull();
+   });
+ 
++  it("aceita um e-mail válido (incluindo quando contém a letra 's') ao configurar o administrador", () => {
++    expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: true, name: "Ana Silva", email: "ana.silva@empresa.com" })).toBeNull();
++    expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: true, name: "Ana Silva", email: "sem-arroba-empresa.com" })).toContain("e-mail");
++  });
++
+   it("aplica limites de configurações", () => {
+     expect(validateSettingsNumbers({ defaultPixDiscountValue: 0, defaultInstallments: 8, alertThresholdDays: 7 })).toBeNull();
+     expect(validateSettingsNumbers({ defaultPixDiscountValue: 0, defaultInstallments: 0, alertThresholdDays: 7 })).toContain("parcelas");
+diff -ruN a/shared/formValidation.ts b/shared/formValidation.ts
+--- a/shared/formValidation.ts	2026-09-04 03:00:41.895528762 +0000
++++ b/shared/formValidation.ts	2026-09-04 03:00:41.908320560 +0000
+@@ -44,7 +44,7 @@
+   if (!/^[a-z0-9][a-z0-9._-]{2,79}$/.test(input.username.trim().toLowerCase())) return "Informe um usuário válido (3 a 80 caracteres).";
+   if (input.password.length < 12 || input.password.length > 200) return "A senha deve ter entre 12 e 200 caracteres.";
+   if (input.setupRequired && (!input.name || input.name.trim().length < 2)) return "Informe o nome completo do administrador.";
+-  if (input.setupRequired && input.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(input.email)) return "Informe um e-mail válido.";
++  if (input.setupRequired && input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) return "Informe um e-mail válido.";
+   return null;
+ }
+ 
+diff -ruN a/shared/quoteDraft.test.ts b/shared/quoteDraft.test.ts
+--- a/shared/quoteDraft.test.ts	2026-09-04 03:00:41.896135541 +0000
++++ b/shared/quoteDraft.test.ts	2026-09-04 03:00:41.908633125 +0000
+@@ -1,5 +1,13 @@
+ import { describe, expect, it } from "vitest";
+-import { duplicateDraftRoom, moveDraftItem, moveDraftRoom, removeDraftRoom } from "./quoteDraft";
++import {
++  duplicateArrayItem,
++  duplicateDraftRoom,
++  moveArrayItem,
++  moveDraftItem,
++  moveDraftRoom,
++  removeArrayItem,
++  removeDraftRoom,
++} from "./quoteDraft";
+ 
+ describe("operações de ambientes do orçamento", () => {
+   const rooms = [
+@@ -29,3 +37,18 @@
+     expect(result.map((item) => item.code)).toEqual(["C", "A", "B"]);
+   });
+ });
++
++describe("utilitários genéricos de reindexação (usados também para manter estados auxiliares, como a busca de produtos por ambiente, sincronizados com a lista de ambientes)", () => {
++  it("move um valor mantendo os demais alinhados por posição", () => {
++    expect(moveArrayItem(["a", "b", "c"], 0, 1)).toEqual(["b", "a", "c"]);
++    expect(moveArrayItem(["a", "b", "c"], 0, -1)).toEqual(["a", "b", "c"]);
++  });
++
++  it("duplica um valor na posição seguinte ao original", () => {
++    expect(duplicateArrayItem(["a", "b"], 0, "a-cópia")).toEqual(["a", "a-cópia", "b"]);
++  });
++
++  it("remove um valor deslocando os índices seguintes", () => {
++    expect(removeArrayItem(["a", "b", "c"], 1)).toEqual(["a", "c"]);
++  });
++});
+diff -ruN a/shared/quoteDraft.ts b/shared/quoteDraft.ts
+--- a/shared/quoteDraft.ts	2026-09-04 03:00:41.896192203 +0000
++++ b/shared/quoteDraft.ts	2026-09-04 03:00:41.908644362 +0000
+@@ -3,14 +3,31 @@
+   items: TItem[];
+ };
+ 
+-export function moveDraftRoom<TItem>(rooms: DraftRoom<TItem>[], index: number, direction: -1 | 1) {
++export function moveArrayItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
+   const target = index + direction;
+-  if (target < 0 || target >= rooms.length) return rooms;
+-  const next = rooms.map((room) => ({ ...room, items: [...room.items] }));
++  if (target < 0 || target >= items.length) return items;
++  const next = [...items];
+   [next[index], next[target]] = [next[target]!, next[index]!];
+   return next;
+ }
+ 
++export function duplicateArrayItem<T>(items: T[], index: number, copy: T): T[] {
++  if (index < 0 || index >= items.length) return items;
++  return [...items.slice(0, index + 1), copy, ...items.slice(index + 1)];
++}
++
++export function removeArrayItem<T>(items: T[], index: number): T[] {
++  if (index < 0 || index >= items.length) return items;
++  return items.filter((_, current) => current !== index);
++}
++
++export function moveDraftRoom<TItem>(rooms: DraftRoom<TItem>[], index: number, direction: -1 | 1) {
++  const target = index + direction;
++  if (target < 0 || target >= rooms.length) return rooms;
++  const cloned = rooms.map((room) => ({ ...room, items: [...room.items] }));
++  return moveArrayItem(cloned, index, direction);
++}
++
+ export function duplicateDraftRoom<TItem>(rooms: DraftRoom<TItem>[], index: number) {
+   const source = rooms[index];
+   if (!source) return rooms;
+@@ -18,12 +35,12 @@
+     name: `${source.name} (CÓPIA)`,
+     items: source.items.map((item) => ({ ...item })),
+   };
+-  return [...rooms.slice(0, index + 1), copy, ...rooms.slice(index + 1)];
++  return duplicateArrayItem(rooms, index, copy);
+ }
+ 
+ export function removeDraftRoom<TItem>(rooms: DraftRoom<TItem>[], index: number) {
+-  if (rooms.length <= 1 || index < 0 || index >= rooms.length) return rooms;
+-  return rooms.filter((_, roomIndex) => roomIndex !== index);
++  if (rooms.length <= 1) return rooms;
++  return removeArrayItem(rooms, index);
+ }
+ 
+ export function moveDraftItem<TItem>(items: TItem[], fromIndex: number, toIndex: number) {

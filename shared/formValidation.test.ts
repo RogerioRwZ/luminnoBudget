@@ -27,6 +27,11 @@ describe("form validation", () => {
     expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: false })).toBeNull();
   });
 
+  it("aceita um e-mail válido (incluindo quando contém a letra 's') ao configurar o administrador", () => {
+    expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: true, name: "Ana Silva", email: "ana.silva@empresa.com" })).toBeNull();
+    expect(validateLoginCredentials({ username: "ana.silva", password: "senha-forte-com-12", setupRequired: true, name: "Ana Silva", email: "sem-arroba-empresa.com" })).toContain("e-mail");
+  });
+
   it("aplica limites de configurações", () => {
     expect(validateSettingsNumbers({ defaultPixDiscountValue: 0, defaultInstallments: 8, alertThresholdDays: 7 })).toBeNull();
     expect(validateSettingsNumbers({ defaultPixDiscountValue: 0, defaultInstallments: 0, alertThresholdDays: 7 })).toContain("parcelas");

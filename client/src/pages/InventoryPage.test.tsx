@@ -69,4 +69,43 @@ describe("InventoryPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(mocks.refetchOverview).toHaveBeenCalledOnce();
   });
+
+  it("usa o estoque disponível (não o físico total) ao sugerir e limitar a quantidade de entrega", () => {
+    mocks.overview.data = emptyOverview;
+    // Produto com 10un físicas, mas com 6un já reservadas por outro
+    // orçamento aprovado: para este item, sobram apenas 4un disponíveis,
+    // mesmo ele próprio tendo reservado (para si) até 6un.
+    mocks.fulfillments.data = [
+      {
+        quoteId: 1,
+        quoteNumber: 55,
+        clientName: "Cliente Teste",
+        phone: null,
+        quoteItemId: 900,
+        roomName: "SALA",
+        productId: 10,
+        code: "1",
+        shortDescription: "Perfil de LED",
+        unit: "UN",
+        orderedQuantity: 6,
+        deliveredQuantity: 0,
+        pendingQuantity: 6,
+        reservedQuantity: 6,
+        stockQuantity: 10,
+        availableQuantity: 4,
+        deliveries: [],
+      },
+    ];
+    render(<InventoryPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrega" }));
+
+    const quantityInput = screen.getByLabelText(
+      "Quantidade entregue"
+    ) as HTMLInputElement;
+    // Pré-preenchido com o disponível (4), não com o físico total (10) nem
+    // com o reservado deste item (6).
+    expect(quantityInput.value).toBe("4");
+    expect(quantityInput.max).toBe("4");
+  });
 });

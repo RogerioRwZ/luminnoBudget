@@ -29,9 +29,12 @@ import { createQuotePdfDataUrl } from "@/lib/quotePdf";
 import { trpc } from "@/lib/trpc";
 import { calculateQuote } from "@shared/quote";
 import {
+  duplicateArrayItem,
   duplicateDraftRoom,
+  moveArrayItem,
   moveDraftItem,
   moveDraftRoom,
+  removeArrayItem,
   removeDraftRoom,
 } from "@shared/quoteDraft";
 import { openPickingPrintDocument } from "@shared/pickingPrint";
@@ -282,10 +285,10 @@ function QuotePrintDocument({
           <span>Vr.Total</span>
         </div>
         {draft.rooms.map((room, index) => (
-          <section className="print-room" key={`${room.name}-${index}`}>
+          <section className="print-room" key={index}>
             <h4>{room.name}</h4>
             {room.items.map((item, itemIndex) => (
-              <div className="print-item" key={`${item.code}-${itemIndex}`}>
+              <div className="print-item" key={itemIndex}>
                 <span className="print-product-image">
                   {item.imageUrl ? <img src={item.imageUrl} /> : null}
                 </span>
@@ -367,6 +370,7 @@ export default function QuoteEditorPage() {
   const quoteId = Number(params?.id);
   const utils = trpc.useUtils();
   const serverFingerprint = useRef("");
+  const pendingSaveFingerprint = useRef("");
   const [serverAutosaveStatus, setServerAutosaveStatus] =
     useState<AutosaveStatus>("idle");
   const quoteQuery = trpc.quote.get.useQuery(
@@ -423,7 +427,18 @@ export default function QuoteEditorPage() {
         serverFingerprint.current = JSON.stringify(savedDraft);
         setServerAutosaveStatus("saved");
         setEditorError("");
-        setDraft(savedDraft);
+        // Only replace the local draft with the server response if nothing
+        // changed locally while the request was in flight. Otherwise this
+        // would overwrite fresh keystrokes (e.g. renaming an ambiente) with
+        // the older value that was actually submitted, making the field
+        // appear to "revert" while the person is still typing.
+        setDraft(current => {
+          if (!current) return current;
+          if (JSON.stringify(current) !== pendingSaveFingerprint.current) {
+            return current;
+          }
+          return savedDraft;
+        });
         utils.quote.list.invalidate();
         utils.dashboard.invalidate();
         toast.success("Orçamento salvo");
@@ -463,7 +478,7 @@ export default function QuoteEditorPage() {
     draft,
     { enabled: Boolean(draft) }
   );
-  const [searches, setSearches] = useState<Record<number, string>>({});
+  const [searches, setSearches] = useState<string[]>([]);
   const [preview, setPreview] = useState(false);
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const focusedFieldIndex = useRef<number | null>(null);
@@ -487,6 +502,7 @@ export default function QuoteEditorPage() {
     setServerAutosaveStatus("waiting");
     const timer = window.setTimeout(() => {
       setServerAutosaveStatus("saving");
+      pendingSaveFingerprint.current = JSON.stringify(draft);
       save.mutate(draft);
     }, 1200);
     return () => window.clearTimeout(timer);
@@ -494,53 +510,6 @@ export default function QuoteEditorPage() {
   useEffect(() => {
     if (isNewRoute && !draft && !createNew.isPending) createNew.mutate();
   }, [isNewRoute, draft, createNew]);
-  useEffect(() => {
-    const editor = document.querySelector(".quote-editor");
-    if (!editor) return;
-    const staticLabels = [
-      "Data de emissão",
-      "Data de validade",
-      "Nome do cliente",
-      "Profissional responsável",
-      "CPF ou CNPJ",
-      "Telefone",
-      "Endereço",
-      "Nome do ambiente",
-      "Buscar e adicionar produto",
-      "Observações comerciais",
-      "Valor do desconto",
-      "Frete",
-      "Valor do desconto PIX",
-    ];
-    const staticControls = Array.from(
-      editor.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-        "input, textarea"
-      )
-    ).filter(control => !control.closest(".quote-line"));
-    staticControls.forEach((control, index) =>
-      control.setAttribute(
-        "aria-label",
-        staticLabels[index] ?? "Campo do orçamento"
-      )
-    );
-    editor.querySelectorAll(".quote-line").forEach((line, lineIndex) => {
-      const itemLabels = [
-        "Descrição do item",
-        "Código do item",
-        "Unidade do item",
-        "Quantidade do item",
-        "Valor unitário do item",
-      ];
-      line
-        .querySelectorAll<HTMLInputElement>("input")
-        .forEach((control, index) =>
-          control.setAttribute(
-            "aria-label",
-            `${itemLabels[index] ?? "Campo do item"} ${lineIndex + 1}`
-          )
-        );
-    });
-  }, [draft]);
   const summary = useMemo(
     () =>
       draft
@@ -560,6 +529,17 @@ export default function QuoteEditorPage() {
     () => products.filter(product => product.active),
     [products]
   );
+  // Deslocamento (offset) do item global de cada ambiente, para numerar os
+  // campos de item de forma contínua entre ambientes (item 1, 2, 3...),
+  // independentemente de quantos ambientes existam.
+  const itemGlobalOffsets = useMemo(() => {
+    let running = 0;
+    return (draft?.rooms ?? []).map(room => {
+      const start = running;
+      running += room.items.length;
+      return start;
+    });
+  }, [draft]);
   const preserveFocusedField = () => {
     const active = document.activeElement;
     if (
@@ -627,6 +607,17 @@ export default function QuoteEditorPage() {
         : current
     );
   };
+  // Mantém o estado de busca de produtos (por ambiente) alinhado por posição
+  // com `draft.rooms`, para que reordenar, duplicar, remover ou adicionar um
+  // ambiente não deixe um texto de busca "grudado" na posição errada.
+  const padSearches = (list: string[], length: number) =>
+    list.length >= length ? list : [...list, ...Array(length - list.length).fill("")];
+  const setSearchAt = (index: number, value: string) =>
+    setSearches(current => {
+      const next = padSearches(current, index + 1).slice();
+      next[index] = value;
+      return next;
+    });
   const addProduct = (roomIndex: number, productId: number) => {
     const product = products.find(entry => entry.id === productId);
     if (!product) return;
@@ -656,14 +647,18 @@ export default function QuoteEditorPage() {
           }
         : current
     );
-    setSearches(current => ({ ...current, [roomIndex]: "" }));
+    setSearchAt(roomIndex, "");
   };
-  const moveRoom = (index: number, direction: -1 | 1) =>
+  const moveRoom = (index: number, direction: -1 | 1) => {
     setDraft(current =>
       current
         ? { ...current, rooms: moveDraftRoom(current.rooms, index, direction) }
         : current
     );
+    setSearches(current =>
+      moveArrayItem(padSearches(current, draft?.rooms.length ?? current.length), index, direction)
+    );
+  };
   const moveItem = (roomIndex: number, fromIndex: number, toIndex: number) =>
     setDraft(current =>
       current
@@ -680,12 +675,37 @@ export default function QuoteEditorPage() {
           }
         : current
     );
-  const duplicateRoom = (index: number) =>
+  const duplicateRoom = (index: number) => {
     setDraft(current =>
       current
         ? { ...current, rooms: duplicateDraftRoom(current.rooms, index) }
         : current
     );
+    setSearches(current =>
+      duplicateArrayItem(padSearches(current, draft?.rooms.length ?? current.length), index, "")
+    );
+  };
+  const removeRoom = (index: number) => {
+    setDraft(current =>
+      current
+        ? { ...current, rooms: removeDraftRoom(current.rooms, index) }
+        : current
+    );
+    setSearches(current =>
+      removeArrayItem(padSearches(current, draft?.rooms.length ?? current.length), index)
+    );
+  };
+  const addRoom = () => {
+    setDraft(current =>
+      current
+        ? {
+            ...current,
+            rooms: [...current.rooms, { name: "NOVO AMBIENTE", items: [] }],
+          }
+        : current
+    );
+    setSearches(current => [...padSearches(current, draft?.rooms.length ?? current.length), ""]);
+  };
   const selectCustomer = (id: string) => {
     const customer = customers.find(entry => entry.id === Number(id));
     if (!customer) return;
@@ -746,14 +766,20 @@ export default function QuoteEditorPage() {
     );
     if (!opened) toast.error("Permita pop-ups para exportar a separação");
   };
-  const generatePdfHistory = () => {
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const generatePdfHistory = async () => {
     if (!draft || !summary) return;
     const validation = validateQuoteDraft(draft);
     if (validation) return toast.error(validation);
-    savePdf.mutate({
-      quoteId: draft.id,
-      dataUrl: createQuotePdfDataUrl({ ...draft, summary, settings }),
-    });
+    setIsGeneratingPdf(true);
+    try {
+      const dataUrl = await createQuotePdfDataUrl({ ...draft, summary, settings });
+      savePdf.mutate({ quoteId: draft.id, dataUrl });
+    } catch {
+      toast.error("Não foi possível gerar o PDF. Tente novamente.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
   const printA4 = async () => {
     setIsPreparingPrint(true);
@@ -883,6 +909,7 @@ export default function QuoteEditorPage() {
               }
               setEditorError("");
               setServerAutosaveStatus("saving");
+              pendingSaveFingerprint.current = JSON.stringify(draft);
               save.mutate(draft);
             }}
             pending={save.isPending}
@@ -923,8 +950,9 @@ export default function QuoteEditorPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Emissão</Label>
+                <Label htmlFor="quote-issue-date">Emissão</Label>
                 <Input
+                  id="quote-issue-date"
                   type="date"
                   value={formatDateInput(draft.issueDate)}
                   onChange={e => {
@@ -936,8 +964,9 @@ export default function QuoteEditorPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Validade</Label>
+                <Label htmlFor="quote-valid-until">Validade</Label>
                 <Input
+                  id="quote-valid-until"
                   type="date"
                   value={formatDateInput(draft.validUntil)}
                   onChange={e =>
@@ -978,8 +1007,9 @@ export default function QuoteEditorPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Nome do cliente</Label>
+                <Label htmlFor="quote-client-name">Nome do cliente</Label>
                 <Input
+                  id="quote-client-name"
                   value={draft.clientName}
                   onChange={e =>
                     changeDraft({ clientName: e.target.value, clientId: null })
@@ -987,8 +1017,11 @@ export default function QuoteEditorPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Profissional responsável</Label>
+                <Label htmlFor="quote-professional">
+                  Profissional responsável
+                </Label>
                 <Input
+                  id="quote-professional"
                   value={draft.professional}
                   onChange={e =>
                     changeDraft({
@@ -999,22 +1032,25 @@ export default function QuoteEditorPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>CPF/CNPJ</Label>
+                <Label htmlFor="quote-document">CPF/CNPJ</Label>
                 <Input
+                  id="quote-document"
                   value={draft.document}
                   onChange={e => changeDraft({ document: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Telefone</Label>
+                <Label htmlFor="quote-phone">Telefone</Label>
                 <Input
+                  id="quote-phone"
                   value={draft.phone}
                   onChange={e => changeDraft({ phone: e.target.value })}
                 />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>Endereço</Label>
+                <Label htmlFor="quote-address">Endereço</Label>
                 <Input
+                  id="quote-address"
                   value={draft.address}
                   onChange={e => changeDraft({ address: e.target.value })}
                 />
@@ -1035,7 +1071,7 @@ export default function QuoteEditorPage() {
                 : [];
               return (
                 <Card
-                  key={`${room.name}-${roomIndex}`}
+                  key={roomIndex}
                   className="overflow-hidden border-border/70 shadow-sm"
                 >
                   <CardHeader className="bg-muted/40 pb-4">
@@ -1051,6 +1087,7 @@ export default function QuoteEditorPage() {
                               name: e.target.value.toUpperCase(),
                             })
                           }
+                          aria-label={`Nome do ambiente ${roomIndex + 1}`}
                           className="h-9 border-0 bg-transparent px-0 font-display text-base font-bold shadow-none focus-visible:ring-0"
                         />
                       </div>
@@ -1086,19 +1123,7 @@ export default function QuoteEditorPage() {
                           variant="ghost"
                           className="text-destructive hover:text-destructive"
                           disabled={draft.rooms.length === 1}
-                          onClick={() =>
-                            setDraft(current =>
-                              current
-                                ? {
-                                    ...current,
-                                    rooms: removeDraftRoom(
-                                      current.rooms,
-                                      roomIndex
-                                    ),
-                                  }
-                                : current
-                            )
-                          }
+                          onClick={() => removeRoom(roomIndex)}
                           title="Excluir ambiente"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1112,13 +1137,9 @@ export default function QuoteEditorPage() {
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
                           value={query}
-                          onChange={e =>
-                            setSearches(current => ({
-                              ...current,
-                              [roomIndex]: e.target.value,
-                            }))
-                          }
+                          onChange={e => setSearchAt(roomIndex, e.target.value)}
                           placeholder="Buscar e adicionar um produto do catálogo"
+                          aria-label={`Buscar produto no ambiente ${roomIndex + 1}`}
                           className="h-10 pl-9"
                         />
                       </div>
@@ -1184,7 +1205,7 @@ export default function QuoteEditorPage() {
                           }}
                           className="quote-line cursor-grab active:cursor-grabbing"
                           title="Arraste esta linha para reordenar"
-                          key={`${item.code}-${itemIndex}`}
+                          key={itemIndex}
                         >
                           <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg border bg-muted">
                             {item.imageUrl ? (
@@ -1204,6 +1225,7 @@ export default function QuoteEditorPage() {
                                   shortDescription: e.target.value,
                                 })
                               }
+                              aria-label={`Descrição do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                               className="h-8 border-0 bg-transparent px-0 text-sm font-semibold shadow-none focus-visible:ring-0"
                             />
                             <div className="flex gap-2">
@@ -1214,6 +1236,7 @@ export default function QuoteEditorPage() {
                                     code: e.target.value,
                                   })
                                 }
+                                aria-label={`Código do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                                 className="h-6 max-w-20 border-0 bg-transparent px-0 font-mono text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
                               />
                               <Input
@@ -1223,6 +1246,7 @@ export default function QuoteEditorPage() {
                                     unit: e.target.value.toUpperCase(),
                                   })
                                 }
+                                aria-label={`Unidade do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                                 className="h-6 w-10 border-0 bg-transparent px-0 font-mono text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
                               />
                             </div>
@@ -1237,6 +1261,7 @@ export default function QuoteEditorPage() {
                                 quantity: parseFiniteNumber(e.target.value),
                               })
                             }
+                            aria-label={`Quantidade do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                             className="h-9"
                           />
                           <Input
@@ -1249,6 +1274,7 @@ export default function QuoteEditorPage() {
                                 unitPrice: parseFiniteNumber(e.target.value),
                               })
                             }
+                            aria-label={`Valor unitário do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                             className="h-9"
                           />
                           <b className="text-right text-sm">
@@ -1307,19 +1333,7 @@ export default function QuoteEditorPage() {
           <Button
             variant="outline"
             className="w-full border-dashed"
-            onClick={() =>
-              setDraft(current =>
-                current
-                  ? {
-                      ...current,
-                      rooms: [
-                        ...current.rooms,
-                        { name: "NOVO AMBIENTE", items: [] },
-                      ],
-                    }
-                  : current
-              )
-            }
+            onClick={addRoom}
           >
             <Plus className="mr-2 h-4 w-4" />
             Adicionar ambiente
@@ -1332,10 +1346,12 @@ export default function QuoteEditorPage() {
             </CardHeader>
             <CardContent>
               <Textarea
+                id="quote-notes"
                 rows={4}
                 value={draft.notes}
                 onChange={e => changeDraft({ notes: e.target.value })}
                 placeholder="Condições, prazo de entrega, garantia e outras observações."
+                aria-label="Observações comerciais"
               />
             </CardContent>
           </Card>
@@ -1380,6 +1396,7 @@ export default function QuoteEditorPage() {
                       discountValue: parseFiniteNumber(e.target.value),
                     })
                   }
+                  aria-label="Valor do desconto"
                 />
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
@@ -1387,8 +1404,9 @@ export default function QuoteEditorPage() {
                 <span>− {money(summary.discountAmount)}</span>
               </div>
               <div className="grid grid-cols-[1fr_90px] items-center gap-2">
-                <Label className="text-xs text-muted-foreground">Frete</Label>
+                <Label htmlFor="quote-shipping" className="text-xs text-muted-foreground">Frete</Label>
                 <Input
+                  id="quote-shipping"
                   className="h-9"
                   type="number"
                   min="0"
@@ -1443,6 +1461,7 @@ export default function QuoteEditorPage() {
                       pixDiscountValue: parseFiniteNumber(e.target.value),
                     })
                   }
+                  aria-label="Valor do desconto PIX"
                 />
               </div>
               <div className="rounded-xl bg-emerald-500/10 p-3">
@@ -1515,10 +1534,10 @@ export default function QuoteEditorPage() {
         <Button
           size="sm"
           onClick={generatePdfHistory}
-          disabled={savePdf.isPending || isPreparingPrint}
+          disabled={savePdf.isPending || isPreparingPrint || isGeneratingPdf}
         >
           <FileText className="mr-1.5 h-3.5 w-3.5" />
-          {savePdf.isPending ? "Gerando PDF…" : "Gerar e salvar PDF"}
+          {savePdf.isPending || isGeneratingPdf ? "Gerando PDF…" : "Gerar e salvar PDF"}
         </Button>
       </div>
     </div>
