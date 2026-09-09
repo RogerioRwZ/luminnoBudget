@@ -9,16 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import {
-  ExpirationQuickFilter,
-  matchesExpirationQuickFilter,
-} from "@shared/quoteAlerts";
-import {
-  matchesQuoteStatusFilter,
-  QuoteStatusFilter,
-} from "@shared/quoteStatus";
+import { ExpirationQuickFilter } from "@shared/quoteAlerts";
+import { QuoteStatusFilter } from "@shared/quoteStatus";
 import { CalendarDays, Copy, FileText, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -43,7 +37,38 @@ const statusInfo = {
 
 export default function QuotesPage() {
   const [, setLocation] = useLocation();
-  const { data, isLoading, error, refetch } = trpc.quote.list.useQuery();
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<QuoteStatusFilter>("all");
+  const [expirationFilter, setExpirationFilter] =
+    useState<ExpirationQuickFilter>("all");
+  const [page, setPage] = useState(1);
+
+  // O texto digitado atualiza a caixa de busca instantaneamente, mas só
+  // depois de uma pequena pausa é que ele de fato dispara uma nova
+  // requisição ao servidor — evita uma busca por tecla digitada.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  // Qualquer mudança de busca/filtro volta para a primeira página — do
+  // contrário a pessoa poderia ficar "presa" numa página que não existe
+  // mais no novo resultado filtrado.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, statusFilter, expirationFilter]);
+
+  const { data, isLoading, error, refetch } = trpc.quote.listPaged.useQuery({
+    search: debouncedSearch || undefined,
+    status: statusFilter,
+    expiration: expirationFilter,
+    page,
+    pageSize: 25,
+  });
+  const quotes = data?.quotes ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+
   const create = trpc.quote.create.useMutation({
     onSuccess: quote => quote && setLocation(`/orcamentos/${quote.id}`),
     onError: error =>
@@ -66,10 +91,6 @@ export default function QuotesPage() {
         )
       ),
   });
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<QuoteStatusFilter>("all");
-  const [expirationFilter, setExpirationFilter] =
-    useState<ExpirationQuickFilter>("all");
   const chooseStatus = (filter: QuoteStatusFilter) => {
     setStatusFilter(filter);
     setExpirationFilter("all");
@@ -78,18 +99,6 @@ export default function QuotesPage() {
     setExpirationFilter(filter);
     setStatusFilter("pending");
   };
-  const filtered = useMemo(
-    () =>
-      (data ?? []).filter(
-        quote =>
-          `${quote.quoteNumber} ${quote.clientName} ${quote.professional}`
-            .toLocaleLowerCase("pt-BR")
-            .includes(search.toLocaleLowerCase("pt-BR")) &&
-          matchesQuoteStatusFilter(quote.status, statusFilter) &&
-          matchesExpirationQuickFilter(quote, expirationFilter)
-      ),
-    [data, search, statusFilter, expirationFilter]
-  );
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -135,7 +144,7 @@ export default function QuotesPage() {
                 />
               </div>
               <span className="text-xs text-muted-foreground">
-                {filtered.length} proposta(s)
+                {total} proposta(s)
               </span>
             </div>
             <div>
@@ -235,9 +244,9 @@ export default function QuotesPage() {
                 Tentar novamente
               </Button>
             </div>
-          ) : filtered.length ? (
+          ) : quotes.length ? (
             <div className="divide-y divide-border">
-              {filtered.map(quote => {
+              {quotes.map(quote => {
                 const info = statusInfo[quote.status];
                 const isExpirationFiltered =
                   expirationFilter !== "all" && quote.validUntil;
@@ -333,6 +342,33 @@ export default function QuotesPage() {
               </AsyncButton>
             </div>
           )}
+          {!isLoading && !error && totalPages > 1 ? (
+            <div className="flex items-center justify-between gap-3 border-t border-border p-4">
+              <span className="text-xs text-muted-foreground">
+                Página {page} de {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={page <= 1}
+                  onClick={() => setPage(current => Math.max(1, current - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={page >= totalPages}
+                  onClick={() =>
+                    setPage(current => Math.min(totalPages, current + 1))
+                  }
+                >
+                  Próxima
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

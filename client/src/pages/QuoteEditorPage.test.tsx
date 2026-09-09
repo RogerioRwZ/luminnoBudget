@@ -62,6 +62,27 @@ describe("QuoteEditorPage", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
+  it("avisa quando a foto do produto não pôde ser incluída no PDF gerado", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      })
+    );
+    render(<QuoteEditorPage />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Gerar e salvar PDF" }));
+    });
+
+    expect(mocks.toastWarning).toHaveBeenCalledOnce();
+    expect(mocks.toastWarning.mock.calls[0]?.[0]).toContain(
+      "não pôde ser incluída no PDF"
+    );
+    expect(mocks.mutate).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
   it("mantém o foco ao digitar continuamente o nome de um ambiente", () => {
     render(<QuoteEditorPage />);
     const roomName = screen.getByDisplayValue("SALA");

@@ -18,6 +18,7 @@ import {
   listQuotes,
   listAllQuotePdfHistory,
   listQuotePdfHistory,
+  listQuotesPaged,
   saveClient,
   saveProduct,
   saveQuote,
@@ -60,16 +61,27 @@ const productInput = z.object({
   active: z.boolean().default(true),
 });
 
-const quoteItemInput = z.object({
-  id: z.number().int().positive().optional(),
-  productId: z.number().int().positive().nullable().optional(),
-  code: z.string().trim().max(64).default(""),
-  shortDescription: z.string().trim().min(1, "Informe a descrição do item").max(512),
-  imageUrl: nullableText,
-  unit: z.string().trim().min(1).max(16).default("UN"),
-  quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999),
-  unitPrice: money,
-});
+const quoteItemInput = z
+  .object({
+    id: z.number().int().positive().optional(),
+    productId: z.number().int().positive().nullable().optional(),
+    code: z.string().trim().max(64).default(""),
+    shortDescription: z.string().trim().min(1, "Informe a descrição do item").max(512),
+    imageUrl: nullableText,
+    unit: z.string().trim().min(1).max(16).default("UN"),
+    quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999),
+    unitPrice: money,
+  })
+  // quantity e unitPrice já têm limites individuais acima, mas o PRODUTO
+  // dos dois (o total da linha) ainda pode ultrapassar o que a coluna
+  // decimal(12,2) do banco comporta, mesmo com os dois campos
+  // isoladamente "válidos" — o que só quebraria muito mais adiante, na
+  // criação da cobrança financeira ao aprovar o orçamento, com um erro
+  // cru de banco em vez desta mensagem clara.
+  .refine((item) => item.quantity * item.unitPrice <= 99_999_999, {
+    message: "O total deste item é grande demais. Revise a quantidade e o valor unitário.",
+    path: ["unitPrice"],
+  });
 
 const quoteInput = z.object({
   id: z.number().int().positive().optional(),
@@ -126,6 +138,19 @@ export const businessRouter = router({
   }),
   quote: router({
     list: protectedProcedure.query(listQuotes),
+    listPaged: protectedProcedure
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            status: z.enum(["all", "pending", "approved", "lost"]).optional(),
+            expiration: z.enum(["all", "today", "expired"]).optional(),
+            page: z.number().int().min(1).optional(),
+            pageSize: z.number().int().min(1).max(100).optional(),
+          })
+          .optional()
+      )
+      .query(({ input }) => listQuotesPaged(input ?? {})),
     get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => getQuote(input.id)),
     create: protectedProcedure.mutation(createQuote),
     save: protectedProcedure.input(quoteInput).mutation(({ ctx, input }) => saveQuote(input, ctx.user.id)),

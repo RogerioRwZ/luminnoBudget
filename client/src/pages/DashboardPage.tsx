@@ -21,13 +21,29 @@ function StatusCard({ status, count, value }: { status: "approved" | "pending" |
 
 export default function DashboardPage() {
   const [, setLocation] = useLocation();
-  const { data, isLoading } = trpc.dashboard.useQuery();
+  const { data, isLoading, error, refetch } = trpc.dashboard.useQuery();
   const chartData = data?.statusSummary ?? [];
   const expirationAlerts = data?.expirationAlerts ?? [];
   const reminderMessage = (alert: typeof expirationAlerts[number]) => buildExpirationReminder({ brand: data?.alertBrand || "Luminno", quoteNumber: alert.quoteNumber, clientName: alert.clientName, validUntil: alert.validUntil, daysRemaining: alert.daysRemaining, total: alert.total });
   const copyReminder = async (alert: typeof expirationAlerts[number]) => { try { await navigator.clipboard.writeText(reminderMessage(alert)); toast.success("Lembrete copiado para o WhatsApp"); } catch { toast.error("Não foi possível copiar o lembrete"); } };
   const sendReminder = async (alert: typeof expirationAlerts[number]) => { const phone = normalizeWhatsAppPhone(alert.phone || ""); if (phone) { window.open(`https://wa.me/${phone}?text=${encodeURIComponent(reminderMessage(alert))}`, "_blank", "noopener,noreferrer"); return; } await copyReminder(alert); toast.info("Telefone não cadastrado: lembrete copiado para enviar manualmente."); };
   const hasStatusData = chartData.some((entry) => entry.count > 0);
+  if (error) {
+    return (
+      <div role="alert" className="grid min-h-[50vh] place-items-center p-6 text-center">
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Não foi possível carregar o painel. Os números abaixo não
+            refletem necessariamente zero — os dados só ainda não
+            carregaram.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Tentar novamente
+          </Button>
+        </div>
+      </div>
+    );
+  }
   return <div className="mx-auto max-w-7xl space-y-8">
     <section className="flex flex-col gap-4 rounded-3xl bg-[#181817] px-6 py-7 text-white shadow-xl shadow-black/10 md:flex-row md:items-end md:justify-between md:px-8"><div><p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-[#f4d842]">Gestão comercial</p><h2 className="font-display text-2xl font-bold tracking-tight md:text-3xl">Orçamentos que iluminam decisões.</h2><p className="mt-2 max-w-xl text-sm leading-relaxed text-white/65">Acompanhe o desempenho comercial por status, monte propostas por ambiente e mantenha os dados da loja centralizados.</p></div><Button onClick={() => setLocation("/orcamentos/novo")} className="h-11 bg-[#f4d842] px-5 font-bold text-black hover:bg-[#ffea77]"><Plus className="mr-2 h-4 w-4" />Novo orçamento</Button></section>
 

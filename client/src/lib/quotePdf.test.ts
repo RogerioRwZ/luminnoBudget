@@ -46,7 +46,7 @@ describe("geração de PDF de orçamento", () => {
   });
 
   it("produz um documento PDF com os dados comerciais do orçamento", async () => {
-    const dataUrl = await createQuotePdfDataUrl({
+    const { dataUrl, failedImageCount } = await createQuotePdfDataUrl({
       ...baseInput,
       rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", unit: "UN", quantity: 2, unitPrice: 150 }] }],
       settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
@@ -54,19 +54,21 @@ describe("geração de PDF de orçamento", () => {
 
     expect(dataUrl).toMatch(/^data:application\/pdf/);
     expect(dataUrl.length).toBeGreaterThan(500);
+    expect(failedImageCount).toBe(0);
   });
 
   it("incorpora o logotipo da empresa e as fotos dos produtos quando disponíveis", async () => {
     const fetchMock = mockFetchOk();
     vi.stubGlobal("fetch", fetchMock);
 
-    const dataUrl = await createQuotePdfDataUrl({
+    const { dataUrl, failedImageCount } = await createQuotePdfDataUrl({
       ...baseInput,
       rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 2, unitPrice: 150 }] }],
       settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", logoUrl: "/uploads/logo.png", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
     });
 
     expect(dataUrl).toMatch(/^data:application\/pdf/);
+    expect(failedImageCount).toBe(0);
     // Uma imagem por URL único (logo + foto do produto), buscada uma única vez cada.
     const requestedUrls = fetchMock.mock.calls.map(call => call[0]);
     expect(requestedUrls).toContain("/uploads/logo.png");
@@ -95,7 +97,7 @@ describe("geração de PDF de orçamento", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("gera o PDF normalmente mesmo quando a imagem falha ao carregar", async () => {
+  it("gera o PDF normalmente mesmo quando a imagem falha ao carregar, e informa quantas falharam", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -103,12 +105,30 @@ describe("geração de PDF de orçamento", () => {
       })
     );
 
-    const dataUrl = await createQuotePdfDataUrl({
+    const { dataUrl, failedImageCount } = await createQuotePdfDataUrl({
       ...baseInput,
       rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 2, unitPrice: 150 }] }],
       settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", logoUrl: "/uploads/logo.png", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
     });
 
     expect(dataUrl).toMatch(/^data:application\/pdf/);
+    // Logo + foto do produto: 2 URLs únicas, ambas falharam.
+    expect(failedImageCount).toBe(2);
+  });
+
+  it("conta apenas as imagens que de fato falharam, não as que carregaram com sucesso", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/uploads/logo.png") throw new Error("network down");
+      return { ok: true, headers: { get: () => "image/png" }, arrayBuffer: async () => pngArrayBuffer() };
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const { failedImageCount } = await createQuotePdfDataUrl({
+      ...baseInput,
+      rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: 2, unitPrice: 150 }] }],
+      settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", logoUrl: "/uploads/logo.png", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
+    });
+
+    expect(failedImageCount).toBe(1);
   });
 });

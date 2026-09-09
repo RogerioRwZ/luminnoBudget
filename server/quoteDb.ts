@@ -15,7 +15,8 @@ import {
 } from "../drizzle/schema";
 import { calculateQuote, toNumber } from "../shared/quote";
 import { aggregateDashboardStatuses } from "../shared/dashboardMetrics";
-import { getExpirationAlerts } from "../shared/quoteAlerts";
+import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
+import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
 import { nextProductCode } from "../shared/productCodes";
 import { assertReservableQuantity } from "../shared/stock";
@@ -291,11 +292,11 @@ export async function getQuotePdfHistoryEntry(id: number) {
   return entries[0] ?? null;
 }
 
-export async function listQuotes() {
-  const db = await database();
-  const allQuotes = await db.select().from(quotes).orderBy(desc(quotes.updatedAt));
-  const allRooms = await db.select().from(quoteRooms);
-  const allItems = await db.select().from(quoteItems);
+async function hydrateQuotes<TQuote extends { id: number }>(db: Awaited<ReturnType<typeof database>>, quoteRows: TQuote[]) {
+  const quoteIds = quoteRows.map((quote) => quote.id);
+  const allRooms = quoteIds.length ? await db.select().from(quoteRooms).where(inArray(quoteRooms.quoteId, quoteIds)) : [];
+  const roomIds = allRooms.map((room) => room.id);
+  const allItems = roomIds.length ? await db.select().from(quoteItems).where(inArray(quoteItems.quoteRoomId, roomIds)) : [];
   const itemsByRoom = new Map<number, typeof allItems>();
   allItems.forEach((item) => {
     const existing = itemsByRoom.get(item.quoteRoomId) ?? [];
@@ -308,10 +309,57 @@ export async function listQuotes() {
     existing.push({ ...room, items: itemsByRoom.get(room.id) ?? [] });
     roomsByQuote.set(room.quoteId, existing);
   });
-  return allQuotes.map((quote) => {
+  return quoteRows.map((quote) => {
     const rooms = roomsByQuote.get(quote.id) ?? [];
-    return { ...quote, rooms, summary: pricingForQuote(quote, rooms) };
+    return { ...quote, rooms, summary: pricingForQuote(quote as unknown as typeof quotes.$inferSelect, rooms) };
   });
+}
+
+// Usado internamente (ex.: pelo dashboard, para calcular agregados sobre
+// TODO o histórico) — busca todos os orçamentos, sem filtro nem paginação.
+// Não usar diretamente para alimentar a listagem da tela de orçamentos:
+// use listQuotesPaged, que filtra e pagina no servidor.
+export async function listQuotes() {
+  const db = await database();
+  const allQuotes = await db.select().from(quotes).orderBy(desc(quotes.updatedAt));
+  return hydrateQuotes(db, allQuotes);
+}
+
+export type QuoteListFilters = {
+  search?: string;
+  status?: QuoteStatusFilter;
+  expiration?: ExpirationQuickFilter;
+  page?: number;
+  pageSize?: number;
+};
+
+const DEFAULT_QUOTE_PAGE_SIZE = 25;
+const MAX_QUOTE_PAGE_SIZE = 100;
+
+// Busca e filtra (texto, status, validade) sobre TODO o histórico de
+// orçamentos antes de paginar — assim a busca continua encontrando um
+// orçamento antigo mesmo que ele não esteja na página atual. Só depois de
+// filtrar e cortar a página é que ambientes/itens são buscados, apenas
+// para os poucos orçamentos que serão realmente exibidos.
+export async function listQuotesPaged(filters: QuoteListFilters = {}) {
+  const db = await database();
+  const allQuotes = await db.select().from(quotes).orderBy(desc(quotes.updatedAt));
+  const term = (filters.search ?? "").trim().toLocaleLowerCase("pt-BR");
+  const statusFilter = filters.status ?? "all";
+  const expirationFilter = filters.expiration ?? "all";
+  const matched = allQuotes.filter(
+    (quote) =>
+      (!term || `${quote.quoteNumber} ${quote.clientName} ${quote.professional}`.toLocaleLowerCase("pt-BR").includes(term)) &&
+      matchesQuoteStatusFilter(quote.status, statusFilter) &&
+      matchesExpirationQuickFilter(quote, expirationFilter)
+  );
+  const total = matched.length;
+  const pageSize = Math.min(MAX_QUOTE_PAGE_SIZE, Math.max(1, filters.pageSize ?? DEFAULT_QUOTE_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(totalPages, Math.max(1, filters.page ?? 1));
+  const pageRows = matched.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+  const hydrated = await hydrateQuotes(db, pageRows);
+  return { quotes: hydrated, total, page, pageSize, totalPages };
 }
 
 export async function getPickingList(quoteId: number) {
@@ -473,15 +521,22 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
 export async function deleteQuote(id: number) {
   const db = await database();
   await db.transaction(async (tx) => {
+    // Um orçamento aprovado pode já ter gerado cobranças financeiras
+    // (financeReceivables). Essa tabela não tem chave estrangeira para
+    // quotes — excluir o orçamento sem checar isso deixaria cobranças
+    // reais (dinheiro devido por um cliente) órfãs silenciosamente, sem
+    // nenhum erro, e sem jeito de rastrear a que orçamento pertenciam.
+    const receivables = await tx.select({ id: financeReceivables.id }).from(financeReceivables).where(eq(financeReceivables.quoteId, id)).limit(1);
+    if (receivables.length) throw new Error("Este orçamento possui cobranças financeiras geradas e não pode ser excluído.");
     const roomRows = await tx.select({ id: quoteRooms.id }).from(quoteRooms).where(eq(quoteRooms.quoteId, id));
     const roomIds = roomRows.map((room) => room.id);
     if (roomIds.length) {
       const itemRows = await tx.select({ id: quoteItems.id }).from(quoteItems).where(inArray(quoteItems.quoteRoomId, roomIds));
       const itemIds = itemRows.map((item) => item.id);
       if (itemIds.length) {
-        await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds));
         const deliveries = await tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, itemIds)).limit(1);
         if (deliveries.length) throw new Error("Este orçamento possui entregas registradas e não pode ser excluído.");
+        await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds));
         await tx.delete(quoteItems).where(inArray(quoteItems.quoteRoomId, roomIds));
       }
     }

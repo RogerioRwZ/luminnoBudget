@@ -7,7 +7,7 @@ import { getSessionMaxAgeMs, signLocalSession, toSafeUser, verifyPassword } from
 import { assertLoginAllowed, clearLoginFailures, registerLoginFailure } from "../loginRateLimit";
 import {
   countLocalUsers,
-  createLocalUser,
+  createInitialAdminUser,
   getLocalUserByUsername,
   markLocalUserSignedIn,
 } from "../localUserDb";
@@ -36,11 +36,8 @@ export const localAuthRouter = router({
   setup: publicProcedure
     .input(credentials.extend({ name: z.string().trim().min(2).max(240), email: z.string().email().optional().or(z.literal("")) }))
     .mutation(async ({ ctx, input }) => {
-      if ((await countLocalUsers()) > 0) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "A configuração inicial já foi concluída." });
-      }
       try {
-        const safeUser = await createLocalUser({ ...input, email: input.email || null, role: "admin" });
+        const safeUser = await createInitialAdminUser({ ...input, email: input.email || null });
         const created = await getLocalUserByUsername(safeUser.username);
         if (!created) throw new Error("Não foi possível iniciar a sessão do administrador.");
         setSessionCookie(ctx, await signLocalSession(created));

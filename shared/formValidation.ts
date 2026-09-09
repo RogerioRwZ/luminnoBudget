@@ -8,6 +8,17 @@ export function isFiniteNonNegative(value: number) {
   return Number.isFinite(value) && value >= 0;
 }
 
+// As colunas de dinheiro no banco são decimal(precisão: 12, escala: 2) —
+// no máximo 9.999.999.999,99. Um valor além disso (ou uma multiplicação
+// quantidade × valor unitário que ultrapasse esse limite) não cabe na
+// coluna: sem essa validação no cliente, o salvamento falharia com um
+// erro cru de banco de dados em vez de uma mensagem compreensível.
+export const MAX_MONEY_VALUE = 9_999_999_999.99;
+
+export function isValidMoneyAmount(value: number) {
+  return isFiniteNonNegative(value) && value <= MAX_MONEY_VALUE;
+}
+
 export type QuoteValidationInput = {
   clientName: string;
   professional: string;
@@ -17,7 +28,7 @@ export type QuoteValidationInput = {
   shipping: number;
   pixDiscountValue: number;
   installments: number;
-  rooms: Array<{ name: string; items: Array<{ quantity: number; unitPrice: number }> }>;
+  rooms: Array<{ name: string; items: Array<{ shortDescription: string; quantity: number; unitPrice: number }> }>;
 };
 
 export function validateQuoteDraft(input: QuoteValidationInput): string | null {
@@ -25,12 +36,25 @@ export function validateQuoteDraft(input: QuoteValidationInput): string | null {
   if (!input.professional.trim()) return "Informe o profissional responsável.";
   if (Number.isNaN(input.issueDate.getTime())) return "Informe uma data de emissão válida.";
   if (input.validUntil && Number.isNaN(input.validUntil.getTime())) return "Informe uma validade válida.";
-  if (!isFiniteNonNegative(input.discountValue)) return "Informe um desconto válido.";
-  if (!isFiniteNonNegative(input.shipping)) return "Informe um frete válido.";
-  if (!isFiniteNonNegative(input.pixDiscountValue)) return "Informe um desconto PIX válido.";
+  if (!isValidMoneyAmount(input.discountValue)) return "Informe um desconto válido.";
+  if (!isValidMoneyAmount(input.shipping)) return "Informe um frete válido.";
+  if (!isValidMoneyAmount(input.pixDiscountValue)) return "Informe um desconto PIX válido.";
   if (!Number.isInteger(input.installments) || input.installments < 1 || input.installments > 24) return "Escolha entre 1 e 24 parcelas.";
   if (!input.rooms.length || input.rooms.some((room) => !room.name.trim())) return "Todos os ambientes precisam de um nome.";
-  if (input.rooms.some((room) => room.items.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0 || !isFiniteNonNegative(item.unitPrice)))) return "Revise quantidade e valor dos itens.";
+  if (input.rooms.some((room) => room.items.some((item) => !item.shortDescription.trim()))) return "Todo item precisa de uma descrição.";
+  if (
+    input.rooms.some((room) =>
+      room.items.some(
+        (item) =>
+          !Number.isFinite(item.quantity) ||
+          item.quantity <= 0 ||
+          item.quantity > MAX_MONEY_VALUE ||
+          !isValidMoneyAmount(item.unitPrice) ||
+          item.quantity * item.unitPrice > MAX_MONEY_VALUE
+      )
+    )
+  )
+    return "Revise quantidade e valor dos itens.";
   return null;
 }
 

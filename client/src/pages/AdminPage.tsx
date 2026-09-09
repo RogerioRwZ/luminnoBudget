@@ -55,9 +55,9 @@ const uptime = (seconds?: number) => {
 
 export default function AdminPage() {
   const utils = trpc.useUtils();
-  const { data: status, isLoading: statusLoading } =
+  const { data: status, isLoading: statusLoading, error: statusError, refetch: refetchStatus } =
     trpc.admin.systemStatus.useQuery();
-  const { data: users = [], isLoading: usersLoading } =
+  const { data: users = [], isLoading: usersLoading, error: usersError, refetch: refetchUsers } =
     trpc.admin.listUsers.useQuery();
   const [newUser, setNewUser] = useState({
     username: "",
@@ -163,6 +163,26 @@ export default function AdminPage() {
         </AsyncButton>
       </div>
       <FormError message={adminError} />
+      {statusError || usersError ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="text-muted-foreground">
+            Não foi possível carregar {statusError && usersError ? "o status do sistema e a lista de usuários" : statusError ? "o status do sistema" : "a lista de usuários"}.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (statusError) refetchStatus();
+              if (usersError) refetchUsers();
+            }}
+          >
+            Tentar novamente
+          </Button>
+        </div>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatusCard
           icon={Activity}

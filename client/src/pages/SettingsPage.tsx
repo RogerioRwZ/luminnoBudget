@@ -71,7 +71,7 @@ const emptySettings: SettingsForm = {
 
 export default function SettingsPage() {
   const utils = trpc.useUtils();
-  const { data } = trpc.settings.get.useQuery();
+  const { data, isLoading, error, refetch } = trpc.settings.get.useQuery();
   const [form, setForm] = useState<SettingsForm>(emptySettings);
   const [formError, setFormError] = useState("");
   const settingsDraft = useDraftAutosave("settings", form, {
@@ -239,6 +239,32 @@ export default function SettingsPage() {
     setFormError("");
     save.mutate(form);
   };
+
+  if (isLoading) {
+    return (
+      <div className="grid min-h-[50vh] place-items-center text-sm text-muted-foreground">
+        Carregando configurações…
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="grid min-h-[50vh] place-items-center p-6 text-center">
+        <div role="alert" className="max-w-sm space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Não foi possível carregar as configurações. Por segurança, o
+            formulário não é exibido até os dados atuais carregarem — assim
+            você não corre o risco de salvar campos em branco por cima das
+            configurações reais da empresa.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Tentar novamente
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">

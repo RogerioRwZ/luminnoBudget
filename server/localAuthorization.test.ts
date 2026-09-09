@@ -15,6 +15,17 @@ function contextWith(user: TrpcContext["user"]): TrpcContext {
   };
 }
 
+// IDs de sessão "fake" usados só para simular o contexto de quem está
+// logado nestes testes (nunca são realmente inseridos no banco). Usamos
+// valores bem acima de qualquer auto-incremento real da tabela `users`
+// para nunca colidir por coincidência com o id de um usuário de teste
+// criado nesta mesma suíte (o que já aconteceu numa base compartilhada e
+// muito reutilizada, disparando incorretamente a proteção "não pode
+// remover seu próprio acesso administrativo").
+const FAKE_OPERATIONAL_USER_ID = 999_999_001;
+const FAKE_ADMIN_USER_ID = 999_999_002;
+const FAKE_ADMIN_USER_ID_FOR_CRUD_TEST = 999_999_003;
+
 describe("autorização local", () => {
   it("bloqueia rotas de negócio quando não existe sessão autenticada", async () => {
     const caller = appRouter.createCaller(contextWith(null));
@@ -23,19 +34,19 @@ describe("autorização local", () => {
   });
 
   it("bloqueia o painel administrativo para usuário operacional", async () => {
-    const caller = appRouter.createCaller(contextWith({ id: 8, username: "operacional", role: "user", isActive: true } as any));
+    const caller = appRouter.createCaller(contextWith({ id: FAKE_OPERATIONAL_USER_ID, username: "operacional", role: "user", isActive: true } as any));
     await expect(caller.admin.systemStatus()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.admin.listUsers()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("permite que um administrador consulte o status e a lista do painel", async () => {
-    const caller = appRouter.createCaller(contextWith({ id: 9, username: "admin", role: "admin", isActive: true } as any));
+    const caller = appRouter.createCaller(contextWith({ id: FAKE_ADMIN_USER_ID, username: "admin", role: "admin", isActive: true } as any));
     await expect(caller.admin.systemStatus()).resolves.toMatchObject({ application: "online" });
     await expect(caller.admin.listUsers()).resolves.toEqual(expect.any(Array));
   });
 
   it("cria, atualiza e redefine a senha de um usuário pelo painel administrativo", async () => {
-    const caller = appRouter.createCaller(contextWith({ id: 10, username: "admin", role: "admin", isActive: true } as any));
+    const caller = appRouter.createCaller(contextWith({ id: FAKE_ADMIN_USER_ID_FOR_CRUD_TEST, username: "admin", role: "admin", isActive: true } as any));
     const username = `teste.admin.${Date.now()}`;
     let userId: number | null = null;
     try {

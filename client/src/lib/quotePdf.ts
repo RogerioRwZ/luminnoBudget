@@ -261,5 +261,5 @@ export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<strin
     pdf.text(`Documento gerado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date())}`, margin, 290);
     pdf.text(`Página ${page} de ${pageCount}`, 195, 290, { align: "right" });
   }
-  return pdf.output("datauristring");
+  return { dataUrl: pdf.output("datauristring"), failedImageCount: failedUrls.length };
 }
