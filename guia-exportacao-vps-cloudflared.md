@@ -1,5 +1,12 @@
 # Luminno Orçamentos em VPS Ubuntu com Cloudflare Tunnel
 
+> **⚠️ Atenção.** Use o [`GUIA-INSTALACAO-COMPLETA.md`](GUIA-INSTALACAO-COMPLETA.md), conferido contra o código atual. Este arquivo tem instruções desatualizadas:
+> - pnpm 10, que não instala o lockfile atual.
+> - `pnpm build` no servidor, que roda os testes contra o banco.
+> - Pasta `/uploads` servida direto pelo Caddy, o que expõe os anexos sem login.
+
+> O passo do Cloudflare Tunnel continua válido como alternativa ao Caddy. Para todo o resto (pnpm, compilação, backup), siga o guia completo.
+
 Este guia descreve uma instalação **autônoma e segura** do Luminno Orçamentos em VPS Ubuntu Server. A arquitetura usa MySQL local, armazenamento persistente de imagens e PDFs privados, `systemd` para executar a aplicação e **Cloudflare Tunnel** para publicar o domínio sem abrir as portas da aplicação ou do banco para a Internet.
 
 > **Arquitetura final:** o navegador acessa `https://orcamentos.seudominio.com.br`; a Cloudflare encaminha a requisição pelo Tunnel iniciado pela VPS; e o `cloudflared` entrega o tráfego somente para `http://127.0.0.1:3000`. As portas `3000` e `3306` permanecem privadas. [1]
