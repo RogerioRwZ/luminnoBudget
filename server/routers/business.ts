@@ -5,6 +5,7 @@ import { addAttachment, addComment, createQuoteVersion, findProductByBarcode, li
 import {
   createQuote,
   createQuotePdfHistory,
+  customerStatement,
   dashboardMetrics,
   deleteProduct,
   deleteQuote,
@@ -29,10 +30,23 @@ import { cancelReceivable, createReceivables, financeByQuote, financeClients, fi
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
+
+function isDuplicateEntry(error: unknown) {
+  const cause = (error as { cause?: unknown } | null)?.cause ?? error;
+  const mysqlError = cause as { code?: string; errno?: number } | null;
+  return mysqlError?.code === "ER_DUP_ENTRY" || mysqlError?.errno === 1062;
+}
 const money = z.coerce.number().min(0).max(99_999_999).default(0);
-const imageLocation = z.string().trim().refine(
-  (value) => value.startsWith("/uploads/"),
+const imageLocation = z.string().trim().max(2000).refine(
+  (value) => value.startsWith("/uploads/") && !value.includes(".."),
   "Envie uma imagem local válida",
+);
+
+// Itens antigos podem guardar a foto em outro armazenamento; aceita caminho
+// local ou HTTPS, mas nunca esquemas como javascript:, data: ou http:.
+const itemImageLocation = z.string().trim().max(2000).refine(
+  (value) => (value.startsWith("/") && !value.startsWith("//") && !value.includes("..")) || /^https:\/\/[^\s]+$/i.test(value),
+  "Imagem do item inválida",
 );
 
 const clientInput = z.object({
@@ -67,7 +81,7 @@ const quoteItemInput = z
     productId: z.number().int().positive().nullable().optional(),
     code: z.string().trim().max(64).default(""),
     shortDescription: z.string().trim().min(1, "Informe a descrição do item").max(512),
-    imageUrl: nullableText,
+    imageUrl: itemImageLocation.nullable().optional().or(z.literal("")),
     unit: z.string().trim().min(1).max(16).default("UN"),
     quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999),
     unitPrice: money,
@@ -115,11 +129,23 @@ export const businessRouter = router({
   customers: router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listClients(input?.search)),
     save: protectedProcedure.input(clientInput).mutation(({ input }) => saveClient({ ...input, email: input.email || null })),
+    statement: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+      const statement = await customerStatement(input.id);
+      if (!statement) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
+      return statement;
+    }),
   }),
   product: router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProducts(input?.search)),
     save: protectedProcedure.input(productInput).mutation(({ input }) => saveProduct({ ...input, imageUrl: input.imageUrl || null })),
-    setBarcode: protectedProcedure.input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(({ input }) => updateProductBarcode(input.productId, input.barcode || null)),
+    setBarcode: protectedProcedure.input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ input }) => {
+      try {
+        return await updateProductBarcode(input.productId, input.barcode || null);
+      } catch (error) {
+        if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Este código de barras já está vinculado a outro produto." });
+        throw error;
+      }
+    }),
     findByBarcode: protectedProcedure.input(z.object({ barcode: z.string().trim().min(3).max(64) })).query(({ input }) => findProductByBarcode(input.barcode)),
     archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input }) => deleteProduct(input.id)),
     uploadImage: protectedProcedure.input(z.object({
@@ -197,6 +223,7 @@ export const businessRouter = router({
       const separator = input.dataUrl.indexOf(",");
       if (separator === -1) throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo inválido." });
       const bytes = Buffer.from(input.dataUrl.slice(separator + 1), "base64");
+      if (!(await getQuote(input.quoteId))) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
       try { const stored = await saveLocalAttachment(input.fileName, input.mimeType, bytes); return addAttachment({ quoteId: input.quoteId, fileName: input.fileName, mimeType: input.mimeType, storageKey: stored.key, fileSize: stored.fileSize, userId: ctx.user.id }); }
       catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o anexo." }); }
     }),

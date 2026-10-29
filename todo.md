@@ -231,3 +231,15 @@
 - [ ] Integrar recuperação local nos formulários aplicáveis sem submissões automáticas perigosas.
 - [ ] Cobrir debounce, recuperação, limpeza e exclusão de dados sensíveis com testes.
 - [ ] Validar check, testes, build, audit, responsividade e sincronizar todas as alterações na branch do GitHub.
+
+#### Auditoria de segurança e novas funcionalidades (2026-10-29)
+- [x] Bloquear acesso público a `/uploads/attachments` (anexos só pela rota autenticada).
+- [x] Invalidar sessões após troca/redefinição de senha (claim `pv` no JWT) e reemitir cookie na troca da própria senha.
+- [x] Login com custo constante (sem enumeração de usuários por tempo), limite por IP e na troca de senha; poda do mapa do limitador.
+- [x] Validar assinatura de anexos PDF/imagem; tratar erros de `res.download`; cabeçalhos de segurança; limite de corpo 25 MB.
+- [x] Corrigir saldos financeiros truncados pelo `limit(200)` de pagamentos.
+- [x] Travar linhas (FOR UPDATE) em movimentação/entrega de estoque, cancelamento de cobrança e geração de parcelas de orçamento aprovado.
+- [x] Corrigir retry de numeração de orçamento (erro do drizzle embrulhado em `cause`).
+- [x] Corrigir restauração de backup (datas ISO do JSON convertidas para Date).
+- [x] Impedir salvar sobre orçamento inexistente e alterar o número do orçamento.
+- [x] Novo: `/api/health`, evolução mensal + taxa de conversão no painel, exportação CSV (orçamentos, financeiro, estoque) e ficha do cliente com totais financeiros.

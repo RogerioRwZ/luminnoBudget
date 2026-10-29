@@ -73,7 +73,7 @@ export function validateLoginCredentials(input: { username: string; password: st
 }
 
 export function validateSettingsNumbers(input: { defaultPixDiscountValue: number; defaultInstallments: number; alertThresholdDays: number }) {
-  if (!isFiniteNonNegative(input.defaultPixDiscountValue)) return "Informe um desconto PIX válido.";
+  if (!isValidMoneyAmount(input.defaultPixDiscountValue)) return "Informe um desconto PIX válido.";
   if (!Number.isInteger(input.defaultInstallments) || input.defaultInstallments < 1 || input.defaultInstallments > 24) return "As parcelas devem estar entre 1 e 24.";
   if (!Number.isInteger(input.alertThresholdDays) || input.alertThresholdDays < 1 || input.alertThresholdDays > 60) return "O alerta deve estar entre 1 e 60 dias.";
   return null;

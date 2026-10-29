@@ -5,6 +5,8 @@ import { expectNoUnnamedFormControls } from "@/test/formAccessibility";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  setLocation: vi.fn(),
+  statement: vi.fn(),
   mutate: vi.fn(),
   invalidate: vi.fn(),
   refetch: vi.fn(),
@@ -17,10 +19,11 @@ vi.mock("@/lib/trpc", () => ({
     customers: {
       list: { useQuery: () => ({ ...mocks.list, refetch: mocks.refetch }) },
       save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      statement: { useQuery: (input: { id: number }, options: { enabled: boolean }) => (options.enabled ? mocks.statement(input) : { data: undefined, isLoading: false, error: null }) },
     },
-    quote: { list: { useQuery: () => ({ data: [] }) } },
   },
 }));
+vi.mock("wouter", () => ({ useLocation: () => ["/clientes", mocks.setLocation] }));
 
 import CustomersPage from "./CustomersPage";
 
@@ -57,5 +60,25 @@ describe("CustomersPage", () => {
     expect(screen.getByRole("alert").textContent).toContain("Não foi possível carregar os clientes.");
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("abre a ficha do cliente com totais e navega até o orçamento", () => {
+    mocks.list = { data: [{ id: 5, name: "Marina", professional: "Arq. Paulo", phone: "(11) 98888-7777", quoteCount: 1 }] as any, isLoading: false, error: null };
+    mocks.statement.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        quotes: [{ id: 42, quoteNumber: 12, status: "approved", issueDate: new Date(2026, 4, 3), total: 1500 }],
+        totals: { quoted: 1500, approved: 1500, received: 500, outstanding: 1000, overdue: 0, conversionRate: 1 },
+      },
+    });
+    render(<CustomersPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Histórico/ }));
+    expect(mocks.statement).toHaveBeenCalledWith({ id: 5 });
+    expect(screen.getByText("Ficha de Marina")).toBeTruthy();
+    expect(screen.getByText("100%")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /WhatsApp/ }).getAttribute("href")).toMatch(/^https:\/\/wa\.me\/\d+$/);
+    fireEvent.click(screen.getByRole("button", { name: /Orçamento #12/ }));
+    expect(mocks.setLocation).toHaveBeenCalledWith("/orcamentos/42");
   });
 });

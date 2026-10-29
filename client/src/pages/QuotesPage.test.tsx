@@ -5,6 +5,7 @@ import { expectNoUnnamedFormControls } from "@/test/formAccessibility";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  fetchPage: vi.fn(),
   mutate: vi.fn(),
   refetch: vi.fn(),
   setLocation: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    useUtils: () => ({ quote: { listPaged: { fetch: mocks.fetchPage } } }),
     quote: {
       listPaged: { useQuery: () => ({ ...mocks.listPaged, refetch: mocks.refetch }) },
       create: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
@@ -73,5 +75,23 @@ describe("QuotesPage", () => {
     mocks.listPaged.data = { quotes: [], total: 3, page: 1, pageSize: 25, totalPages: 1 };
     render(<QuotesPage />);
     expect(screen.queryByText(/Página \d+ de \d+/)).toBeNull();
+  });
+
+  it("exporta em CSV todas as páginas do resultado filtrado", async () => {
+    const quote = (quoteNumber: number) => ({ id: quoteNumber, quoteNumber, clientName: `Cliente ${quoteNumber}`, professional: "", phone: null, status: "open", issueDate: new Date(2026, 0, 2), validUntil: null, summary: { productsSubtotal: 10, discountAmount: 0, shipping: 0, total: 10, pixTotal: 9 } });
+    mocks.fetchPage.mockImplementation(async ({ page }: { page: number }) => ({ quotes: [quote(page)], total: 2, page, pageSize: 100, totalPages: 2 }));
+    const createObjectURL = vi.fn(() => "blob:csv");
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<QuotesPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Exportar CSV/ }));
+    await vi.waitFor(() => expect(click).toHaveBeenCalledOnce());
+    expect(mocks.fetchPage).toHaveBeenCalledTimes(2);
+    const blob = (createObjectURL.mock.calls[0] as unknown as [Blob])[0];
+    const text = await blob.text();
+    expect(text).toContain("Cliente 1");
+    expect(text).toContain("Cliente 2");
+    click.mockRestore();
   });
 });

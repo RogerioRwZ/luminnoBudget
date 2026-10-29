@@ -20,8 +20,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { downloadCsv } from "@/lib/csvDownload";
 import { filterInventoryProducts } from "@shared/stockFilters";
 import {
+  Download,
   AlertTriangle,
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -215,14 +217,39 @@ export default function InventoryPage() {
             orçamentos aprovados.
           </p>
         </div>
-        <Button
-          className="h-11 px-5"
-          onClick={openMovement}
-          disabled={!products.length}
-        >
-          <PackagePlus className="mr-2 h-4 w-4" />
-          Movimentar estoque
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            className="h-11 px-4"
+            disabled={!products.length}
+            onClick={() =>
+              downloadCsv("estoque", products, [
+                { header: "Código", value: product => product.code },
+                { header: "Produto", value: product => product.shortDescription },
+                { header: "Fornecedor", value: product => product.supplierName },
+                { header: "Unidade", value: product => product.unit },
+                { header: "Saldo", value: product => product.stockQuantity },
+                { header: "Reservado", value: product => product.reservedQuantity },
+                { header: "Disponível", value: product => product.availableQuantity },
+                { header: "Ponto de reposição", value: product => product.reorderPoint },
+                { header: "Preço unitário", value: product => product.unitPrice },
+                { header: "Valor em estoque", value: product => product.stockQuantity * product.unitPrice },
+                { header: "Estoque baixo", value: product => product.lowStock },
+              ])
+            }
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Exportar CSV
+          </Button>
+          <Button
+            className="h-11 px-5"
+            onClick={openMovement}
+            disabled={!products.length}
+          >
+            <PackagePlus className="mr-2 h-4 w-4" />
+            Movimentar estoque
+          </Button>
+        </div>
       </div>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/70 shadow-sm">

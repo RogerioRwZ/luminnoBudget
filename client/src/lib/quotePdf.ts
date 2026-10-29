@@ -83,7 +83,9 @@ async function loadImage(url: string): Promise<LoadedImage | null> {
 
 // Carrega, em paralelo e sem duplicar requisições repetidas, todas as
 // imagens (logotipo + fotos de produto) referenciadas pelo orçamento.
-async function preloadImages(input: QuotePdfInput): Promise<Map<string, LoadedImage>> {
+// Também devolve quais URLs falharam, para que quem chamar possa avisar a
+// pessoa usuária (sem impedir a geração do PDF).
+async function preloadImages(input: QuotePdfInput): Promise<{ cache: Map<string, LoadedImage>; failedUrls: string[] }> {
   const urls = new Set<string>();
   if (input.settings?.logoUrl) urls.add(input.settings.logoUrl);
   for (const room of input.rooms) {
@@ -92,13 +94,15 @@ async function preloadImages(input: QuotePdfInput): Promise<Map<string, LoadedIm
     }
   }
   const cache = new Map<string, LoadedImage>();
+  const failedUrls: string[] = [];
   await Promise.all(
     Array.from(urls).map(async url => {
       const loaded = await loadImage(url);
       if (loaded) cache.set(url, loaded);
+      else failedUrls.push(url);
     })
   );
-  return cache;
+  return { cache, failedUrls };
 }
 
 // Ajusta uma imagem dentro de um quadrado de `box` mm, preservando a
@@ -110,8 +114,10 @@ function containInBox(image: LoadedImage, box: number) {
   return { width, height, offsetX: (box - width) / 2, offsetY: (box - height) / 2 };
 }
 
-export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<string> {
-  const images = await preloadImages(input);
+export type QuotePdfResult = { dataUrl: string; failedImageCount: number };
+
+export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<QuotePdfResult> {
+  const { cache: images, failedUrls } = await preloadImages(input);
   const pdf = new jsPDF({ format: "a4", unit: "mm" });
   pdf.setProperties({
     title: `Orçamento nº ${input.quoteNumber} — ${input.clientName || "Cliente"}`,

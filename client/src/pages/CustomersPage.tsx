@@ -18,10 +18,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { money } from "@/lib/format";
+import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
+  ArrowRight,
   FileText,
+  MessageCircle,
   Plus,
   Search,
   UserRoundPlus,
@@ -29,6 +31,8 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
+import { normalizeWhatsAppPhone } from "@shared/whatsapp";
 
 type CustomerForm = {
   id?: number;
@@ -58,7 +62,7 @@ export default function CustomersPage() {
     error,
     refetch,
   } = trpc.customers.list.useQuery();
-  const { data: quotes = [] } = trpc.quote.list.useQuery();
+  const [, setLocation] = useLocation();
   const save = trpc.customers.save.useMutation({
     onSuccess: () => {
       utils.customers.list.invalidate();
@@ -114,7 +118,12 @@ export default function CustomersPage() {
     if (!value) setForm(emptyCustomer);
   };
   const historyCustomer = data.find(customer => customer.id === historyId);
-  const historyQuotes = quotes.filter(quote => quote.clientId === historyId);
+  const statement = trpc.customers.statement.useQuery(
+    { id: historyId ?? 0 },
+    { enabled: historyId !== null }
+  );
+  const historyQuotes = statement.data?.quotes ?? [];
+  const historyPhone = normalizeWhatsAppPhone(historyCustomer?.phone || "");
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -327,48 +336,112 @@ export default function CustomersPage() {
         open={historyId !== null}
         onOpenChange={value => !value && setHistoryId(null)}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Histórico de {historyCustomer?.name}</DialogTitle>
+            <DialogTitle>Ficha de {historyCustomer?.name}</DialogTitle>
+            <DialogDescription>
+              Orçamentos vinculados e situação financeira do cliente.
+            </DialogDescription>
           </DialogHeader>
-          <div className="mt-2 max-h-[55vh] space-y-2 overflow-y-auto">
-            {historyQuotes.length ? (
-              historyQuotes.map(quote => (
-                <div
-                  key={quote.id}
-                  className="flex items-center justify-between rounded-xl border border-border p-3"
-                >
-                  <div>
-                    <p className="text-sm font-bold">
-                      Orçamento #{quote.quoteNumber}
+          {historyPhone ? (
+            <Button asChild variant="outline" size="sm" className="w-fit">
+              <a
+                href={`https://wa.me/${historyPhone}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
+                Conversar no WhatsApp
+              </a>
+            </Button>
+          ) : null}
+          {statement.isLoading ? (
+            <p className="p-6 text-center text-sm text-muted-foreground">
+              Carregando ficha do cliente…
+            </p>
+          ) : statement.error ? (
+            <div
+              role="alert"
+              className="space-y-3 p-6 text-center text-sm text-muted-foreground"
+            >
+              <p>Não foi possível carregar a ficha do cliente.</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => statement.refetch()}
+              >
+                Tentar novamente
+              </Button>
+            </div>
+          ) : (
+            <>
+              <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {[
+                  { label: "Orçado ativo", value: money(statement.data?.totals.quoted) },
+                  { label: "Aprovado", value: money(statement.data?.totals.approved) },
+                  {
+                    label: "Conversão",
+                    value:
+                      statement.data?.totals.conversionRate == null
+                        ? "—"
+                        : `${Math.round(statement.data.totals.conversionRate * 100)}%`,
+                  },
+                  { label: "Recebido", value: money(statement.data?.totals.received) },
+                  { label: "A receber", value: money(statement.data?.totals.outstanding) },
+                  { label: "Em atraso", value: money(statement.data?.totals.overdue) },
+                ].map(entry => (
+                  <div key={entry.label} className="rounded-xl bg-muted/60 px-3 py-2">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                      {entry.label}
+                    </dt>
+                    <dd className="mt-1 text-sm font-bold">{entry.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-2 max-h-[45vh] space-y-2 overflow-y-auto">
+                {historyQuotes.length ? (
+                  historyQuotes.map(quote => (
+                    <button
+                      type="button"
+                      key={quote.id}
+                      onClick={() => setLocation(`/orcamentos/${quote.id}`)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-border p-3 text-left transition hover:bg-muted/40"
+                    >
+                      <div>
+                        <p className="text-sm font-bold">
+                          Orçamento #{quote.quoteNumber}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {quote.status === "approved"
+                            ? "Aprovado"
+                            : quote.status === "open"
+                              ? "Em aberto"
+                              : quote.status === "lost"
+                                ? "Perdido"
+                                : "Rascunho"}{" "}
+                          · {dateOnly(quote.issueDate)}
+                        </p>
+                      </div>
+                      <span className="flex items-center gap-2 font-display text-sm font-bold">
+                        {money(quote.total)}
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border p-8 text-center">
+                    <p className="text-sm font-semibold">
+                      Sem orçamentos vinculados.
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {quote.status === "approved"
-                        ? "Aprovado"
-                        : quote.status === "open"
-                          ? "Em aberto"
-                          : quote.status === "lost"
-                            ? "Perdido"
-                            : "Rascunho"}
+                      Ao selecionar este cliente no emissor, as próximas
+                      propostas aparecerão aqui.
                     </p>
                   </div>
-                  <p className="font-display text-sm font-bold">
-                    {money(quote.summary.total)}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center">
-                <p className="text-sm font-semibold">
-                  Sem orçamentos vinculados.
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Ao selecionar este cliente no emissor, as próximas propostas
-                  aparecerão aqui.
-                </p>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

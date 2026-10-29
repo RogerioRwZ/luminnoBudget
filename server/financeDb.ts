@@ -36,7 +36,9 @@ export async function financeOverview() {
   const db = await database();
   const [receivables, payments, quoteRows] = await Promise.all([
     db.select().from(financeReceivables).orderBy(financeReceivables.dueDate, desc(financeReceivables.id)),
-    db.select().from(financePayments).orderBy(desc(financePayments.paidAt), desc(financePayments.id)).limit(200),
+    // Sem limite: os saldos de cada cobrança são somados a partir destes
+    // pagamentos, e cortar a lista faria cobranças antigas parecerem em aberto.
+    db.select().from(financePayments).orderBy(desc(financePayments.paidAt), desc(financePayments.id)),
     db.select({ id: quotes.id, quoteNumber: quotes.quoteNumber }).from(quotes),
   ]);
   const paymentsByReceivable = new Map<number, PaymentRow[]>();
@@ -68,36 +70,47 @@ export async function financeOverview() {
 
 export async function createReceivables(input: { quoteId?: number | null; clientId?: number | null; clientName: string; description: string; totalAmount: number; installmentCount: number; firstDueDate: Date }, createdByUserId: number) {
   if (!Number.isFinite(input.totalAmount) || input.totalAmount <= 0) throw new Error("O valor da cobrança deve ser maior que zero.");
+  const db = await database();
+  return db.transaction((tx) => insertReceivables(tx, input, createdByUserId));
+}
+
+type Transaction = Parameters<Parameters<Awaited<ReturnType<typeof database>>["transaction"]>[0]>[0];
+type ReceivableInput = Parameters<typeof createReceivables>[0];
+
+async function insertReceivables(tx: Transaction, input: ReceivableInput, createdByUserId: number) {
   const installmentCount = Math.max(1, Math.min(24, Math.floor(input.installmentCount)));
   const installments = splitInstallments(input.totalAmount, installmentCount);
-  const db = await database();
-  return db.transaction(async (tx) => {
-    const inserted = [] as number[];
-    for (let index = 0; index < installments.length; index += 1) {
-      const result = await tx.insert(financeReceivables).values({
-        quoteId: input.quoteId || null,
-        clientId: input.clientId || null,
-        clientName: input.clientName.trim() || "Cliente não informado",
-        description: input.description.trim() || "Cobrança avulsa",
-        installmentNumber: index + 1,
-        installmentCount,
-        originalAmount: money(installments[index]!),
-        dueDate: dueDateForInstallment(input.firstDueDate, index + 1),
-        status: "open",
-        createdByUserId,
-      }).$returningId();
-      inserted.push(result[0]!.id);
-    }
-    return inserted;
-  });
+  const inserted = [] as number[];
+  for (let index = 0; index < installments.length; index += 1) {
+    const result = await tx.insert(financeReceivables).values({
+      quoteId: input.quoteId || null,
+      clientId: input.clientId || null,
+      clientName: input.clientName.trim() || "Cliente não informado",
+      description: input.description.trim() || "Cobrança avulsa",
+      installmentNumber: index + 1,
+      installmentCount,
+      originalAmount: money(installments[index]!),
+      dueDate: dueDateForInstallment(input.firstDueDate, index + 1),
+      status: "open",
+      createdByUserId,
+    }).$returningId();
+    inserted.push(result[0]!.id);
+  }
+  return inserted;
 }
 
 export async function createReceivablesFromQuote(input: { id: number; quoteNumber: number; clientId: number | null; clientName: string; installments: number; issueDate: Date; summary: { total: number } }, createdByUserId: number) {
+  if (!(input.summary.total > 0)) return { created: false, ids: [] as number[] };
   const db = await database();
-  const existing = await db.select({ id: financeReceivables.id }).from(financeReceivables).where(eq(financeReceivables.quoteId, input.id)).limit(1);
-  if (existing.length) return { created: false, ids: [] as number[] };
-  const ids = await createReceivables({ quoteId: input.id, clientId: input.clientId, clientName: input.clientName, description: `Orçamento #${input.quoteNumber}`, totalAmount: input.summary.total, installmentCount: input.installments, firstDueDate: input.issueDate }, createdByUserId);
-  return { created: true, ids };
+  return db.transaction(async (tx) => {
+    // Trava a linha do orçamento: dois salvamentos "aprovado" simultâneos
+    // passariam juntos pela checagem abaixo e gerariam parcelas em dobro.
+    await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, input.id)} FOR UPDATE`);
+    const existing = await tx.select({ id: financeReceivables.id }).from(financeReceivables).where(eq(financeReceivables.quoteId, input.id)).limit(1);
+    if (existing.length) return { created: false, ids: [] as number[] };
+    const ids = await insertReceivables(tx, { quoteId: input.id, clientId: input.clientId, clientName: input.clientName, description: `Orçamento #${input.quoteNumber}`, totalAmount: input.summary.total, installmentCount: input.installments, firstDueDate: input.issueDate }, createdByUserId);
+    return { created: true, ids };
+  });
 }
 
 export async function recordFinancePayment(input: { receivableId: number; type: PaymentType; amount: number; paymentMethod: PaymentMethod; paidAt: Date; reference?: string | null; notes?: string | null }, createdByUserId: number) {
@@ -132,6 +145,7 @@ export async function recordFinancePayment(input: { receivableId: number; type: 
 export async function cancelReceivable(id: number) {
   const db = await database();
   return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM ${financeReceivables} WHERE ${eq(financeReceivables.id, id)} FOR UPDATE`);
     const receivable = (await tx.select().from(financeReceivables).where(eq(financeReceivables.id, id)).limit(1))[0];
     if (!receivable) throw new Error("Cobrança não encontrada.");
     const payments = await tx.select().from(financePayments).where(eq(financePayments.receivableId, id));

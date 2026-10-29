@@ -26,7 +26,7 @@ describe("autenticação local", () => {
     expect(assertUsername("  Comercial.Luminno  ")).toBe("comercial.luminno");
     expect(() => assertUsername("x!")).toThrow("O usuário deve ter");
     const token = await signLocalSession({ id: 7, username: "comercial.luminno", role: "admin", isActive: true } as any);
-    await expect(verifyLocalSession(token)).resolves.toEqual({ userId: 7, username: "comercial.luminno", role: "admin" });
+    await expect(verifyLocalSession(token)).resolves.toMatchObject({ userId: 7, username: "comercial.luminno", role: "admin" });
   });
 });
 
