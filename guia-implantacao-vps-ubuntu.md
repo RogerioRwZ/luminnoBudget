@@ -1,5 +1,10 @@
 # Guia de implantação do Luminno Orçamentos em VPS Ubuntu
 
+> **⚠️ Guia substituído.** Use o [`GUIA-INSTALACAO-COMPLETA.md`](GUIA-INSTALACAO-COMPLETA.md), conferido contra o código atual. Este arquivo tem instruções desatualizadas:
+> - pnpm 10, que não instala o lockfile atual.
+> - `pnpm build` no servidor, que roda os testes contra o banco.
+> - Pasta `/uploads` servida direto pelo Caddy, o que expõe os anexos sem login.
+
 > **Objetivo:** hospedar o Luminno Orçamentos em uma VPS com Ubuntu Server, banco MySQL, domínio próprio, HTTPS automático, execução supervisionada, backups e rotina de atualização.
 
 ## 1. Decisão técnica e condição importante

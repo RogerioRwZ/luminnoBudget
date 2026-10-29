@@ -1,5 +1,10 @@
 # Guia de atualização em produção — Luminno Orçamentos
 
+> **⚠️ Guia substituído.** Use o [`GUIA-INSTALACAO-COMPLETA.md`](GUIA-INSTALACAO-COMPLETA.md), conferido contra o código atual. Este arquivo tem instruções desatualizadas:
+> - pnpm 10, que não instala o lockfile atual.
+> - `pnpm build` no servidor, que roda os testes contra o banco.
+> - Pasta `/uploads` servida direto pelo Caddy, o que expõe os anexos sem login.
+
 Este procedimento atualiza uma instalação existente do Luminno em uma VPS Ubuntu usando uma branch do GitHub, preservando banco, uploads locais, PDFs históricos e configuração do Cloudflare Tunnel. Execute como administrador da VPS, mas rode Git, pnpm, migrações e build com o usuário de serviço `luminno` sempre que possível.
 
 > **Importante:** nunca faça `git reset --hard`, nunca substitua o arquivo de ambiente por um arquivo do GitHub e nunca execute uma migração destrutiva sem backup verificável.
