@@ -14,7 +14,7 @@ import {
   storeSettings,
 } from "../drizzle/schema";
 import { calculateQuote, toNumber } from "../shared/quote";
-import { aggregateDashboardStatuses } from "../shared/dashboardMetrics";
+import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate } from "../shared/dashboardMetrics";
 import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
@@ -362,6 +362,34 @@ export async function listQuotesPaged(filters: QuoteListFilters = {}) {
   return { quotes: hydrated, total, page, pageSize, totalPages };
 }
 
+// Ficha do cliente: orçamentos vinculados e situação financeira consolidada.
+export async function customerStatement(clientId: number) {
+  const db = await database();
+  const clientRows = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
+  const client = clientRows[0];
+  if (!client) return null;
+  const [quoteRows, finance] = await Promise.all([
+    db.select().from(quotes).where(eq(quotes.clientId, clientId)).orderBy(desc(quotes.issueDate)),
+    financeOverview(),
+  ]);
+  const hydrated = await hydrateQuotes(db, quoteRows);
+  const receivables = finance.receivables.filter((receivable) => receivable.clientId === clientId || (receivable.quoteId !== null && quoteRows.some((quote) => quote.id === receivable.quoteId)));
+  const active = receivables.filter((receivable) => receivable.status !== "cancelled");
+  const sum = (values: number[]) => Math.round(values.reduce((total, value) => total + value, 0) * 100) / 100;
+  return {
+    client,
+    quotes: hydrated.map((quote) => ({ id: quote.id, quoteNumber: quote.quoteNumber, status: quote.status, issueDate: quote.issueDate, validUntil: quote.validUntil, total: quote.summary.total })),
+    totals: {
+      quoted: sum(hydrated.filter((quote) => quote.status !== "lost").map((quote) => quote.summary.total)),
+      approved: sum(hydrated.filter((quote) => quote.status === "approved").map((quote) => quote.summary.total)),
+      received: sum(active.map((receivable) => receivable.receivedAmount)),
+      outstanding: sum(active.map((receivable) => receivable.remainingAmount)),
+      overdue: sum(active.filter((receivable) => receivable.overdue).map((receivable) => receivable.remainingAmount)),
+      conversionRate: conversionRate(hydrated),
+    },
+  };
+}
+
 export async function getPickingList(quoteId: number) {
   const quote = await getQuote(quoteId);
   if (!quote) throw new Error("Orçamento não encontrado");
@@ -376,7 +404,10 @@ export async function getPickingList(quoteId: number) {
 }
 
 export function isDuplicateQuoteNumberError(error: unknown) {
-  const mysqlError = error as { code?: string; errno?: number; message?: string } | null;
+  // O drizzle 0.45 embrulha o erro do mysql2 num DrizzleQueryError, com o
+  // erro original em `cause`; sem desembrulhar, o retry nunca disparava.
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const mysqlError = (cause && typeof cause === "object" ? cause : error) as { code?: string; errno?: number; message?: string } | null;
   if (!mysqlError) return false;
   const isDuplicateEntry = mysqlError.code === "ER_DUP_ENTRY" || mysqlError.errno === 1062;
   return isDuplicateEntry && (!mysqlError.message || mysqlError.message.includes("quoteNumber"));
@@ -468,6 +499,10 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       notes: input.notes || null,
     };
     if (quoteId) {
+      const existingQuote = await tx.select({ id: quotes.id, quoteNumber: quotes.quoteNumber }).from(quotes).where(eq(quotes.id, quoteId)).limit(1);
+      if (!existingQuote[0]) throw new Error("Orçamento não encontrado. Ele pode ter sido excluído por outra pessoa.");
+      // O número do orçamento é atribuído na criação e nunca muda depois.
+      quoteValues.quoteNumber = existingQuote[0].quoteNumber;
       const existingRooms = await tx.select({ id: quoteRooms.id }).from(quoteRooms).where(eq(quoteRooms.quoteId, quoteId));
       const existingRoomIds = existingRooms.map((room) => room.id);
       if (existingRoomIds.length) {
@@ -582,6 +617,8 @@ export async function dashboardMetrics() {
     averageTicket: amountBase.length ? amountBase.reduce((sum, quote) => sum + quote.summary.total, 0) / amountBase.length : 0,
     ranking: Array.from(productStats.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5),
     finance: finance.totals,
+    conversionRate: conversionRate(allQuotes),
+    monthly: aggregateMonthlyPerformance(allQuotes, finance.receivables.flatMap((receivable) => receivable.payments)),
   };
 }
 
@@ -609,9 +646,25 @@ export async function exportBackup() {
   };
 }
 
+// O backup é baixado como JSON, então datas voltam como strings ISO. As
+// colunas timestamp do drizzle exigem Date (chamam toISOString), e sem esta
+// conversão a restauração de qualquer backup real falhava.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+export function reviveBackupDates<T>(value: T): T {
+  if (typeof value === "string" && ISO_DATE.test(value)) {
+    const date = new Date(value);
+    return (Number.isNaN(date.getTime()) ? value : date) as T;
+  }
+  if (Array.isArray(value)) return value.map((entry) => reviveBackupDates(entry)) as T;
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, reviveBackupDates(entry)])) as T;
+  }
+  return value;
+}
+
 export async function importBackup(input: { data: Record<string, unknown>; replace: boolean }) {
   const db = await database();
-  const data = input.data as {
+  const data = reviveBackupDates(input.data) as {
     clients?: Array<typeof clients.$inferInsert>;
     products?: Array<typeof products.$inferInsert>;
     quotes?: Array<typeof quotes.$inferInsert>;

@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { statfs } from "node:fs/promises";
 import { z } from "zod";
 import { adminProcedure, router } from "../_core/trpc";
+import { getUploadDirectory } from "../localStorage";
 import { countActiveLocalAdmins, countLocalUsers, createLocalUser, getLocalUserForAdmin, listLocalUsers, resetLocalUserPassword, updateLocalUser, verifyDatabaseConnection } from "../localUserDb";
 
 const optionalEmail = z.string().email().optional().or(z.literal(""));
@@ -9,7 +10,7 @@ const role = z.enum(["user", "admin"]);
 
 export const adminRouter = router({
   systemStatus: adminProcedure.query(async () => {
-    const uploadDirectory = process.env.UPLOAD_DIR || "./uploads";
+    const uploadDirectory = getUploadDirectory();
     let storage = null as null | { availableBytes: number; totalBytes: number };
     try {
       const stats = await statfs(uploadDirectory);

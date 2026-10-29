@@ -19,6 +19,8 @@ export type LocalSession = {
   userId: number;
   username: string;
   role: "user" | "admin";
+  /** Impressão digital do hash de senha no momento do login (ver passwordFingerprint). */
+  passwordVersion?: string;
 };
 
 export type SafeUser = {
@@ -69,6 +71,24 @@ export async function hashPassword(password: string) {
   return `scrypt$${salt}$${derived.toString("base64url")}`;
 }
 
+// Hash fixo usado quando o usuário não existe: assim o login gasta o mesmo
+// tempo de scrypt para usuários inexistentes e existentes, e a resposta não
+// revela pelo tempo quais nomes de usuário estão cadastrados.
+let dummyHash: Promise<string> | null = null;
+export async function verifyPasswordOrDummy(password: string, encoded: string | null | undefined) {
+  if (encoded) return verifyPassword(password, encoded);
+  dummyHash ??= hashPassword("luminno-dummy-password-for-timing");
+  await verifyPassword(password, await dummyHash);
+  return false;
+}
+
+// Identifica a "versão" da senha sem expor o hash. Vai dentro do JWT e é
+// comparada a cada requisição: trocar ou redefinir a senha muda o valor e
+// invalida automaticamente todas as sessões emitidas antes da troca.
+export function passwordFingerprint(passwordHash: string | null | undefined) {
+  return createHash("sha256").update(passwordHash ?? "").digest("base64url").slice(0, 22);
+}
+
 export async function verifyPassword(password: string, encoded: string | null) {
   if (!encoded) return false;
   const [algorithm, salt, stored] = encoded.split("$");
@@ -80,7 +100,7 @@ export async function verifyPassword(password: string, encoded: string | null) {
 
 export async function signLocalSession(user: User) {
   if (!user.username || !user.isActive) throw new Error("Usuário local inválido para sessão.");
-  return new SignJWT({ username: user.username, role: user.role })
+  return new SignJWT({ username: user.username, role: user.role, pv: passwordFingerprint(user.passwordHash) })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(String(user.id))
     .setIssuedAt()
@@ -95,10 +115,27 @@ export async function verifyLocalSession(token: string): Promise<LocalSession | 
     const username = typeof payload.username === "string" ? payload.username : "";
     const role = payload.role === "admin" ? "admin" : payload.role === "user" ? "user" : null;
     if (!Number.isSafeInteger(userId) || userId < 1 || !username || !role) return null;
-    return { userId, username, role };
+    const session: LocalSession = { userId, username, role };
+    if (typeof payload.pv === "string") session.passwordVersion = payload.pv;
+    return session;
   } catch {
     return null;
   }
+}
+
+// Resolve o usuário de um cookie de sessão. Recusa tokens de usuários
+// inativos e tokens emitidos antes da última troca de senha.
+export async function resolveSessionUser(
+  token: string | undefined,
+  loadUser: (id: number) => Promise<User | null>,
+): Promise<User | null> {
+  if (!token) return null;
+  const session = await verifyLocalSession(token);
+  if (!session) return null;
+  const user = await loadUser(session.userId);
+  if (!user) return null;
+  if (session.passwordVersion !== passwordFingerprint(user.passwordHash)) return null;
+  return user;
 }
 
 export function getSessionMaxAgeMs() {

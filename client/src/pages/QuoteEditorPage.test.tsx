@@ -9,13 +9,25 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   saveMutate: vi.fn(),
   saveOnSuccess: null as ((quote: unknown) => void) | null,
+  toastWarning: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    warning: mocks.toastWarning,
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+    info: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/trpc", () => {
   const quote = {
     id: 3, quoteNumber: 18, clientId: null, clientName: "Clínica Aurora", professional: "Arquiteta", document: null, stateRegistration: null, phone: null, address: null,
     status: "open", issueDate: new Date("2026-08-25T12:00:00.000Z"), validUntil: null, discountMode: "percentage", discountValue: "0", shipping: "0", pixDiscountMode: "percentage", pixDiscountValue: "0", installments: 6, notes: null,
-    rooms: [{ name: "SALA", items: [{ productId: null, code: "1", shortDescription: "Perfil LED", imageUrl: null, unit: "UN", quantity: "2", unitPrice: "150" }] }],
+    rooms: [{ name: "SALA", items: [{ productId: null, code: "1", shortDescription: "Perfil LED", imageUrl: "/uploads/produto.png", unit: "UN", quantity: "2", unitPrice: "150" }] }],
   };
   const mutation = () => ({ isPending: false, mutate: mocks.mutate });
   return {

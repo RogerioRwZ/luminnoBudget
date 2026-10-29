@@ -43,6 +43,14 @@ function assertImageSignature(bytes: Buffer, mimeType: string) {
   if (!valid) throw new Error("O conteúdo do arquivo não corresponde a uma imagem JPEG, PNG ou WebP válida.");
 }
 
+function assertAttachmentSignature(bytes: Buffer, mimeType: string) {
+  if (mimeType === "application/pdf") {
+    if (bytes.length < 5 || bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("O conteúdo do arquivo não corresponde a um PDF válido.");
+    return;
+  }
+  assertImageSignature(bytes, mimeType);
+}
+
 function safeStem(fileName: string) {
   return fileName
     .normalize("NFD")
@@ -75,6 +83,7 @@ export async function saveLocalAttachment(fileName: string, mimeType: string, by
   const extension = supportedAttachmentTypes.get(mimeType);
   if (!extension) throw new Error("Formato de anexo não permitido. Use PDF, JPG, PNG ou WebP.");
   if (!bytes.length || bytes.length > MAX_ATTACHMENT_BYTES) throw new Error("O anexo deve ter até 15 MB.");
+  assertAttachmentSignature(bytes, mimeType);
   await ensureUploadDirectory();
   const key = `attachments/${safeStem(fileName)}-${randomUUID()}.${extension}`;
   const destination = path.join(getUploadDirectory(), key);
@@ -120,5 +129,8 @@ export function getLocalPdfPath(storageKey: string) {
 
 export function registerLocalStorage(app: Express) {
   const root = getUploadDirectory();
-  app.use("/uploads", express.static(root, { fallthrough: false, index: false, maxAge: "7d", immutable: true }));
+  // Anexos de orçamento ficam no mesmo diretório, mas só podem sair pela
+  // rota autenticada /api/quote-attachments/:id/download.
+  app.use("/uploads/attachments", (_req, res) => res.status(404).send("Arquivo não encontrado."));
+  app.use("/uploads", express.static(root, { fallthrough: false, index: false, dotfiles: "deny", maxAge: "7d", immutable: true }));
 }

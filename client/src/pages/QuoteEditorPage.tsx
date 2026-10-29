@@ -773,7 +773,14 @@ export default function QuoteEditorPage() {
     if (validation) return toast.error(validation);
     setIsGeneratingPdf(true);
     try {
-      const dataUrl = await createQuotePdfDataUrl({ ...draft, summary, settings });
+      const { dataUrl, failedImageCount } = await createQuotePdfDataUrl({ ...draft, summary, settings });
+      if (failedImageCount > 0) {
+        toast.warning(
+          failedImageCount === 1
+            ? "1 imagem (logotipo ou foto de produto) não pôde ser incluída no PDF. O documento foi gerado normalmente sem ela."
+            : `${failedImageCount} imagens (logotipo e/ou fotos de produto) não puderam ser incluídas no PDF. O documento foi gerado normalmente sem elas.`
+        );
+      }
       savePdf.mutate({ quoteId: draft.id, dataUrl });
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.");

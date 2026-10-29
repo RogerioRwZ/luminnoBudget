@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { products, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements } from "../drizzle/schema";
 import { calculateAvailableStock, calculatePendingDelivery, calculateRemainingReservation, calculateStockAfter, getStockDelta, StockMovementType } from "../shared/stock";
 import { toNumber } from "../shared/quote";
@@ -36,10 +36,18 @@ export async function inventoryOverview() {
 export async function recordStockMovement(input: { productId: number; type: Exclude<StockMovementType, "delivery">; quantity: number; responsible?: string | null; notes?: string | null; occurredAt: Date }) {
   const db = await database();
   return db.transaction(async (tx) => {
+    // FOR UPDATE: sem a trava, duas movimentações simultâneas leem o mesmo
+    // saldo "antes" e a segunda sobrescreve a primeira.
+    await tx.execute(sql`SELECT id FROM ${products} WHERE ${eq(products.id, input.productId)} FOR UPDATE`);
     const product = (await tx.select().from(products).where(eq(products.id, input.productId)).limit(1))[0];
     if (!product) throw new Error("Produto não encontrado");
     const beforeQuantity = toNumber(product.stockQuantity);
     const afterQuantity = calculateStockAfter(beforeQuantity, input.type, input.quantity);
+    if (input.type === "adjustment" && afterQuantity < beforeQuantity) {
+      const reservations = await tx.select({ reservedQuantity: quoteItemReservations.reservedQuantity }).from(quoteItemReservations).where(eq(quoteItemReservations.productId, product.id));
+      const reserved = reservations.reduce((sum, row) => sum + toNumber(row.reservedQuantity), 0);
+      if (afterQuantity < reserved) throw new Error(`O ajuste deixaria o saldo (${afterQuantity}) abaixo da quantidade reservada para orçamentos aprovados (${reserved}).`);
+    }
     await tx.update(products).set({ stockQuantity: money(afterQuantity) }).where(eq(products.id, product.id));
     const inserted = await tx.insert(stockMovements).values({ productId: product.id, type: input.type, quantity: money(getStockDelta(input.type, input.quantity)), beforeQuantity: money(beforeQuantity), afterQuantity: money(afterQuantity), responsible: input.responsible || null, notes: input.notes || null, occurredAt: input.occurredAt }).$returningId();
     return { movementId: inserted[0]!.id, beforeQuantity, afterQuantity };
@@ -82,6 +90,7 @@ export async function deliverQuoteItem(input: { quoteId: number; quoteItemId: nu
     if (!item || !item.productId) throw new Error("Este item não está vinculado a um produto de estoque");
     const room = (await tx.select().from(quoteRooms).where(eq(quoteRooms.id, item.quoteRoomId)).limit(1))[0];
     if (!room || room.quoteId !== quote.id) throw new Error("O item não pertence ao orçamento informado");
+    await tx.execute(sql`SELECT id FROM ${products} WHERE ${eq(products.id, item.productId!)} FOR UPDATE`);
     const product = (await tx.select().from(products).where(eq(products.id, item.productId!)).limit(1))[0];
     if (!product) throw new Error("Produto não encontrado no estoque");
     const priorDeliveries = await tx.select().from(quoteItemDeliveries).where(eq(quoteItemDeliveries.quoteItemId, item.id));

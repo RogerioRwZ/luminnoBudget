@@ -65,7 +65,7 @@ describe("auth.login local", () => {
       name: COOKIE_NAME,
       options: { httpOnly: true, path: "/", sameSite: "lax", secure: true },
     });
-    await expect(verifyLocalSession(cookies[0]!.value)).resolves.toEqual({ userId: created.id, username, role: "user" });
+    await expect(verifyLocalSession(cookies[0]!.value)).resolves.toMatchObject({ userId: created.id, username, role: "user", passwordVersion: expect.any(String) });
   });
 
   it("recusa o procedimento no ponto de entrada quando a chave de rate limit é inválida", async () => {

@@ -9,9 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { downloadCsv } from "@/lib/csvDownload";
 import { ExpirationQuickFilter } from "@shared/quoteAlerts";
 import { QuoteStatusFilter } from "@shared/quoteStatus";
-import { CalendarDays, Copy, FileText, Plus, Search } from "lucide-react";
+import { CalendarDays, Copy, Download, FileText, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -91,6 +92,41 @@ export default function QuotesPage() {
         )
       ),
   });
+  const utils = trpc.useUtils();
+  const [isExporting, setIsExporting] = useState(false);
+  // Exporta todos os orçamentos que atendem aos filtros atuais, não só a
+  // página visível.
+  const exportCsv = async () => {
+    setIsExporting(true);
+    try {
+      const filters = { search: debouncedSearch || undefined, status: statusFilter, expiration: expirationFilter, pageSize: 100 };
+      const first = await utils.quote.listPaged.fetch({ ...filters, page: 1 });
+      const rows = [...first.quotes];
+      for (let next = 2; next <= first.totalPages; next += 1) {
+        rows.push(...(await utils.quote.listPaged.fetch({ ...filters, page: next })).quotes);
+      }
+      if (!rows.length) return toast.info("Nenhum orçamento para exportar com os filtros atuais.");
+      downloadCsv("orcamentos", rows, [
+        { header: "Número", value: (quote) => quote.quoteNumber },
+        { header: "Cliente", value: (quote) => quote.clientName },
+        { header: "Profissional", value: (quote) => quote.professional },
+        { header: "Telefone", value: (quote) => quote.phone },
+        { header: "Status", value: (quote) => statusInfo[quote.status].label },
+        { header: "Emissão", value: (quote) => new Date(quote.issueDate) },
+        { header: "Validade", value: (quote) => (quote.validUntil ? new Date(quote.validUntil) : null) },
+        { header: "Produtos", value: (quote) => quote.summary.productsSubtotal },
+        { header: "Desconto", value: (quote) => quote.summary.discountAmount },
+        { header: "Frete", value: (quote) => quote.summary.shipping },
+        { header: "Total", value: (quote) => quote.summary.total },
+        { header: "Total no PIX", value: (quote) => quote.summary.pixTotal },
+      ]);
+      toast.success(`${rows.length} orçamento(s) exportado(s) em CSV`);
+    } catch {
+      toast.error("Não foi possível exportar os orçamentos. Tente novamente.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
   const chooseStatus = (filter: QuoteStatusFilter) => {
     setStatusFilter(filter);
     setExpirationFilter("all");
@@ -110,6 +146,17 @@ export default function QuotesPage() {
             qualquer momento.
           </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <AsyncButton
+          variant="outline"
+          onClick={exportCsv}
+          pending={isExporting}
+          loadingLabel="Exportando…"
+          className="h-11 px-4"
+        >
+          <Download className="mr-2 h-4 w-4" />
+          Exportar CSV
+        </AsyncButton>
         <AsyncButton
           onClick={() => create.mutate()}
           pending={create.isPending}
@@ -119,6 +166,7 @@ export default function QuotesPage() {
           <Plus className="mr-2 h-4 w-4" />
           Novo orçamento
         </AsyncButton>
+        </div>
       </div>
       <Card className="border-border/70 shadow-sm">
         <CardContent className="p-0">

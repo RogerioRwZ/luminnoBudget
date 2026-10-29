@@ -3,13 +3,15 @@ import { z } from "zod";
 import { COOKIE_NAME } from "../../shared/const";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
-import { getSessionMaxAgeMs, signLocalSession, toSafeUser, verifyPassword } from "../localAuth";
+import { getSessionMaxAgeMs, signLocalSession, toSafeUser, verifyPassword, verifyPasswordOrDummy } from "../localAuth";
 import { assertLoginAllowed, clearLoginFailures, registerLoginFailure } from "../loginRateLimit";
 import {
   countLocalUsers,
   createInitialAdminUser,
+  getActiveLocalUserById,
   getLocalUserByUsername,
   markLocalUserSignedIn,
+  resetLocalUserPassword,
 } from "../localUserDb";
 
 const credentials = z.object({
@@ -54,7 +56,8 @@ export const localAuthRouter = router({
       throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: error instanceof Error ? error.message : "Muitas tentativas. Aguarde alguns minutos." });
     }
     const user = await getLocalUserByUsername(input.username);
-    if (!user || !user.isActive || !(await verifyPassword(input.password, user.passwordHash))) {
+    const passwordMatches = await verifyPasswordOrDummy(input.password, user?.passwordHash);
+    if (!user || !user.isActive || !passwordMatches) {
       registerLoginFailure(input.username, ip);
       throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos." });
     }
@@ -71,12 +74,29 @@ export const localAuthRouter = router({
   changeOwnPassword: protectedProcedure
     .input(z.object({ currentPassword: z.string().min(12).max(200), newPassword: z.string().min(12).max(200) }))
     .mutation(async ({ ctx, input }) => {
+      // Mesmo limite do login: impede que uma sessão aberta (ex.: computador
+      // esquecido desbloqueado) seja usada para adivinhar a senha atual.
+      const ip = ctx.req.ip || ctx.req.socket.remoteAddress || "unknown";
+      const rateKey = `change-password:${ctx.user.id}`;
+      try {
+        assertLoginAllowed(rateKey, ip);
+      } catch (error) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: messageFrom(error, "Muitas tentativas. Aguarde alguns minutos.") });
+      }
       if (!(await verifyPassword(input.currentPassword, ctx.user.passwordHash))) {
+        registerLoginFailure(rateKey, ip);
         throw new TRPCError({ code: "UNAUTHORIZED", message: "A senha atual não confere." });
       }
-      const { resetLocalUserPassword } = await import("../localUserDb");
+      clearLoginFailures(rateKey, ip);
+      if (input.currentPassword === input.newPassword) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A nova senha deve ser diferente da senha atual." });
+      }
       try {
         await resetLocalUserPassword(ctx.user.id, input.newPassword);
+        // A troca invalida todas as sessões anteriores; reemite o cookie
+        // para que apenas esta sessão continue ativa.
+        const refreshed = await getActiveLocalUserById(ctx.user.id);
+        if (refreshed) setSessionCookie(ctx, await signLocalSession(refreshed));
         return { success: true } as const;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: messageFrom(error, "Não foi possível alterar a senha.") });

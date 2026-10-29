@@ -20,8 +20,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { downloadCsv } from "@/lib/csvDownload";
 import { FinanceStatus, PaymentMethod, PaymentType } from "@shared/finance";
 import {
+  Download,
   Banknote,
   CalendarClock,
   CircleDollarSign,
@@ -234,10 +236,33 @@ export default function FinancePage() {
             saldos dos orçamentos aprovados.
           </p>
         </div>
-        <Button className="h-11 px-5" onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nova cobrança
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            className="h-11 px-4"
+            disabled={!data?.receivables.length}
+            onClick={() =>
+              downloadCsv("contas-a-receber", data?.receivables ?? [], [
+                { header: "Orçamento", value: row => row.quoteNumber },
+                { header: "Cliente", value: row => row.clientName },
+                { header: "Descrição", value: row => row.description },
+                { header: "Parcela", value: row => `${row.installmentNumber}/${row.installmentCount}` },
+                { header: "Vencimento", value: row => new Date(row.dueDate) },
+                { header: "Status", value: row => statusMeta[row.status].label },
+                { header: "Valor", value: row => row.originalAmount },
+                { header: "Recebido", value: row => row.receivedAmount },
+                { header: "Saldo", value: row => row.remainingAmount },
+              ])
+            }
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Exportar CSV
+          </Button>
+          <Button className="h-11 px-5" onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nova cobrança
+          </Button>
+        </div>
       </div>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/70 shadow-sm">
