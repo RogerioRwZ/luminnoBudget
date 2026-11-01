@@ -10,14 +10,14 @@ Roda em um único servidor (Node.js + MySQL), com login próprio e arquivos guar
 |---|---|
 | **Visão geral** | Propostas e valores por status, evolução mensal (orçado, aprovado e recebido), taxa de conversão, ticket médio, produtos mais cotados e alertas de validade com lembrete por WhatsApp. |
 | **Orçamentos** | Itens organizados por ambiente, desconto, frete, preço no PIX e parcelamento. Também tem duplicação de orçamentos, busca, filtros por status e validade, paginação e exportação CSV. |
-| **PDF e impressão** | PDF da proposta com logotipo e fotos dos produtos, histórico de PDFs gerados, impressão A4 e lista de separação. |
+| **PDF e impressão** | PDF da proposta com logotipo, fotos dos produtos e QR Code PIX do valor à vista, histórico de PDFs gerados, impressão A4 e lista de separação. |
 | **Catálogo** | Produtos com foto, código automático, fornecedor, ponto de reposição e código de barras. |
 | **Estoque** | Entradas, ajustes e devoluções. Ao aprovar um orçamento, o estoque fica reservado automaticamente, e as entregas podem ser parciais. Há alerta de estoque baixo e exportação CSV. |
-| **Financeiro** | Contas a receber geradas na aprovação do orçamento ou lançadas avulsas, com parcelas, recebimentos parciais, estornos, cobranças em atraso e exportação CSV. |
+| **Financeiro** | Contas a receber geradas na aprovação do orçamento ou lançadas avulsas, com parcelas, recebimentos parciais, estornos, cobranças em atraso e exportação CSV. O botão de cobrança prepara a mensagem ao cliente com QR Code PIX do saldo da parcela. |
 | **Clientes** | Cadastro de clientes e ficha de cada um, com orçamentos, valores aprovados, recebidos e a receber, taxa de conversão e atalho para o WhatsApp. |
-| **Operação** | Para cada orçamento: versões com comparação financeira e restauração justificada, comentários internos e anexos (plantas, PDFs e imagens). Também tem o leitor de código de barras, por leitor USB ou pela câmera do celular, e os modelos de mensagem por evento (proposta enviada, aprovada, vencendo, cobrança etc.). |
-| **Configurações** | Dados da loja, logotipo, chave PIX, condições padrão, dias de alerta e backup/restauração em JSON. |
-| **Administração** | Usuários e perfis (usuário/administrador) e status do sistema (banco, disco, tempo no ar). |
+| **Operação** | Para cada orçamento: versões com comparação financeira e restauração justificada, comentários internos e anexos (plantas, PDFs e imagens). Também tem o leitor de código de barras, por leitor USB ou pela câmera do celular, e os modelos de mensagem por evento (proposta enviada, aprovada, vencendo, cobrança etc.). As **mensagens do dia** listam propostas vencendo e parcelas a vencer ou em atraso, com o texto do modelo preenchido, para enviar pelo WhatsApp ou e-mail. |
+| **Configurações** | Dados da loja, logotipo, chave, favorecido e cidade do PIX, condições padrão, dias de alerta e backup/restauração em JSON. |
+| **Administração** | Usuários e perfis (usuário/administrador), status do sistema (banco, disco, tempo no ar) e **registro de atividades**: quem aprovou orçamentos, registrou recebimentos e estornos, ajustou estoque, mudou preços, configurações e usuários, e quando. |
 
 ## Tecnologias
 

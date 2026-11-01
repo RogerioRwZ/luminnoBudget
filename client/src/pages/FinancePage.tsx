@@ -28,12 +28,14 @@ import {
   CalendarClock,
   CircleDollarSign,
   Landmark,
+  MessageCircle,
   Plus,
   RotateCcw,
   Search,
   WalletCards,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { MessageDialog } from "@/components/MessageDialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -92,6 +94,11 @@ export default function FinancePage() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const { data, isLoading, error, refetch } = trpc.finance.overview.useQuery();
+  const [chargeId, setChargeId] = useState<number | null>(null);
+  const chargeMessage = trpc.finance.message.useQuery(
+    { receivableId: chargeId ?? 0 },
+    { enabled: chargeId !== null }
+  );
   const { data: clients = [] } = trpc.finance.clients.useQuery();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | FinanceStatus>(
@@ -437,6 +444,18 @@ export default function FinancePage() {
                                 ? "Receber saldo"
                                 : "Receber"}
                             </Button>
+                            {row.status !== "paid" &&
+                            row.status !== "cancelled" ? (
+                              <Button
+                                aria-label="Cobrar cliente"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setChargeId(row.id)}
+                                title="Cobrar pelo WhatsApp ou e-mail, com PIX"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : null}
                             {row.receivedAmount > 0 &&
                             row.status !== "cancelled" ? (
                               <Button
@@ -820,6 +839,13 @@ export default function FinancePage() {
           </div>
         </DialogContent>
       </Dialog>
+      <MessageDialog
+        open={chargeId !== null}
+        loading={chargeMessage.isLoading}
+        error={chargeMessage.error?.message}
+        message={chargeMessage.data}
+        onOpenChange={value => !value && setChargeId(null)}
+      />
     </div>
   );
 }

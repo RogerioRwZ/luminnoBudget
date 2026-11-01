@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  logSent: vi.fn(),
+  pending: [] as any[],
   quoteList: { data: [{ id: 1, quoteNumber: 12, clientName: "Cliente teste", status: "open", summary: { productsSubtotal: 120, discountAmount: 10, shipping: 15, total: 125, pixTotal: 120, installmentValue: 62.5 } }], isLoading: false, error: null as Error | null },
   barcode: { data: null as any, isFetching: false, refetch: vi.fn().mockResolvedValue({ data: null }) },
   mutate: vi.fn(), refetch: vi.fn(), invalidate: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn(),
@@ -15,12 +17,17 @@ vi.mock("@/lib/trpc", () => ({ trpc: {
   quote: { list: { useQuery: () => mocks.quoteList }, versions: { useQuery: () => query("versions") }, restoreVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, comments: { useQuery: () => query("comments") }, attachments: { useQuery: () => query("attachments") }, createVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, addComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, resolveComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, uploadAttachment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
   product: { findByBarcode: { useQuery: () => mocks.barcode } },
   templates: { list: { useQuery: () => ({ data: [], isLoading: false, error: null, refetch: mocks.refetch }) }, save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
+  messages: {
+    pending: { useQuery: () => ({ data: mocks.pending, isLoading: false, error: null, refetch: mocks.refetch }) },
+    forQuote: { useQuery: () => ({ data: undefined, isLoading: false, error: null }) },
+    logSent: { useMutation: () => ({ mutate: mocks.logSent }) },
+  },
 } }));
 vi.mock("sonner", () => ({ toast: { success: mocks.toastSuccess, error: mocks.toastError } }));
 
 import OperationsPage from "./OperationsPage";
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.quoteList = { data: [{ id: 1, quoteNumber: 12, clientName: "Cliente teste", status: "open", summary: { productsSubtotal: 120, discountAmount: 10, shipping: 15, total: 125, pixTotal: 120, installmentValue: 62.5 } }], isLoading: false, error: null }; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.pending = []; mocks.quoteList = { data: [{ id: 1, quoteNumber: 12, clientName: "Cliente teste", status: "open", summary: { productsSubtotal: 120, discountAmount: 10, shipping: 15, total: 125, pixTotal: 120, installmentValue: 62.5 } }], isLoading: false, error: null }; });
 
 describe("OperationsPage", () => {
   it("expõe os recursos e controles com nomes acessíveis", () => {
@@ -58,5 +65,20 @@ describe("OperationsPage", () => {
     fireEvent.change(input, { target: { value: "789123" } });
     fireEvent.submit(input.closest("form")!);
     expect(mocks.barcode.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("lista as mensagens do dia e abre o WhatsApp com o texto preenchido", () => {
+    mocks.pending = [{ key: "payment_overdue-7", event: "payment_overdue", eventLabel: "Parcela vencida", quoteId: 1, receivableId: 7, clientName: "Marina", phone: "5511988887777", email: "", subject: "Parcela 2/8 em atraso", body: "Olá, Marina! A parcela 2/8 venceu.", referenceDate: new Date(2026, 9, 20), amount: 150, pix: "" }];
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<OperationsPage />);
+    expect(screen.getByText("Mensagens do dia")).toBeTruthy();
+    expect(screen.getByText("Marina")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Enviar/ }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect((dialog.getByLabelText("Mensagem") as HTMLTextAreaElement).value).toBe("Olá, Marina! A parcela 2/8 venceu.");
+    fireEvent.click(dialog.getByRole("button", { name: /WhatsApp/ }));
+    expect(open).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/wa\.me\/5511988887777\?text=Ol%C3%A1/), "_blank", "noopener,noreferrer");
+    expect(mocks.logSent).toHaveBeenCalledWith(expect.objectContaining({ event: "payment_overdue", channel: "whatsapp", receivableId: 7 }));
+    open.mockRestore();
   });
 });

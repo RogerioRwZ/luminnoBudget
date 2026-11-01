@@ -14,7 +14,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Camera, CameraOff } from "lucide-react";
+import { Camera, CameraOff, MessageCircle, Send } from "lucide-react";
+import { MessageDialog, type DialogMessage } from "@/components/MessageDialog";
+import { dateOnly } from "@/lib/format";
+import { MESSAGE_VARIABLES, type MessageEvent } from "@shared/messages";
 
 type Detector = {
   detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
@@ -334,6 +337,15 @@ export default function OperationsPage() {
     { enabled: Boolean(quoteId) }
   );
   const templates = trpc.templates.list.useQuery();
+  const pendingMessages = trpc.messages.pending.useQuery();
+  const [quoteMessageEvent, setQuoteMessageEvent] =
+    useState<MessageEvent>("quote_sent");
+  const [quoteMessageRequested, setQuoteMessageRequested] = useState(false);
+  const [openMessage, setOpenMessage] = useState<DialogMessage | null>(null);
+  const quoteMessage = trpc.messages.forQuote.useQuery(
+    { quoteId: quoteId!, event: quoteMessageEvent },
+    { enabled: Boolean(quoteId) && quoteMessageRequested }
+  );
   const productLookup = trpc.product.findByBarcode.useQuery(
     { barcode },
     { enabled: false }
@@ -563,8 +575,127 @@ export default function OperationsPage() {
               Status: {selectedQuote.status}
             </p>
           ) : null}
+          {quoteId ? (
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor="quote-message-event">Mensagem ao cliente</Label>
+                <select
+                  id="quote-message-event"
+                  className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
+                  value={quoteMessageEvent}
+                  onChange={event =>
+                    setQuoteMessageEvent(event.target.value as MessageEvent)
+                  }
+                >
+                  {(
+                    [
+                      "quote_sent",
+                      "quote_approved",
+                      "quote_expiring",
+                      "quote_expired",
+                      "delivery_scheduled",
+                      "delivery_completed",
+                    ] as const
+                  ).map(value => (
+                    <option key={value} value={value}>
+                      {eventLabels[value]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setQuoteMessageRequested(true)}
+              >
+                <Send className="mr-1.5 h-4 w-4" />
+                Preparar mensagem
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MessageCircle className="h-5 w-5 text-primary" />
+            Mensagens do dia
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Propostas vencendo ou vencidas e parcelas a vencer ou em atraso,
+            com o texto do modelo já preenchido.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {pendingMessages.isLoading ? (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          ) : pendingMessages.error ? (
+            <div role="alert" className="space-y-2 text-sm text-muted-foreground">
+              <p>Não foi possível carregar as mensagens do dia.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => pendingMessages.refetch()}
+              >
+                Tentar novamente
+              </Button>
+            </div>
+          ) : pendingMessages.data?.length ? (
+            <div className="divide-y divide-border rounded-xl border border-border">
+              {pendingMessages.data.map(item => (
+                <div
+                  key={item.key}
+                  className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="secondary"
+                        className={
+                          item.event === "payment_overdue" ||
+                          item.event === "quote_expired"
+                            ? "bg-red-500/10 text-red-700 dark:text-red-300"
+                            : "bg-amber-500/15 text-amber-800 dark:text-amber-300"
+                        }
+                      >
+                        {item.eventLabel}
+                      </Badge>
+                      <span className="truncate text-sm font-semibold">
+                        {item.clientName || "Cliente não informado"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {money(item.amount)}
+                      {item.referenceDate
+                        ? ` · ${item.receivableId ? "vencimento" : "validade"} ${dateOnly(item.referenceDate)}`
+                        : ""}
+                      {!item.phone && !item.email ? " · sem telefone ou e-mail" : ""}
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={() => setOpenMessage(item)}>
+                    <Send className="mr-1.5 h-3.5 w-3.5" />
+                    Enviar
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              Nenhuma mensagem pendente hoje.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      <MessageDialog
+        open={Boolean(openMessage) || quoteMessageRequested}
+        loading={quoteMessageRequested && quoteMessage.isLoading}
+        error={!openMessage && quoteMessageRequested ? quoteMessage.error?.message : null}
+        message={openMessage ?? (quoteMessageRequested ? quoteMessage.data : null)}
+        onOpenChange={value => {
+          if (value) return;
+          setOpenMessage(null);
+          setQuoteMessageRequested(false);
+        }}
+      />
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
@@ -862,8 +993,10 @@ export default function OperationsPage() {
                 onChange={event => setTemplateBody(event.target.value)}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Variáveis disponíveis: {"{{cliente}}"}, {"{{numero}}"},{" "}
-                {"{{valor}}"}, {"{{vencimento}}"}.
+                Variáveis disponíveis:{" "}
+                {MESSAGE_VARIABLES.map(name => `{{${name}}}`).join(", ")}.
+                Uma linha com variável sem valor (ex.: {"{{pix}}"} sem chave
+                cadastrada) é omitida da mensagem.
               </p>
             </div>
           </div>

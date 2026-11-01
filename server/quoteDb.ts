@@ -70,6 +70,7 @@ const DEFAULT_SETTINGS = {
   email: null,
   pixKey: null,
   pixRecipient: null,
+  pixCity: null,
   defaultPixDiscountMode: "percentage" as const,
   defaultPixDiscountValue: "0",
   defaultInstallments: 8,
@@ -106,6 +107,7 @@ export async function saveSettings(input: {
   email: string | null;
   pixKey: string | null;
   pixRecipient: string | null;
+  pixCity: string | null;
   defaultPixDiscountMode: "percentage" | "fixed";
   defaultPixDiscountValue: string;
   defaultInstallments: number;
@@ -203,6 +205,12 @@ export async function saveProduct(input: {
     const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
     return inserted[0]!.id;
   });
+}
+
+export async function getProduct(id: number) {
+  const db = await database();
+  const rows = await db.select().from(products).where(eq(products.id, id)).limit(1);
+  return rows[0] ?? null;
 }
 
 export async function deleteProduct(id: number) {

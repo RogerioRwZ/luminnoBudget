@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
+import { ActivityLogPanel } from "@/components/ActivityLogPanel";
 import {
   Activity,
   Database,
@@ -367,6 +368,7 @@ export default function AdminPage() {
           />
         </CardContent>
       </Card>
+      <ActivityLogPanel users={users} />
     </div>
   );
 }

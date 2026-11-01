@@ -5,6 +5,8 @@ import { expectNoUnnamedFormControls } from "@/test/formAccessibility";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  logSent: vi.fn(),
+  chargeMessage: null as any,
   mutate: vi.fn(),
   invalidate: vi.fn(),
   refetch: vi.fn(),
@@ -26,7 +28,9 @@ vi.mock("@/lib/trpc", () => ({
       create: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       recordPayment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       cancel: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      message: { useQuery: (_input: unknown, options: { enabled: boolean }) => (options.enabled ? { data: mocks.chargeMessage, isLoading: false, error: null } : { data: undefined, isLoading: false, error: null }) },
     },
+    messages: { logSent: { useMutation: () => ({ mutate: mocks.logSent }) } },
   },
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/financeiro", mocks.setLocation] }));
@@ -75,5 +79,16 @@ describe("FinancePage", () => {
     expect(screen.getByRole("alert").textContent).toContain("Não foi possível carregar as cobranças.");
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("abre a cobrança com a mensagem e o PIX copia e cola da parcela", async () => {
+    mocks.overview.data = loadedOverview;
+    mocks.chargeMessage = { event: "payment_due", eventLabel: "Parcela a vencer", quoteId: 3, receivableId: 9, clientName: "Clínica Aurora", phone: "", email: "financeiro@aurora.com", subject: "Lembrete: parcela 1/2", body: "Olá, Clínica Aurora! Lembrete da parcela 1/2.", amount: 300, pix: "00020126PIXDETESTE6304ABCD" };
+    render(<FinancePage />);
+    fireEvent.click(screen.getByRole("button", { name: "Cobrar cliente" }));
+    expect(screen.getByText("Parcela a vencer")).toBeTruthy();
+    expect(screen.getByText("00020126PIXDETESTE6304ABCD")).toBeTruthy();
+    expect((screen.getByRole("button", { name: /WhatsApp/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /E-mail/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

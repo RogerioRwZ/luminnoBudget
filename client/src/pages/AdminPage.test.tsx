@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  activityInput: vi.fn(),
+  activity: { entries: [] as any[], total: 0, page: 1, pageSize: 50, totalPages: 1 },
   invalidate: vi.fn(),
   mutate: vi.fn(),
   refetchStatus: vi.fn(),
@@ -37,6 +39,14 @@ vi.mock("@/lib/trpc", () => ({
       createUser: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       updateUser: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       resetPassword: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+    },
+    activity: {
+      list: {
+        useQuery: (input: unknown) => {
+          mocks.activityInput(input);
+          return { data: mocks.activity, isLoading: false, error: null, refetch: vi.fn() };
+        },
+      },
     },
   },
 }));
@@ -73,5 +83,20 @@ describe("AdminPage", () => {
     expect(screen.getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain(
       "Não foi possível carregar a lista de usuários"
     );
+  });
+
+  it("mostra o registro de atividades e filtra por área", () => {
+    mocks.activity = {
+      entries: [
+        { id: 1, userId: 1, userName: "Ana Admin", action: "finance.reversal", entityType: "finance", entityId: 3, summary: "Estornou de R$ 50,00 na parcela 1/2 de Marina", details: null, ip: "10.0.0.5", createdAt: new Date(2026, 10, 1, 9, 30) },
+      ],
+      total: 1, page: 1, pageSize: 50, totalPages: 1,
+    };
+    render(<AdminPage />);
+    expect(screen.getByText("Registro de atividades")).toBeTruthy();
+    expect(screen.getByText("Estornou de R$ 50,00 na parcela 1/2 de Marina")).toBeTruthy();
+    expect(screen.getByText(/Ana Admin · IP 10\.0\.0\.5/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Área"), { target: { value: "finance" } });
+    expect(mocks.activityInput).toHaveBeenLastCalledWith(expect.objectContaining({ entityType: "finance", page: 1 }));
   });
 });
