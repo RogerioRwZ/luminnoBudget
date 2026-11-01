@@ -1,12 +1,64 @@
 import type { PickingItem } from "./picking";
 
-type PickingDocument = { quote: { quoteNumber: number; clientName: string; professional: string }; items: PickingItem[]; issuedAt: string };
+type PickingDocument = {
+  quote: { quoteNumber: number; clientName: string; professional: string };
+  items: PickingItem[];
+  issuedAt: string;
+  brand?: { tradingName?: string | null; companyName?: string | null; phone?: string | null } | null;
+};
 type PrintWindow = { document: { write: (html: string) => void; close: () => void } };
 const escape = (value: string | number | null | undefined) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]!);
+const quantity = (value: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+
+// Mesma identidade visual do PDF do orçamento: faixa escura com a marca em
+// amarelo, cartões de informação e tabela limpa, pensada para impressão.
+const STYLE = `
+@page{size:A4 portrait;margin:12mm}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#1c1b19;margin:0;font-size:11px;background:#fff}
+.sheet{max-width:186mm;margin:0 auto;padding:6mm 0}
+header{background:#181817;color:#fff;border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #f4d842}
+.brand b{display:block;color:#f4d842;font-size:20px;letter-spacing:-.4px}
+.brand span{color:#c4c1ba;font-size:10px}
+.doc{text-align:right}
+.eyebrow{font-size:8px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.doc .eyebrow{color:#f4d842}
+.doc strong{display:block;font-size:22px;margin-top:2px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.card{background:#f8f6f1;border-radius:8px;padding:9px 11px}
+.card .eyebrow{color:#706c65}
+.card p{margin:4px 0 0;font-size:12px;font-weight:600}
+table{width:100%;border-collapse:collapse;margin-top:4px}
+thead th{font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#9e9a93;text-align:left;padding:6px 8px;border-bottom:1px solid #e5e2db}
+tbody td{padding:9px 8px;border-bottom:1px solid #eeebe5;vertical-align:top}
+tbody tr:nth-child(even) td{background:#fbfaf7}
+tr{break-inside:avoid;page-break-inside:avoid}
+.n{color:#9e9a93;width:22px}
+.product b{font-size:12px}
+.product small{display:block;color:#9e9a93;font-size:9px;margin-top:1px}
+.product span{display:block;margin-top:4px;line-height:1.35;color:#4a4740}
+.rooms{color:#706c65;font-size:10px}
+.qty{font-size:14px;font-weight:800;text-align:right;white-space:nowrap}
+.check{width:30px;text-align:center}
+.check i{display:inline-block;width:14px;height:14px;border:1.5px solid #1c1b19;border-radius:3px}
+.sign{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}
+.sign div{border-top:1px solid #9e9a93;padding-top:4px;font-size:9px;color:#706c65}
+footer{margin-top:16px;border-top:1px solid #e5e2db;padding-top:6px;display:flex;justify-content:space-between;color:#9e9a93;font-size:9px}
+.empty{padding:18px;text-align:center;color:#706c65}
+`;
 
 export function buildPickingPrintDocument(data: PickingDocument) {
-  const rows = data.items.map((item, index) => `<tr><td>${index + 1}</td><td><b>#${escape(item.code)} — ${escape(item.shortDescription)}</b><br/><span>${escape(item.fullDescription)}</span></td><td>${escape(item.rooms.join(", "))}</td><td class="qty">${escape(item.quantity)} ${escape(item.unit)}</td><td class="check">□</td></tr>`).join("");
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Separação — Orçamento #${escape(data.quote.quoteNumber)}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:24px;font-size:12px}header{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:16px}h1{font-size:20px;margin:0}h2{font-size:13px;margin:4px 0 0;color:#555}p{margin:3px 0}table{width:100%;border-collapse:collapse;margin-top:14px}th{text-align:left;background:#efefef;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:9px}td{border-bottom:1px solid #ddd;padding:10px 9px;vertical-align:top}td span{display:block;margin-top:4px;line-height:1.35;color:#444}.qty{font-weight:700;text-align:center;white-space:nowrap}.check{font-size:19px;text-align:center;width:44px}footer{border-top:1px solid #111;margin-top:28px;padding-top:8px;font-size:10px;color:#555}@media print{body{margin:12mm}}</style></head><body><header><div><h1>LISTA DE SEPARAÇÃO</h1><h2>Orçamento #${escape(data.quote.quoteNumber)}</h2></div><div><p><b>Cliente:</b> ${escape(data.quote.clientName || "Não informado")}</p><p><b>Profissional:</b> ${escape(data.quote.professional || "Não informado")}</p><p><b>Emitido em:</b> ${escape(data.issuedAt)}</p></div></header><table><thead><tr><th>#</th><th>Produto / descrição completa</th><th>Ambientes</th><th>Separar</th><th>Conferido</th></tr></thead><tbody>${rows || "<tr><td colspan='5'>Nenhum item para separar.</td></tr>"}</tbody></table><footer>Documento operacional para separação de estoque. Itens consolidados por produto e quantidade.</footer><script>window.onload=()=>window.print()<\/script></body></html>`;
+  const tradingName = data.brand?.tradingName || "Luminno";
+  const companyName = data.brand?.companyName || "";
+  const totalUnits = data.items.reduce((sum, item) => sum + item.quantity, 0);
+  const rows = data.items.map((item, index) => `<tr><td class="n">${index + 1}</td><td class="product"><b>${escape(item.shortDescription)}</b><small>Cód. ${escape(item.code)}</small>${item.fullDescription && item.fullDescription !== item.shortDescription ? `<span>${escape(item.fullDescription)}</span>` : ""}</td><td class="rooms">${escape(item.rooms.join(", "))}</td><td class="qty">${escape(`${quantity(item.quantity)} ${item.unit}`)}</td><td class="check"><i></i></td></tr>`).join("");
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Separação — Orçamento #${escape(data.quote.quoteNumber)}</title><style>${STYLE}</style></head><body><div class="sheet">`
+    + `<header><div class="brand"><b>${escape(tradingName)}</b><span>${escape(companyName)}${data.brand?.phone ? ` · ${escape(data.brand.phone)}` : ""}</span></div><div class="doc"><div class="eyebrow">Lista de separação</div><strong>Orçamento #${escape(data.quote.quoteNumber)}</strong></div></header>`
+    + `<section class="cards"><div class="card"><div class="eyebrow">Cliente</div><p>${escape(data.quote.clientName || "Não informado")}</p></div><div class="card"><div class="eyebrow">Profissional</div><p>${escape(data.quote.professional || "Não informado")}</p></div><div class="card"><div class="eyebrow">Emitido em</div><p>${escape(data.issuedAt)}</p></div></section>`
+    + `<table><thead><tr><th>#</th><th>Produto</th><th>Ambientes</th><th style="text-align:right">Separar</th><th style="text-align:center">OK</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="empty">Nenhum item para separar.</td></tr>`}</tbody></table>`
+    + `<section class="sign"><div>Separado por</div><div>Conferido por</div><div>Data</div></section>`
+    + `<footer><span>${escape(data.items.length)} produto(s) · ${escape(quantity(totalUnits))} unidade(s) no total, consolidadas por produto.</span><span>Documento operacional — não é comprovante fiscal.</span></footer>`
+    + `</div><script>window.onload=()=>window.print()<\/script></body></html>`;
 }
 
 export function openPickingPrintDocument(data: PickingDocument, openWindow: () => PrintWindow | null) {

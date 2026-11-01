@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createQuotePdfDataUrl } from "./quotePdf";
+import { createQuotePdfBlob, createQuotePdfDataUrl } from "./quotePdf";
 
 // PNG 1x1 válido, usado como imagem de teste para logotipo/fotos de produto.
 const ONE_PIXEL_PNG_BASE64 =
@@ -130,5 +130,31 @@ describe("geração de PDF de orçamento", () => {
     });
 
     expect(failedImageCount).toBe(1);
+  });
+
+  it("quebra orçamentos longos em várias páginas, com cabeçalho e rodapé em todas", async () => {
+    const items = Array.from({ length: 40 }, (_, index) => ({ code: String(index), shortDescription: `Produto de teste com descrição longa número ${index}`, unit: "UN", quantity: 1, unitPrice: 10 }));
+    const { dataUrl } = await createQuotePdfDataUrl({
+      ...baseInput,
+      rooms: [{ name: "SALA", items }],
+      summary: { rooms: [400], productsSubtotal: 400, discountAmount: 0, shipping: 0, total: 400, pixDiscountAmount: 0, pixTotal: 400 },
+      settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", document: null, address: null, phone: null, pixKey: null, pixRecipient: null },
+    });
+    const pdf = atob(dataUrl.split(",")[1]!);
+    expect((pdf.match(/\/Type \/Page\b/g) ?? []).length).toBeGreaterThan(1);
+  });
+
+  it("inclui o QR Code PIX quando há chave cadastrada e gera o mesmo documento como Blob", async () => {
+    const input = {
+      ...baseInput,
+      status: "approved" as const,
+      rooms: [{ name: "SALA", items: [{ code: "1", shortDescription: "Perfil de LED", unit: "UN", quantity: 2, unitPrice: 150 }] }],
+      settings: { companyName: "Luminno Iluminação", tradingName: "Luminno", document: null, address: null, phone: null, pixKey: "loja@luminno.com.br", pixRecipient: "Luminno", pixCity: "Campinas" },
+    };
+    const { dataUrl } = await createQuotePdfDataUrl(input);
+    expect((atob(dataUrl.split(",")[1]!).match(/\/Subtype \/Image/g) ?? []).length).toBe(1);
+    const { blob } = await createQuotePdfBlob(input);
+    expect(blob.type).toBe("application/pdf");
+    expect(blob.size).toBeGreaterThan(1000);
   });
 });
