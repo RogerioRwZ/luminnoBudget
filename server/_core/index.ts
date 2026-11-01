@@ -120,4 +120,10 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+// Sai com código de erro se a inicialização falhar (ex.: pasta de uploads
+// sem permissão): saindo com 0, o systemd (Restart=on-failure) entendia
+// como parada normal e deixava o sistema fora do ar.
+startServer().catch((error) => {
+  console.error("Falha ao iniciar o servidor:", error);
+  process.exit(1);
+});
