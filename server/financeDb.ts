@@ -161,6 +161,14 @@ export async function financeClients() {
   return db.select({ id: clients.id, name: clients.name, professional: clients.professional }).from(clients).orderBy(clients.name);
 }
 
+export async function getReceivableSummary(id: number) {
+  const db = await database();
+  const rows = await db.select({ receivable: financeReceivables, quoteNumber: quotes.quoteNumber }).from(financeReceivables).leftJoin(quotes, eq(financeReceivables.quoteId, quotes.id)).where(eq(financeReceivables.id, id)).limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row.receivable, quoteNumber: row.quoteNumber ?? null, originalAmount: toNumber(row.receivable.originalAmount) };
+}
+
 export async function financeByQuote(quoteId: number) {
   const overview = await financeOverview();
   return overview.receivables.filter((receivable) => receivable.quoteId === quoteId);

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     email: null,
     pixKey: null,
     pixRecipient: null,
+    pixCity: null,
     defaultPixDiscountMode: "percentage",
     defaultPixDiscountValue: "0",
     defaultInstallments: 6,

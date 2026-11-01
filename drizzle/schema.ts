@@ -1,6 +1,7 @@
 import {
   boolean,
   decimal,
+  index,
   int,
   mysqlEnum,
   mysqlTable,
@@ -232,6 +233,7 @@ export const storeSettings = mysqlTable("storeSettings", {
   email: varchar("email", { length: 320 }),
   pixKey: varchar("pixKey", { length: 320 }),
   pixRecipient: varchar("pixRecipient", { length: 256 }),
+  pixCity: varchar("pixCity", { length: 60 }),
   defaultPixDiscountMode: mysqlEnum("defaultPixDiscountMode", ["percentage", "fixed"]).notNull().default("percentage"),
   defaultPixDiscountValue: decimal("defaultPixDiscountValue", { precision: 12, scale: 2 }).notNull().default("0"),
   defaultInstallments: int("defaultInstallments").notNull().default(8),
@@ -239,6 +241,25 @@ export const storeSettings = mysqlTable("storeSettings", {
   defaultTerms: text("defaultTerms"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// Registro de atividades: quem fez o quê e quando. O nome do usuário é
+// copiado no momento da ação para o histórico continuar legível mesmo se o
+// usuário for renomeado ou desativado.
+export const activityLog = mysqlTable("activityLog", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  userName: varchar("userName", { length: 240 }),
+  action: varchar("action", { length: 64 }).notNull(),
+  entityType: varchar("entityType", { length: 32 }).notNull(),
+  entityId: int("entityId"),
+  summary: varchar("summary", { length: 512 }).notNull(),
+  details: text("details"),
+  ip: varchar("ip", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("activityLog_createdAt_idx").on(table.createdAt),
+  index("activityLog_entity_idx").on(table.entityType, table.entityId),
+]);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;

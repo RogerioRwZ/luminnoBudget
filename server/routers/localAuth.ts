@@ -5,6 +5,7 @@ import { getSessionCookieOptions } from "../_core/cookies";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getSessionMaxAgeMs, signLocalSession, toSafeUser, verifyPassword, verifyPasswordOrDummy } from "../localAuth";
 import { assertLoginAllowed, clearLoginFailures, registerLoginFailure } from "../loginRateLimit";
+import { recordActivity } from "../activityLog";
 import {
   countLocalUsers,
   createInitialAdminUser,
@@ -43,6 +44,7 @@ export const localAuthRouter = router({
         const created = await getLocalUserByUsername(safeUser.username);
         if (!created) throw new Error("Não foi possível iniciar a sessão do administrador.");
         setSessionCookie(ctx, await signLocalSession(created));
+        await recordActivity(created, { action: "auth.setup", entityType: "auth", entityId: created.id, summary: `Criou o administrador inicial ${created.username}` }, ctx.req);
         return safeUser;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: messageFrom(error, "Não foi possível criar o administrador.") });
@@ -59,15 +61,18 @@ export const localAuthRouter = router({
     const passwordMatches = await verifyPasswordOrDummy(input.password, user?.passwordHash);
     if (!user || !user.isActive || !passwordMatches) {
       registerLoginFailure(input.username, ip);
+      await recordActivity(user && user.isActive ? user : null, { action: "auth.login_failed", entityType: "auth", entityId: user?.id ?? null, summary: `Tentativa de login recusada para "${input.username.slice(0, 80)}"` }, ctx.req);
       throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos." });
     }
     clearLoginFailures(input.username, ip);
     await markLocalUserSignedIn(user.id);
     setSessionCookie(ctx, await signLocalSession(user));
+    await recordActivity(user, { action: "auth.login", entityType: "auth", entityId: user.id, summary: `${user.username} entrou no sistema` }, ctx.req);
     return toSafeUser({ ...user, lastSignedIn: new Date() });
   }),
   me: publicProcedure.query(({ ctx }) => (ctx.user ? toSafeUser(ctx.user) : null)),
-  logout: publicProcedure.mutation(({ ctx }) => {
+  logout: publicProcedure.mutation(async ({ ctx }) => {
+    if (ctx.user) await recordActivity(ctx.user, { action: "auth.logout", entityType: "auth", entityId: ctx.user.id, summary: `${ctx.user.username} saiu do sistema` }, ctx.req);
     ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req));
     return { success: true } as const;
   }),
@@ -97,6 +102,7 @@ export const localAuthRouter = router({
         // para que apenas esta sessão continue ativa.
         const refreshed = await getActiveLocalUserById(ctx.user.id);
         if (refreshed) setSessionCookie(ctx, await signLocalSession(refreshed));
+        await recordActivity(ctx.user, { action: "auth.password_change", entityType: "auth", entityId: ctx.user.id, summary: `${ctx.user.username} alterou a própria senha` }, ctx.req);
         return { success: true } as const;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: messageFrom(error, "Não foi possível alterar a senha.") });

@@ -1,3 +1,5 @@
+import { buildPixPayload } from "@shared/pix";
+import { pixQrDataUrl } from "./pixQr";
 import { jsPDF } from "jspdf";
 
 export type QuotePdfInput = {
@@ -19,7 +21,7 @@ export type QuotePdfInput = {
   notes: string;
   rooms: Array<{ name: string; items: Array<{ code: string; shortDescription: string; imageUrl?: string | null; unit: string; quantity: number; unitPrice: number }> }>;
   summary: { rooms: number[]; productsSubtotal: number; discountAmount: number; shipping: number; total: number; pixDiscountAmount: number; pixTotal: number };
-  settings?: { companyName: string; tradingName: string; logoUrl?: string | null; document: string | null; address: string | null; phone: string | null; pixKey: string | null; pixRecipient: string | null };
+  settings?: { companyName: string; tradingName: string; logoUrl?: string | null; document: string | null; address: string | null; phone: string | null; pixKey: string | null; pixRecipient: string | null; pixCity?: string | null };
 };
 
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -115,6 +117,19 @@ function containInBox(image: LoadedImage, box: number) {
 }
 
 export type QuotePdfResult = { dataUrl: string; failedImageCount: number };
+
+// QR Code PIX com o valor à vista. Se a chave for inválida para o padrão
+// PIX, o PDF sai sem o QR (a chave continua impressa em texto).
+async function quotePixQr(input: QuotePdfInput) {
+  const settings = input.settings;
+  if (!settings?.pixKey || !(input.summary.pixTotal > 0)) return null;
+  try {
+    const payload = buildPixPayload({ key: settings.pixKey, name: settings.pixRecipient || settings.companyName, city: settings.pixCity || "BRASIL", amount: input.summary.pixTotal, txid: `ORC${input.quoteNumber}`, description: `Orcamento ${input.quoteNumber}` });
+    return { payload, image: await pixQrDataUrl(payload, 320) };
+  } catch {
+    return null;
+  }
+}
 
 export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<QuotePdfResult> {
   const { cache: images, failedUrls } = await preloadImages(input);
@@ -255,7 +270,25 @@ export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<Quote
     text(`Pagamento à vista via PIX: ${currency(input.summary.pixTotal)}`, margin, contentWidth);
   }
   text(`Parcelamento: até ${input.installments}x sem juros.`, margin, contentWidth);
-  if (input.settings?.pixKey) text(`Chave PIX: ${input.settings.pixKey}${input.settings.pixRecipient ? ` — ${input.settings.pixRecipient}` : ""}`, margin, contentWidth);
+  if (input.settings?.pixKey) {
+    text(`Chave PIX: ${input.settings.pixKey}${input.settings.pixRecipient ? ` — ${input.settings.pixRecipient}` : ""}`, margin, contentWidth);
+    const pixQr = await quotePixQr(input);
+    if (pixQr) {
+      const size = 32;
+      ensureSpace(size + 8);
+      y += 2;
+      pdf.addImage(pixQr.image, "PNG", margin, y, size, size);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.text(`PIX à vista: ${currency(input.summary.pixTotal)}`, margin + size + 5, y + 6);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      const copyLines = pdf.splitTextToSize(`Copia e cola: ${pixQr.payload}`, contentWidth - size - 5) as string[];
+      pdf.text(copyLines, margin + size + 5, y + 12);
+      y += size + 4;
+      pdf.setFontSize(9);
+    }
+  }
   if (input.notes) text(`Observações: ${input.notes}`, margin, contentWidth);
 
   const pageCount = pdf.getNumberOfPages();

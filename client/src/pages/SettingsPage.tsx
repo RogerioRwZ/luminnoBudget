@@ -44,6 +44,7 @@ type SettingsForm = {
   email: string;
   pixKey: string;
   pixRecipient: string;
+  pixCity: string;
   defaultPixDiscountMode: "percentage" | "fixed";
   defaultPixDiscountValue: number;
   defaultInstallments: number;
@@ -61,6 +62,7 @@ const emptySettings: SettingsForm = {
   email: "",
   pixKey: "",
   pixRecipient: "",
+  pixCity: "",
   defaultPixDiscountMode: "percentage",
   defaultPixDiscountValue: 0,
   defaultInstallments: 8,
@@ -142,6 +144,7 @@ export default function SettingsPage() {
       email: data.email ?? "",
       pixKey: data.pixKey ?? "",
       pixRecipient: data.pixRecipient ?? "",
+      pixCity: data.pixCity ?? "",
       defaultPixDiscountMode: data.defaultPixDiscountMode,
       defaultPixDiscountValue: Number(data.defaultPixDiscountValue),
       defaultInstallments: data.defaultInstallments,
@@ -447,6 +450,21 @@ export default function SettingsPage() {
                 }
               />
             </Field>
+            <Field label="Cidade do PIX">
+              <Input
+                value={form.pixCity}
+                maxLength={60}
+                placeholder="Ex.: São Paulo"
+                onChange={event =>
+                  setForm({ ...form, pixCity: event.target.value })
+                }
+              />
+            </Field>
+            <p className="text-xs text-muted-foreground">
+              Chave, favorecido e cidade entram no QR Code PIX das cobranças e
+              do PDF do orçamento. O banco do cliente mostra o favorecido
+              antes de confirmar o pagamento.
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Desconto PIX">
                 <Input

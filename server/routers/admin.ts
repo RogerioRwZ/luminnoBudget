@@ -3,6 +3,7 @@ import { statfs } from "node:fs/promises";
 import { z } from "zod";
 import { adminProcedure, router } from "../_core/trpc";
 import { getUploadDirectory } from "../localStorage";
+import { recordActivity } from "../activityLog";
 import { countActiveLocalAdmins, countLocalUsers, createLocalUser, getLocalUserForAdmin, listLocalUsers, resetLocalUserPassword, updateLocalUser, verifyDatabaseConnection } from "../localUserDb";
 
 const optionalEmail = z.string().email().optional().or(z.literal(""));
@@ -32,9 +33,11 @@ export const adminRouter = router({
   listUsers: adminProcedure.query(() => listLocalUsers()),
   createUser: adminProcedure
     .input(z.object({ username: z.string().trim().min(3).max(80), name: z.string().trim().min(2).max(240), email: optionalEmail, password: z.string().min(12).max(200), role }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
-        return await createLocalUser({ ...input, email: input.email || null });
+        const created = await createLocalUser({ ...input, email: input.email || null });
+        await recordActivity(ctx.user, { action: "user.create", entityType: "user", entityId: created.id, summary: `Criou o usuário ${created.username} (${input.role === "admin" ? "administrador" : "usuário"})` }, ctx.req);
+        return created;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível criar o usuário." });
       }
@@ -51,13 +54,21 @@ export const adminRouter = router({
       if (removesLastAdmin && (await countActiveLocalAdmins()) <= 1) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Mantenha ao menos um administrador ativo." });
       }
-      return updateLocalUser(input.id, { ...input, email: input.email || null });
+      const updated = await updateLocalUser(input.id, { ...input, email: input.email || null });
+      const notes = [
+        target.role !== input.role ? `perfil ${target.role === "admin" ? "administrador" : "usuário"} → ${input.role === "admin" ? "administrador" : "usuário"}` : "",
+        target.isActive !== input.isActive ? (input.isActive ? "reativado" : "desativado") : "",
+      ].filter(Boolean);
+      await recordActivity(ctx.user, { action: "user.update", entityType: "user", entityId: input.id, summary: `Atualizou o usuário ${target.username}${notes.length ? `: ${notes.join(", ")}` : ""}` }, ctx.req);
+      return updated;
     }),
   resetPassword: adminProcedure
     .input(z.object({ id: z.number().int().positive(), password: z.string().min(12).max(200) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
         await resetLocalUserPassword(input.id, input.password);
+        const target = await getLocalUserForAdmin(input.id);
+        await recordActivity(ctx.user, { action: "user.password_reset", entityType: "user", entityId: input.id, summary: `Redefiniu a senha do usuário ${target?.username ?? input.id}` }, ctx.req);
         return { success: true } as const;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível redefinir a senha." });
