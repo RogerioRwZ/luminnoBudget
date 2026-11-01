@@ -10,7 +10,7 @@ Roda em um único servidor (Node.js + MySQL), com login próprio e arquivos guar
 |---|---|
 | **Visão geral** | Propostas e valores por status, evolução mensal (orçado, aprovado e recebido), taxa de conversão, ticket médio, produtos mais cotados e alertas de validade com lembrete por WhatsApp. |
 | **Orçamentos** | Itens organizados por ambiente, desconto, frete, preço no PIX e parcelamento. Também tem duplicação de orçamentos, busca, filtros por status e validade, paginação e exportação CSV. |
-| **PDF e impressão** | PDF da proposta com logotipo, fotos dos produtos e QR Code PIX do valor à vista, histórico de PDFs gerados, impressão A4 e lista de separação. |
+| **PDF e impressão** | Proposta em PDF com a identidade da loja: dados do cliente e da proposta, destaques de valor (total, PIX e parcelado), itens por ambiente com fotos, resumo financeiro, QR Code PIX, observações e campo de aceite. Pré-visualizar, imprimir e salvar usam o mesmo documento. Histórico de PDFs gerados e lista de separação com o mesmo visual. |
 | **Catálogo** | Produtos com foto, código automático, fornecedor, ponto de reposição e código de barras. |
 | **Estoque** | Entradas, ajustes e devoluções. Ao aprovar um orçamento, o estoque fica reservado automaticamente, e as entregas podem ser parciais. Há alerta de estoque baixo e exportação CSV. |
 | **Financeiro** | Contas a receber geradas na aprovação do orçamento ou lançadas avulsas, com parcelas, recebimentos parciais, estornos, cobranças em atraso e exportação CSV. O botão de cobrança prepara a mensagem ao cliente com QR Code PIX do saldo da parcela. |

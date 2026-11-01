@@ -24,8 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateInput, money } from "@/lib/format";
-import { preparePrintDocument } from "@/lib/printPreparation";
-import { createQuotePdfDataUrl } from "@/lib/quotePdf";
+import { createQuotePdfBlob, createQuotePdfDataUrl, type QuotePdfInput } from "@/lib/quotePdf";
 import { trpc } from "@/lib/trpc";
 import { calculateQuote } from "@shared/quote";
 import {
@@ -196,172 +195,6 @@ function fromQuote(quote: QuoteRecord): QuoteDraft {
   };
 }
 
-function QuotePrintDocument({
-  draft,
-  summary,
-  settings,
-  preview,
-}: {
-  draft: QuoteDraft;
-  summary: ReturnType<typeof calculateQuote>;
-  settings: StoreSettings | undefined;
-  preview?: boolean;
-}) {
-  const companyName = settings?.companyName || "Luminno Iluminação";
-  return (
-    <article className={`print-document${preview ? " print-preview" : ""}`}>
-      <header className="print-header">
-        <div className="print-brand">
-          {settings?.logoUrl ? (
-            <img src={settings.logoUrl} />
-          ) : (
-            <span>
-              LUM
-              <br />
-              INNO
-            </span>
-          )}
-        </div>
-        <div className="print-company">
-          <h1>{companyName}</h1>
-          <p>{settings?.address || "Dados da loja configuráveis"}</p>
-          <p>
-            {settings?.document ? `CNPJ: ${settings.document}` : "CNPJ: —"}
-            {settings?.phone ? ` · ${settings.phone}` : ""}
-          </p>
-        </div>
-      </header>
-      <h2 className="print-title">Orçamento</h2>
-      <div className="print-meta">
-        <span>
-          Orçamento Num: <b>{draft.quoteNumber}</b>
-        </span>
-        <span>
-          Data/Hora:{" "}
-          <b>
-            {new Intl.DateTimeFormat("pt-BR", {
-              dateStyle: "short",
-              timeStyle: "short",
-            }).format(draft.issueDate)}
-          </b>
-        </span>
-        <span>
-          Validade:{" "}
-          <b>
-            {draft.validUntil
-              ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(
-                  draft.validUntil
-                )
-              : "—"}
-          </b>
-        </span>
-      </div>
-      <section className="print-client">
-        <h3>DADOS DO CLIENTE</h3>
-        <div>
-          <span>
-            Nome: <b>{draft.clientName || "—"}</b>
-          </span>
-          <span>
-            Profissional: <b>{draft.professional || "—"}</b>
-          </span>
-        </div>
-        <div>
-          <span>CNPJ/CPF: {draft.document || "—"}</span>
-          <span>IE/RG: {draft.stateRegistration || "—"}</span>
-          <span>Tel: {draft.phone || "—"}</span>
-        </div>
-        <p>Endereço: {draft.address || "—"}</p>
-      </section>
-      <section className="print-detail">
-        <h3>DETALHAMENTO</h3>
-        <div className="print-table-head">
-          <span></span>
-          <span>Código</span>
-          <span>Descrição do Produto</span>
-          <span>Unid.</span>
-          <span>Qtde.</span>
-          <span>Unit.</span>
-          <span>Vr.Total</span>
-        </div>
-        {draft.rooms.map((room, index) => (
-          <section className="print-room" key={index}>
-            <h4>{room.name}</h4>
-            {room.items.map((item, itemIndex) => (
-              <div className="print-item" key={itemIndex}>
-                <span className="print-product-image">
-                  {item.imageUrl ? <img src={item.imageUrl} /> : null}
-                </span>
-                <span>{item.code}</span>
-                <b>{item.shortDescription}</b>
-                <span>{item.unit}</span>
-                <span>{item.quantity}</span>
-                <span>{money(item.unitPrice).replace("R$", "")}</span>
-                <span>
-                  {money(item.quantity * item.unitPrice).replace("R$", "")}
-                </span>
-              </div>
-            ))}
-            <div className="print-subtotal">
-              <em>Total do Grupo</em>
-              <b>{money(summary.rooms[index]).replace("R$", "")}</b>
-            </div>
-          </section>
-        ))}
-      </section>
-      <section className="print-total">
-        <h3>TOTAIS</h3>
-        <div>
-          <span>Total dos Produtos e Serviços</span>
-          <b>{money(summary.productsSubtotal).replace("R$", "")}</b>
-        </div>
-        <div>
-          <span>
-            Desconto ({draft.discountMode === "percentage" ? "%" : "R$"})
-          </span>
-          <b>{money(summary.discountAmount).replace("R$", "")}</b>
-        </div>
-        <div>
-          <span>Frete</span>
-          <b>{money(summary.shipping).replace("R$", "")}</b>
-        </div>
-        <div className="print-grand-total">
-          <span>Total do Orçamento:</span>
-          <b>{money(summary.total).replace("R$", "")}</b>
-        </div>
-      </section>
-      <section className="print-terms">
-        <p>
-          • VALOR PARCELADO {money(summary.total)} EM ATÉ {draft.installments}{" "}
-          VEZES SEM JUROS
-        </p>
-        {summary.pixDiscountAmount > 0 ? (
-          <p>• VALOR À VISTA COM DESCONTO VIA PIX: {money(summary.pixTotal)}</p>
-        ) : null}
-        {settings?.pixKey ? (
-          <p>
-            CHAVE PIX {settings.document ? `CNPJ: ${settings.document}` : ""}{" "}
-            {settings.pixKey}
-            <br />
-            {settings.pixRecipient || ""}
-          </p>
-        ) : null}
-        {draft.notes ? <p className="print-notes">{draft.notes}</p> : null}
-      </section>
-      <footer className="print-footer">
-        <span>
-          {new Intl.DateTimeFormat("pt-BR", {
-            dateStyle: "short",
-            timeStyle: "short",
-          }).format(new Date())}
-        </span>
-        <span>
-          Página <i className="print-page-number" />
-        </span>
-      </footer>
-    </article>
-  );
-}
 
 export default function QuoteEditorPage() {
   const [isNewRoute] = useRoute("/orcamentos/novo");
@@ -480,6 +313,7 @@ export default function QuoteEditorPage() {
   );
   const [searches, setSearches] = useState<string[]>([]);
   const [preview, setPreview] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const focusedFieldIndex = useRef<number | null>(null);
   useEffect(() => {
@@ -761,11 +595,43 @@ export default function QuoteEditorPage() {
         quote: data.quote,
         items: data.items,
         issuedAt: new Date().toLocaleString("pt-BR"),
+        brand: settings,
       },
       () => window.open("", "_blank", "width=1000,height=800")
     );
     if (!opened) toast.error("Permita pop-ups para exportar a separação");
   };
+  // Regenera a pré-visualização (com pequena espera) enquanto ela está aberta.
+  // A URL anterior só é liberada depois que a nova está pronta, para a
+  // pré-visualização não piscar em branco a cada edição.
+  useEffect(() => {
+    if (!preview || !draft || !summary) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const { blob } = await createQuotePdfBlob({ ...draft, summary, settings });
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setPreviewUrl(previous => {
+          if (previous) URL.revokeObjectURL(previous);
+          return url;
+        });
+      } catch {
+        if (!cancelled) toast.error("Não foi possível gerar a pré-visualização do PDF.");
+      }
+    }, 700);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [preview, draft, summary, settings]);
+  useEffect(() => {
+    if (preview) return;
+    setPreviewUrl(previous => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+  }, [preview]);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const generatePdfHistory = async () => {
     if (!draft || !summary) return;
@@ -773,7 +639,7 @@ export default function QuoteEditorPage() {
     if (validation) return toast.error(validation);
     setIsGeneratingPdf(true);
     try {
-      const { dataUrl, failedImageCount } = await createQuotePdfDataUrl({ ...draft, summary, settings });
+      const { dataUrl, failedImageCount } = await createQuotePdfDataUrl(pdfInput());
       if (failedImageCount > 0) {
         toast.warning(
           failedImageCount === 1
@@ -788,11 +654,33 @@ export default function QuoteEditorPage() {
       setIsGeneratingPdf(false);
     }
   };
+  // Pré-visualizar, imprimir e salvar usam o mesmo PDF: o cliente recebe
+  // exatamente o documento que a loja viu na tela.
+  const pdfInput = (): QuotePdfInput => ({ ...draft!, summary: summary!, settings });
   const printA4 = async () => {
+    if (!draft || !summary) return;
     setIsPreparingPrint(true);
     try {
-      await preparePrintDocument();
-      window.print();
+      const { blob } = await createQuotePdfBlob(pdfInput());
+      const url = URL.createObjectURL(blob);
+      const frame = document.createElement("iframe");
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+      frame.src = url;
+      frame.onload = () => {
+        try {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+        } catch {
+          window.open(url, "_blank", "noopener");
+        }
+        window.setTimeout(() => {
+          frame.remove();
+          URL.revokeObjectURL(url);
+        }, 60_000);
+      };
+      document.body.appendChild(frame);
+    } catch {
+      toast.error("Não foi possível preparar a impressão. Tente novamente.");
     } finally {
       setIsPreparingPrint(false);
     }
@@ -896,7 +784,7 @@ export default function QuoteEditorPage() {
             disabled={isPreparingPrint}
           >
             <Eye className="mr-2 h-4 w-4" />
-            {preview ? "Ocultar A4" : "Pré-visualizar A4"}
+            {preview ? "Ocultar PDF" : "Pré-visualizar PDF"}
           </Button>
           <Button
             variant="outline"
@@ -904,7 +792,7 @@ export default function QuoteEditorPage() {
             disabled={isPreparingPrint}
           >
             <Printer className="mr-2 h-4 w-4" />
-            {isPreparingPrint ? "Preparando PDF…" : "Imprimir A4"}
+            {isPreparingPrint ? "Preparando PDF…" : "Imprimir"}
           </Button>
           <AsyncButton
             onClick={() => {
@@ -1522,12 +1410,21 @@ export default function QuoteEditorPage() {
           </Button>
         </aside>
       </div>
-      <QuotePrintDocument
-        draft={draft}
-        summary={summary}
-        settings={settings}
-        preview={preview}
-      />
+      {preview ? (
+        <section className="no-print overflow-hidden rounded-2xl border border-border bg-muted/40 shadow-sm">
+          {previewUrl ? (
+            <iframe
+              title="Pré-visualização do PDF do orçamento"
+              src={`${previewUrl}#toolbar=1&view=FitH`}
+              className="h-[85vh] w-full bg-white"
+            />
+          ) : (
+            <p className="grid h-40 place-items-center text-sm text-muted-foreground">
+              Gerando pré-visualização…
+            </p>
+          )}
+        </section>
+      ) : null}
       <QuotePdfHistoryPanel quoteId={draft.id} />
       <div className="no-print fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-2xl border border-border bg-card/95 p-2 shadow-xl backdrop-blur">
         <Button
