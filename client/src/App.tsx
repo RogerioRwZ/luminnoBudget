@@ -7,6 +7,7 @@ import { Route, Switch } from "wouter";
 import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { setDraftOwner } from "./hooks/useDraftAutosave";
 
 // Cada página roteada vira seu próprio "chunk" JS, carregado sob demanda ao
 // navegar até ela — em vez de todas (e suas dependências, como jsPDF) irem
@@ -35,6 +36,7 @@ export function Router() {
   if (isLoading) return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Verificando acesso seguro…</div>;
   if (error || !data) return <div className="grid min-h-screen place-items-center bg-background p-6 text-center"><div><p className="font-display text-xl font-bold">Não foi possível verificar o acesso.</p><p className="mt-2 text-sm text-muted-foreground">Confirme a conexão com o banco de dados e tente novamente.</p></div></div>;
   if (!data.user) return <AuthPage setupRequired={data.setupRequired} />;
+  setDraftOwner(data.user.id);
   return (
     <DashboardLayout user={data.user}>
       <Suspense fallback={<RouteFallback />}>

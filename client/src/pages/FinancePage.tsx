@@ -4,7 +4,7 @@ import {
   getFormErrorMessage,
 } from "@/components/FormFeedback";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
-import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -138,7 +138,7 @@ export default function FinancePage() {
     onSuccess: ids => {
       refresh();
       setCreateOpen(false);
-      window.localStorage.removeItem("luminno:draft:finance-create");
+      removeDraft("finance-create");
       setCreateForm({
         clientId: "",
         clientName: "",
@@ -164,7 +164,7 @@ export default function FinancePage() {
       refresh();
       setPaymentOpen(false);
       setSelected(null);
-      window.localStorage.removeItem("luminno:draft:finance-payment");
+      removeDraft("finance-payment");
       toast.success(
         result.status === "paid"
           ? "Cobrança quitada."

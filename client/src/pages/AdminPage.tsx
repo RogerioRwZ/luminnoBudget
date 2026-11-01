@@ -226,7 +226,7 @@ export default function AdminPage() {
           tone="text-amber-600"
         />
       </div>
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.8fr)_1.2fr]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <Card className="border-border/70 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 font-display text-lg">

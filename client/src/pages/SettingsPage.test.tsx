@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
     useUtils: () => ({ invalidate: mocks.invalidate, settings: { get: { invalidate: mocks.invalidate } }, dashboard: { invalidate: mocks.invalidate } }),
     settings: {
       get: {

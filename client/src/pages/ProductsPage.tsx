@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
-import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
@@ -71,9 +71,7 @@ export default function ProductsPage() {
       utils.product.list.invalidate();
       utils.inventory.invalidate();
       setFormError("");
-      window.localStorage.removeItem(
-        `luminno:draft:product-${form.id ?? "new"}`
-      );
+      removeDraft(`product-${form.id ?? "new"}`);
       toast.success("Produto salvo com sucesso");
       setOpen(false);
     },

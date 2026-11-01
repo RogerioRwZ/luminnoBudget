@@ -19,6 +19,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { trpc } from "@/lib/trpc";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../server/routers";
 import {
   parseFiniteNumber,
   validateSettingsNumbers,
@@ -71,13 +73,39 @@ const emptySettings: SettingsForm = {
     "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
 
+function formFromSettings(data: inferRouterOutputs<AppRouter>["settings"]["get"]): SettingsForm {
+  return {
+    companyName: data.companyName,
+    tradingName: data.tradingName,
+    logoUrl: data.logoUrl ?? "",
+    document: data.document ?? "",
+    address: data.address ?? "",
+    phone: data.phone ?? "",
+    email: data.email ?? "",
+    pixKey: data.pixKey ?? "",
+    pixRecipient: data.pixRecipient ?? "",
+    pixCity: data.pixCity ?? "",
+    defaultPixDiscountMode: data.defaultPixDiscountMode,
+    defaultPixDiscountValue: Number(data.defaultPixDiscountValue),
+    defaultInstallments: data.defaultInstallments,
+    alertThresholdDays: data.alertThresholdDays,
+    defaultTerms: data.defaultTerms ?? "",
+  };
+}
+
 export default function SettingsPage() {
   const utils = trpc.useUtils();
   const { data, isLoading, error, refetch } = trpc.settings.get.useQuery();
   const [form, setForm] = useState<SettingsForm>(emptySettings);
   const [formError, setFormError] = useState("");
+  const { data: auth } = trpc.auth.status.useQuery(undefined, {
+    staleTime: Infinity,
+  });
+  // Só administradores alteram a loja; os demais veem os dados em leitura.
+  const isAdmin = auth?.user?.role === "admin";
   const settingsDraft = useDraftAutosave("settings", form, {
-    enabled: Boolean(data),
+    enabled: Boolean(data) && isAdmin,
+    pristineFingerprint: data ? JSON.stringify(formFromSettings(data)) : null,
   });
   const save = trpc.settings.save.useMutation({
     onSuccess: () => {
@@ -134,23 +162,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!data) return;
-    setForm({
-      companyName: data.companyName,
-      tradingName: data.tradingName,
-      logoUrl: data.logoUrl ?? "",
-      document: data.document ?? "",
-      address: data.address ?? "",
-      phone: data.phone ?? "",
-      email: data.email ?? "",
-      pixKey: data.pixKey ?? "",
-      pixRecipient: data.pixRecipient ?? "",
-      pixCity: data.pixCity ?? "",
-      defaultPixDiscountMode: data.defaultPixDiscountMode,
-      defaultPixDiscountValue: Number(data.defaultPixDiscountValue),
-      defaultInstallments: data.defaultInstallments,
-      alertThresholdDays: data.alertThresholdDays,
-      defaultTerms: data.defaultTerms ?? "",
-    });
+    setForm(formFromSettings(data));
   }, [data]);
 
   const logoFile = (event: ChangeEvent<HTMLInputElement>) => {
@@ -307,8 +319,18 @@ export default function SettingsPage() {
           Os dados abaixo são usados nos novos orçamentos e no documento
           impresso.
         </p>
+        {!isAdmin ? (
+          <p
+            role="note"
+            className="mt-3 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground"
+          >
+            Somente administradores podem alterar as configurações da loja.
+            Você está vendo os dados em modo de leitura.
+          </p>
+        ) : null}
       </div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_0.65fr]">
+      <fieldset disabled={!isAdmin} className="m-0 min-w-0 border-0 p-0">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
         <Card className="border-border/70 shadow-sm">
           <CardHeader>
             <CardTitle className="font-display text-lg">
@@ -566,6 +588,7 @@ export default function SettingsPage() {
               }
               rows={4}
             />
+            {isAdmin ? (
             <div className="mt-4 flex justify-end">
               <AsyncButton
                 pending={save.isPending || uploadLogo.isPending}
@@ -580,8 +603,10 @@ export default function SettingsPage() {
                 Salvar configurações
               </AsyncButton>
             </div>
+            ) : null}
           </CardContent>
         </Card>
+        {isAdmin ? (
         <Card className="border-border/70 shadow-sm lg:col-span-2">
           <CardHeader>
             <CardTitle className="font-display text-lg">
@@ -631,7 +656,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+        ) : null}
       </div>
+      </fieldset>
     </div>
   );
 }

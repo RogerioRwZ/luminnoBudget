@@ -18,13 +18,40 @@ type Options<T> = {
   maxAge?: number;
   enabled?: boolean;
   onSave?: (value: T) => void | Promise<void>;
+  // Estado "limpo" do formulário (o que veio do servidor), em JSON. Sem ele,
+  // o valor do momento em que o autosave é habilitado vira a referência.
+  pristineFingerprint?: string | null;
 };
 
 const STORAGE_PREFIX = "luminno:draft:";
 
-function storageKey(key: string) {
-  return `${STORAGE_PREFIX}${key}`;
+// Rascunhos ficam separados por usuário: no mesmo computador, uma pessoa
+// não vê nem recupera o rascunho de outra.
+let draftOwner = "anon";
+export function setDraftOwner(owner: string | number | null | undefined) {
+  draftOwner = owner === null || owner === undefined ? "anon" : String(owner);
 }
+
+function storageKey(key: string) {
+  return `${STORAGE_PREFIX}${draftOwner}:${key}`;
+}
+
+export function removeDraft(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(storageKey(key));
+  } catch {
+    // armazenamento indisponível (modo privado, cota): nada a limpar
+  }
+}
+
+const fingerprint = (value: unknown) => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+};
 
 export function readDraft<T>(
   key: string,
@@ -59,6 +86,7 @@ export function useDraftAutosave<T>(
     maxAge = 7 * 24 * 60 * 60 * 1000,
     enabled = true,
     onSave,
+    pristineFingerprint,
   } = options;
   const onSaveRef = useRef(onSave);
   const [status, setStatus] = useState<DraftAutosaveStatus>("idle");
@@ -81,8 +109,27 @@ export function useDraftAutosave<T>(
     setStatus("idle");
   }, [key, maxAge]);
 
+  // Referência do formulário "sem alterações": só há rascunho quando o
+  // valor muda em relação a ela (abrir uma tela não cria rascunho).
+  const capturedBaseline = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) {
+      capturedBaseline.current = null;
+      return;
+    }
+    if (capturedBaseline.current === null) capturedBaseline.current = fingerprint(value);
+  }, [enabled, value]);
+  const baseline = pristineFingerprint ?? capturedBaseline.current;
+
   useEffect(() => {
     if (!enabled || !recoveryHandled || typeof window === "undefined") return;
+    const current = fingerprint(value);
+    const reference = pristineFingerprint ?? capturedBaseline.current ?? current;
+    if (current === reference) {
+      removeDraft(key);
+      setStatus("idle");
+      return;
+    }
     setStatus("waiting");
     const timer = window.setTimeout(async () => {
       setStatus("saving");
@@ -100,7 +147,7 @@ export function useDraftAutosave<T>(
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [delay, enabled, key, recoveryHandled, value]);
+  }, [delay, enabled, key, recoveryHandled, value, pristineFingerprint]);
 
   const restore = () => {
     if (!recovery) return null;
@@ -110,16 +157,14 @@ export function useDraftAutosave<T>(
   };
 
   const discard = () => {
-    if (typeof window !== "undefined")
-      window.localStorage.removeItem(storageKey(key));
+    removeDraft(key);
     setRecovery(null);
     setRecoveryHandled(true);
     setStatus("idle");
   };
 
   const clear = () => {
-    if (typeof window !== "undefined")
-      window.localStorage.removeItem(storageKey(key));
+    removeDraft(key);
     setRecovery(null);
     setStatus("idle");
   };
@@ -127,7 +172,11 @@ export function useDraftAutosave<T>(
   return {
     status,
     recovery,
-    hasRecovery: Boolean(recovery) && !recoveryHandled,
+    // Um rascunho igual ao que já está salvo não é "alteração não salva".
+    hasRecovery:
+      Boolean(recovery) &&
+      !recoveryHandled &&
+      (baseline === null || fingerprint(recovery!.value) !== baseline),
     restore,
     discard,
     clear,

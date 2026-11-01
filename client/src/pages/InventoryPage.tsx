@@ -297,7 +297,7 @@ export default function InventoryPage() {
           </CardContent>
         </Card>
       </section>
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.12fr)_0.88fr]">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
         <Card className="border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>

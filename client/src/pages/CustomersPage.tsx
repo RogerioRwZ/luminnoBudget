@@ -4,7 +4,7 @@ import {
   getFormErrorMessage,
 } from "@/components/FormFeedback";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
-import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -67,9 +67,7 @@ export default function CustomersPage() {
     onSuccess: () => {
       utils.customers.list.invalidate();
       setFormError("");
-      window.localStorage.removeItem(
-        `luminno:draft:customer-${form.id ?? "new"}`
-      );
+      removeDraft(`customer-${form.id ?? "new"}`);
       toast.success("Cliente salvo com sucesso");
       setOpen(false);
     },

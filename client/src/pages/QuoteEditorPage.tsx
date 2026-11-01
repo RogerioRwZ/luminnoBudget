@@ -306,10 +306,14 @@ export default function QuoteEditorPage() {
   });
   const [editorError, setEditorError] = useState("");
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
+  const serverDraftFingerprint = useMemo(
+    () => (quoteQuery.data ? JSON.stringify(fromQuote(quoteQuery.data as QuoteRecord)) : null),
+    [quoteQuery.data]
+  );
   const localDraft = useDraftAutosave<QuoteDraft | null>(
     `quote-${draft?.id ?? "new"}`,
     draft,
-    { enabled: Boolean(draft) }
+    { enabled: Boolean(draft), pristineFingerprint: serverDraftFingerprint }
   );
   const [searches, setSearches] = useState<string[]>([]);
   const [preview, setPreview] = useState(false);
