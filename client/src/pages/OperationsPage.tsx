@@ -18,6 +18,7 @@ import { Camera, CameraOff, MessageCircle, Send } from "lucide-react";
 import { MessageDialog, type DialogMessage } from "@/components/MessageDialog";
 import { dateOnly } from "@/lib/format";
 import { MESSAGE_VARIABLES, type MessageEvent } from "@shared/messages";
+import { QUOTE_STATUS_LABELS, type QuoteStatus } from "@shared/quoteStatus";
 
 type Detector = {
   detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
@@ -129,7 +130,10 @@ function QuoteSnapshotPreview({
             #{quote.quoteNumber ?? "—"} — {quote.clientName || "Sem cliente"}
           </p>
           <p className="text-xs text-muted-foreground">
-            Status: {quote.status ?? "—"}
+            Status:{" "}
+            {quote.status && quote.status in QUOTE_STATUS_LABELS
+              ? QUOTE_STATUS_LABELS[quote.status as QuoteStatus]
+              : "—"}
           </p>
           <div className="mt-3 space-y-2">
             {quote.rooms?.map((room, index) => (
@@ -296,7 +300,11 @@ const eventLabels: Record<string, string> = {
 };
 
 export default function OperationsPage() {
-  const [quoteId, setQuoteId] = useState<number | undefined>();
+  // Aberta pelo editor com ?orcamento=ID, já chega com a proposta escolhida.
+  const [quoteId, setQuoteId] = useState<number | undefined>(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("orcamento"));
+    return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+  });
   const [barcode, setBarcode] = useState("");
   const [comment, setComment] = useState("");
   const [changeNote, setChangeNote] = useState("");
@@ -531,24 +539,20 @@ export default function OperationsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-          Operação
+    <div className="mx-auto max-w-7xl space-y-6">
+      <div>
+        <p className="eyebrow">Operação</p>
+        <h2 className="page-title">Ferramentas do dia a dia</h2>
+        <p className="page-description">
+          Versione propostas, consulte produtos e organize informações internas
+          da obra.
         </p>
         <div className="mt-2 flex flex-wrap gap-3">
           <DraftAutosaveStatus status={commentDraft.status} />
           <DraftAutosaveStatus status={restoreDraft.status} />
           <DraftAutosaveStatus status={templateDraft.status} />
         </div>
-        <h1 className="font-display text-3xl font-bold tracking-tight">
-          Ferramentas do dia a dia
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          Versione propostas, consulte produtos e organize informações internas
-          da obra.
-        </p>
-      </header>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Selecionar orçamento</CardTitle>
@@ -572,7 +576,7 @@ export default function OperationsPage() {
           </select>
           {selectedQuote ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Status: {selectedQuote.status}
+              Status: {QUOTE_STATUS_LABELS[selectedQuote.status]}
             </p>
           ) : null}
           {quoteId ? (

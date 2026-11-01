@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { expectNoUnnamedFormControls } from "@/test/formAccessibility";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +38,7 @@ vi.mock("wouter", () => ({ useLocation: () => ["/financeiro", mocks.setLocation]
 import FinancePage from "./FinancePage";
 
 afterEach(() => {
+  cleanup();
   mocks.mutate.mockReset();
   mocks.invalidate.mockReset();
   mocks.refetch.mockReset();

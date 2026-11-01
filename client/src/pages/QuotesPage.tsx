@@ -10,28 +10,33 @@ import { Input } from "@/components/ui/input";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { downloadCsv } from "@/lib/csvDownload";
-import { ExpirationQuickFilter } from "@shared/quoteAlerts";
-import { QuoteStatusFilter } from "@shared/quoteStatus";
+import { ExpirationQuickFilter, getDaysRemaining } from "@shared/quoteAlerts";
+import {
+  QUOTE_STATUS_FILTER_LABELS,
+  QUOTE_STATUS_LABELS,
+  QuoteStatusFilter,
+} from "@shared/quoteStatus";
 import { CalendarDays, Copy, Download, FileText, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { plural } from "@shared/plural";
 
 const statusInfo = {
   draft: {
-    label: "Rascunho",
+    label: QUOTE_STATUS_LABELS.draft,
     className: "bg-slate-500/10 text-slate-700 dark:text-slate-300",
   },
   open: {
-    label: "Em aberto",
+    label: QUOTE_STATUS_LABELS.open,
     className: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
   },
   approved: {
-    label: "Aprovado",
+    label: QUOTE_STATUS_LABELS.approved,
     className: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
   },
   lost: {
-    label: "Rejeitado",
+    label: QUOTE_STATUS_LABELS.lost,
     className: "bg-red-500/10 text-red-700 dark:text-red-300",
   },
 };
@@ -120,7 +125,7 @@ export default function QuotesPage() {
         { header: "Total", value: (quote) => quote.summary.total },
         { header: "Total no PIX", value: (quote) => quote.summary.pixTotal },
       ]);
-      toast.success(`${rows.length} orçamento(s) exportado(s) em CSV`);
+      toast.success(`${plural(rows.length, "orçamento exportado", "orçamentos exportados")} em CSV`);
     } catch {
       toast.error("Não foi possível exportar os orçamentos. Tente novamente.");
     } finally {
@@ -192,7 +197,7 @@ export default function QuotesPage() {
                 />
               </div>
               <span className="text-xs text-muted-foreground">
-                {total} proposta(s)
+                {plural(total, "proposta", "propostas")}
               </span>
             </div>
             <div>
@@ -223,7 +228,7 @@ export default function QuotesPage() {
                   }
                   onClick={() => chooseStatus("pending")}
                 >
-                  Pendentes
+                  {QUOTE_STATUS_FILTER_LABELS.pending}
                 </Button>
                 <Button
                   size="sm"
@@ -237,7 +242,7 @@ export default function QuotesPage() {
                   variant={statusFilter === "lost" ? "default" : "outline"}
                   onClick={() => chooseStatus("lost")}
                 >
-                  Rejeitados
+                  {QUOTE_STATUS_FILTER_LABELS.lost}
                 </Button>
               </div>
             </div>
@@ -296,8 +301,14 @@ export default function QuotesPage() {
             <div className="divide-y divide-border">
               {quotes.map(quote => {
                 const info = statusInfo[quote.status];
-                const isExpirationFiltered =
-                  expirationFilter !== "all" && quote.validUntil;
+                // Proposta ainda em negociação com validade vencida ou vencendo hoje.
+                const daysRemaining =
+                  (quote.status === "draft" || quote.status === "open") &&
+                  quote.validUntil
+                    ? getDaysRemaining(quote.validUntil)
+                    : null;
+                const isDuplicating =
+                  duplicate.isPending && duplicate.variables?.id === quote.id;
                 return (
                   <div
                     key={quote.id}
@@ -314,19 +325,17 @@ export default function QuotesPage() {
                         <Badge variant="secondary" className={info.className}>
                           {info.label}
                         </Badge>
-                        {isExpirationFiltered ? (
+                        {daysRemaining !== null && daysRemaining <= 0 ? (
                           <Badge
                             variant="secondary"
                             className={
-                              expirationFilter === "expired"
-                                ? "bg-red-500/10 text-red-700"
-                                : "bg-orange-500/10 text-orange-700"
+                              daysRemaining < 0
+                                ? "bg-red-500/10 text-red-700 dark:text-red-300"
+                                : "bg-orange-500/10 text-orange-700 dark:text-orange-300"
                             }
                           >
                             <CalendarDays className="mr-1 h-3 w-3" />
-                            {expirationFilter === "expired"
-                              ? "Vencido"
-                              : "Vence hoje"}
+                            {daysRemaining < 0 ? "Vencido" : "Vence hoje"}
                           </Badge>
                         ) : null}
                       </div>
@@ -344,13 +353,14 @@ export default function QuotesPage() {
                           {money(quote.summary.total)}
                         </p>
                         <p className="text-[11px] text-muted-foreground">
-                          {quote.rooms.length} ambiente(s)
+                          {plural(quote.rooms.length, "ambiente", "ambientes")}
                         </p>
                       </div>
                       <AsyncButton
                         size="sm"
                         variant="outline"
-                        pending={duplicate.isPending}
+                        pending={isDuplicating}
+                        disabled={duplicate.isPending && !isDuplicating}
                         loadingLabel="Duplicando…"
                         onClick={() => duplicate.mutate({ id: quote.id })}
                         title="Duplicar orçamento inteiro"

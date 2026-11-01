@@ -167,8 +167,8 @@ export default function ProductsPage() {
           <p className="eyebrow">Base de produtos</p>
           <h2 className="page-title">Catálogo</h2>
           <p className="page-description">
-            Códigos numéricos são gerados automaticamente a partir de 1.
-            Cadastre fornecedor, preços e reposição.
+            Cadastre os produtos com fornecedor, preço e ponto de reposição.
+            O código de cada produto é criado automaticamente.
           </p>
         </div>
         <Dialog open={open} onOpenChange={handleOpen}>

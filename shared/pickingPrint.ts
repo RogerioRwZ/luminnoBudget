@@ -1,4 +1,5 @@
 import type { PickingItem } from "./picking";
+import { plural } from "./plural";
 
 type PickingDocument = {
   quote: { quoteNumber: number; clientName: string; professional: string };
@@ -57,7 +58,7 @@ export function buildPickingPrintDocument(data: PickingDocument) {
     + `<section class="cards"><div class="card"><div class="eyebrow">Cliente</div><p>${escape(data.quote.clientName || "Não informado")}</p></div><div class="card"><div class="eyebrow">Profissional</div><p>${escape(data.quote.professional || "Não informado")}</p></div><div class="card"><div class="eyebrow">Emitido em</div><p>${escape(data.issuedAt)}</p></div></section>`
     + `<table><thead><tr><th>#</th><th>Produto</th><th>Ambientes</th><th style="text-align:right">Separar</th><th style="text-align:center">OK</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="empty">Nenhum item para separar.</td></tr>`}</tbody></table>`
     + `<section class="sign"><div>Separado por</div><div>Conferido por</div><div>Data</div></section>`
-    + `<footer><span>${escape(data.items.length)} produto(s) · ${escape(quantity(totalUnits))} unidade(s) no total, consolidadas por produto.</span><span>Documento operacional — não é comprovante fiscal.</span></footer>`
+    + `<footer><span>${escape(plural(data.items.length, "produto", "produtos"))} · ${escape(quantity(totalUnits))} ${totalUnits === 1 ? "unidade" : "unidades"} no total, consolidadas por produto.</span><span>Documento operacional — não é comprovante fiscal.</span></footer>`
     + `</div><script>window.onload=()=>window.print()<\/script></body></html>`;
 }
 

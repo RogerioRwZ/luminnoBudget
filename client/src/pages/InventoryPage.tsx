@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { plural } from "@shared/plural";
 
 type MovementForm = {
   productId: number;
@@ -143,7 +144,7 @@ export default function InventoryPage() {
     onSuccess: result => {
       refresh();
       toast.success(
-        `Entrega registrada. Restam ${result.pendingQuantity} unidade(s) neste item.`
+        `Entrega registrada. ${result.pendingQuantity === 1 ? "Resta 1 unidade" : `Restam ${result.pendingQuantity} unidades`} neste item.`
       );
       setDeliveryOpen(false);
       setSelectedLine(null);
@@ -570,8 +571,8 @@ export default function InventoryPage() {
                       {line.deliveries.length ? (
                         <details className="mt-2 text-xs text-muted-foreground">
                           <summary className="cursor-pointer">
-                            Ver {line.deliveries.length} entrega(s)
-                            registrada(s)
+                            Ver{" "}
+                            {plural(line.deliveries.length, "entrega registrada", "entregas registradas")}
                           </summary>
                           <div className="mt-2 space-y-1 rounded-lg bg-muted/50 p-2">
                             {line.deliveries.map(delivery => (

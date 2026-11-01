@@ -33,6 +33,8 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { normalizeWhatsAppPhone } from "@shared/whatsapp";
+import { QUOTE_STATUS_LABELS } from "@shared/quoteStatus";
+import { plural } from "@shared/plural";
 
 type CustomerForm = {
   id?: number;
@@ -292,7 +294,7 @@ export default function CustomersPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold">
-                      {customer.quoteCount} orçamento(s)
+                      {plural(customer.quoteCount, "orçamento", "orçamentos")}
                     </span>
                     <Button
                       variant="ghost"
@@ -410,13 +412,7 @@ export default function CustomersPage() {
                           Orçamento #{quote.quoteNumber}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {quote.status === "approved"
-                            ? "Aprovado"
-                            : quote.status === "open"
-                              ? "Em aberto"
-                              : quote.status === "lost"
-                                ? "Perdido"
-                                : "Rascunho"}{" "}
+                          {QUOTE_STATUS_LABELS[quote.status]}{" "}
                           · {dateOnly(quote.issueDate)}
                         </p>
                       </div>

@@ -1,5 +1,6 @@
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
 import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import {
   AsyncButton,
@@ -103,6 +104,7 @@ export default function SettingsPage() {
   });
   // Só administradores alteram a loja; os demais veem os dados em leitura.
   const isAdmin = auth?.user?.role === "admin";
+  const [pendingRestore, setPendingRestore] = useState<Record<string, unknown> | null>(null);
   const settingsDraft = useDraftAutosave("settings", form, {
     enabled: Boolean(data) && isAdmin,
     pristineFingerprint: data ? JSON.stringify(formFromSettings(data)) : null,
@@ -165,6 +167,12 @@ export default function SettingsPage() {
     setForm(formFromSettings(data));
   }, [data]);
 
+  // Atalho "Backup manual" da barra lateral abre esta tela em #backup.
+  useEffect(() => {
+    if (!data || !isAdmin || window.location.hash !== "#backup") return;
+    document.getElementById("backup")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [data, isAdmin]);
+
   const logoFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -216,12 +224,7 @@ export default function SettingsPage() {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result));
-        if (
-          window.confirm(
-            "A restauração substituirá os dados atuais. Deseja continuar?"
-          )
-        )
-          importBackup.mutate({ data: parsed, replace: true });
+        setPendingRestore(parsed);
       } catch {
         const message =
           "O arquivo selecionado não é um JSON válido. Escolha um backup exportado pela Luminno.";
@@ -282,7 +285,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <div>
         <p className="eyebrow">Preferências da loja</p>
         <h2 className="page-title flex flex-wrap items-center gap-3">
@@ -406,9 +409,8 @@ export default function SettingsPage() {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    Envie um arquivo JPG, PNG ou WEBP de até 5 MB. O logotipo
-                    fica armazenado no servidor da Luminno e não depende de URL
-                    externa.
+                    Envie uma imagem JPG, PNG ou WEBP de até 5 MB. Ela aparece
+                    no topo dos PDFs de orçamento.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button
@@ -540,8 +542,8 @@ export default function SettingsPage() {
                 <div className="min-w-0 flex-1">
                   <Label>Antecedência do alerta</Label>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Mostra no Dashboard as propostas pendentes que vencem dentro
-                    desse período.
+                    Mostra na Visão geral as propostas em negociação que vencem
+                    dentro desse período.
                   </p>
                   <div className="mt-3 flex items-center gap-2">
                     <Input
@@ -606,8 +608,20 @@ export default function SettingsPage() {
             ) : null}
           </CardContent>
         </Card>
-        {isAdmin ? (
-        <Card className="border-border/70 shadow-sm lg:col-span-2">
+        {isAdmin ? (<>
+        <ConfirmDialog
+          open={pendingRestore !== null}
+          onOpenChange={open => !open && setPendingRestore(null)}
+          title="Restaurar este backup?"
+          description="Todos os dados atuais da loja serão substituídos pelos do arquivo. Exporte um backup antes se quiser guardar a situação atual."
+          confirmLabel="Substituir e restaurar"
+          destructive
+          onConfirm={() => {
+            if (pendingRestore) importBackup.mutate({ data: pendingRestore, replace: true });
+            setPendingRestore(null);
+          }}
+        />
+        <Card id="backup" className="scroll-mt-24 border-border/70 shadow-sm lg:col-span-2">
           <CardHeader>
             <CardTitle className="font-display text-lg">
               Backup e restauração manual
@@ -656,7 +670,7 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
-        ) : null}
+        </>) : null}
       </div>
       </fieldset>
     </div>

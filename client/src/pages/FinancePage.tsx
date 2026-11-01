@@ -38,6 +38,7 @@ import { useMemo, useState } from "react";
 import { MessageDialog } from "@/components/MessageDialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { plural } from "@shared/plural";
 
 const nowInput = () => new Date().toISOString().slice(0, 16);
 const dateInput = () => new Date().toISOString().slice(0, 10);
@@ -148,7 +149,7 @@ export default function FinancePage() {
         firstDueDate: dateInput(),
       });
       setFinanceError("");
-      toast.success(`${ids.length} cobrança(s) criada(s).`);
+      toast.success(`${plural(ids.length, "cobrança criada", "cobranças criadas")}.`);
     },
     onError: error => {
       const message = getFormErrorMessage(
@@ -304,7 +305,7 @@ export default function FinancePage() {
               {money(totals?.overdueAmount)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {totals?.overdueCount ?? 0} cobrança(s)
+              {plural(totals?.overdueCount ?? 0, "cobrança", "cobranças")}
             </p>
           </CardContent>
         </Card>
@@ -494,7 +495,7 @@ export default function FinancePage() {
                           {row.payments.length ? (
                             <details className="mt-2 text-right text-xs text-muted-foreground">
                               <summary className="cursor-pointer">
-                                {row.payments.length} movimentação(ões)
+                                {plural(row.payments.length, "movimentação", "movimentações")}
                               </summary>
                               <div className="mt-1 rounded-lg bg-muted/50 p-2 text-left">
                                 {row.payments.map(payment => (

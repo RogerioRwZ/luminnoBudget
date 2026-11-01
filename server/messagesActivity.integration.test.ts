@@ -119,7 +119,7 @@ describe("mensagens, PIX e registro de atividades", () => {
     const log = await admin().activity.list({ userId: OPERATOR_ID });
     const summaries = log.entries.map((entry) => plain(entry.summary));
     expect(summaries.filter((text) => text.includes(`orçamento #${quote.quoteNumber}`))).toEqual([
-      `Marcou como perdido o orçamento #${quote.quoteNumber} (Cliente Status, R$ 10,00)`,
+      `Marcou como não aprovado o orçamento #${quote.quoteNumber} (Cliente Status, R$ 10,00)`,
       `Mudou para em aberto o orçamento #${quote.quoteNumber} (Cliente Status, R$ 10,00)`,
       `Criou o orçamento #${quote.quoteNumber}`,
     ]);

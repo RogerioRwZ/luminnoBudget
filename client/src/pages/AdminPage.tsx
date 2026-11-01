@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { plural } from "@shared/plural";
 
 const bytes = (value?: number | null) => {
   if (value == null) return "Indisponível";
@@ -321,7 +322,7 @@ export default function AdminPage() {
             <CardDescription>
               {usersLoading
                 ? "Carregando usuários…"
-                : `${users.length} usuário(s) local(is) cadastrado(s).`}
+                : `${plural(users.length, "usuário cadastrado", "usuários cadastrados")}.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

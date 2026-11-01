@@ -32,12 +32,13 @@ import { changedFields, formatActivityMoney as brl, listActivity, recordActivity
 import { messageForQuote, messageForReceivable, pendingMessages } from "../messagesDb";
 import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
+import { plural } from "../../shared/plural";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
 
 type ActivityCtx = { user: { id: number; name: string | null; username: string | null }; req: { ip?: string; socket?: { remoteAddress?: string } } };
 const log = (ctx: ActivityCtx, entry: ActivityEntry) => recordActivity(ctx.user, entry, ctx.req);
-const STATUS_LABELS = { draft: "rascunho", open: "em aberto", approved: "aprovado", lost: "perdido" } as const;
+const STATUS_LABELS = { draft: "rascunho", open: "em aberto", approved: "aprovado", lost: "não aprovado" } as const;
 const messageEvent = z.enum(["quote_sent", "quote_approved", "quote_expiring", "quote_expired", "payment_due", "payment_overdue", "delivery_scheduled", "delivery_completed"]);
 
 function isDuplicateEntry(error: unknown) {
@@ -221,7 +222,7 @@ export const businessRouter = router({
       const before = input.id ? await getQuote(input.id) : null;
       const saved = await saveQuote(input, ctx.user.id);
       if (saved && before && before.status !== saved.status) {
-        const verb = saved.status === "approved" ? "Aprovou" : saved.status === "lost" ? "Marcou como perdido" : `Mudou para ${STATUS_LABELS[saved.status]}`;
+        const verb = saved.status === "approved" ? "Aprovou" : saved.status === "lost" ? "Marcou como não aprovado" : `Mudou para ${STATUS_LABELS[saved.status]}`;
         await log(ctx, { action: `quote.${saved.status}`, entityType: "quote", entityId: saved.id, summary: `${verb} o orçamento #${saved.quoteNumber} (${saved.clientName || "sem cliente"}, ${brl(saved.summary.total)})`, details: { de: before.status, para: saved.status } });
       }
       return saved;
@@ -379,7 +380,7 @@ export const businessRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const result = await deliverQuoteItem(input);
       const quote = await getQuote(input.quoteId);
-      await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: input.quoteItemId, summary: `Registrou entrega de ${input.quantity} item(ns) do orçamento #${quote?.quoteNumber ?? input.quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}`, details: { responsavel: input.responsible ?? null } });
+      await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: input.quoteItemId, summary: `Registrou entrega de ${plural(input.quantity, "item", "itens")} do orçamento #${quote?.quoteNumber ?? input.quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}`, details: { responsavel: input.responsible ?? null } });
       return result;
     }),
   }),

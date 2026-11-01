@@ -1,4 +1,5 @@
 import { PricingSummary } from "./quote";
+import { plural } from "./plural";
 
 export type WhatsAppRoom = { name: string; items: Array<{ quantity: number; shortDescription: string; unitPrice: number }> };
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -10,7 +11,7 @@ export function buildWhatsAppProposal(input: { brand: string; quoteNumber: numbe
 
 export function buildExpirationReminder(input: { brand: string; quoteNumber: number; clientName: string; validUntil: Date | string; daysRemaining: number; total: number }) {
   const validity = new Intl.DateTimeFormat("pt-BR").format(new Date(input.validUntil));
-  const deadline = input.daysRemaining < 0 ? `está vencida há ${Math.abs(input.daysRemaining)} dia(s)` : input.daysRemaining === 0 ? "vence hoje" : `vence em ${input.daysRemaining} dia(s)`;
+  const deadline = input.daysRemaining < 0 ? `está vencida há ${plural(Math.abs(input.daysRemaining), "dia", "dias")}` : input.daysRemaining === 0 ? "vence hoje" : `vence em ${plural(input.daysRemaining, "dia", "dias")}`;
   return [`✨ *${input.brand}*`, `Olá, ${input.clientName || "tudo bem"}!`, "", `🧾 Sobre o orçamento *#${input.quoteNumber}*: a proposta ${deadline}.`, `📅 Validade: ${validity}`, `💡 Valor da proposta: ${currency(input.total)}`, "", "Se precisar de algum ajuste ou quiser seguir com o pedido, estamos à disposição."].join("\n");
 }
 
