@@ -31,8 +31,10 @@ export function calculateReceivableStatus(input: { originalAmount: number; recei
   if (input.cancelled) return "cancelled";
   const remaining = roundMoney(input.originalAmount - input.receivedAmount);
   if (remaining <= 0) return "paid";
-  if (input.receivedAmount > 0) return "partial";
+  // Vencimento vem antes de "parcial": uma parcela paga em parte e já
+  // vencida continua em atraso (e entra no total "Em atraso").
   if (input.dueDate.getTime() < (input.now ?? new Date()).getTime()) return "overdue";
+  if (input.receivedAmount > 0) return "partial";
   return "open";
 }
 

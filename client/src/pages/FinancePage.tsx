@@ -43,13 +43,13 @@ const nowInput = () => new Date().toISOString().slice(0, 16);
 const dateInput = () => new Date().toISOString().slice(0, 10);
 const statusMeta: Record<FinanceStatus, { label: string; className: string }> =
   {
-    open: { label: "Em aberto", className: "bg-sky-500/10 text-sky-700" },
-    partial: { label: "Parcial", className: "bg-amber-500/15 text-amber-800" },
+    open: { label: "Em aberto", className: "bg-sky-500/10 text-sky-700 dark:text-sky-300" },
+    partial: { label: "Parcial", className: "bg-amber-500/15 text-amber-800 dark:text-amber-300" },
     paid: {
       label: "Recebida",
-      className: "bg-emerald-500/10 text-emerald-700",
+      className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     },
-    overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700" },
+    overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700 dark:text-red-300" },
     cancelled: {
       label: "Cancelada",
       className: "bg-slate-500/10 text-slate-700",
@@ -285,7 +285,7 @@ export default function FinancePage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <Banknote className="h-5 w-5 text-emerald-600" />
+            <Banknote className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Recebido no mês
             </p>
@@ -296,7 +296,7 @@ export default function FinancePage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <CalendarClock className="h-5 w-5 text-red-600" />
+            <CalendarClock className="h-5 w-5 text-red-600 dark:text-red-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Em atraso
             </p>
@@ -310,7 +310,7 @@ export default function FinancePage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <Landmark className="h-5 w-5 text-sky-600" />
+            <Landmark className="h-5 w-5 text-sky-600 dark:text-sky-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Previsto em carteira
             </p>
@@ -377,7 +377,7 @@ export default function FinancePage() {
             </div>
           ) : filtered.length ? (
             <div className="overflow-x-auto">
-              <table className="min-w-[980px] w-full text-sm">
+              <table className="w-full min-w-[980px] text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_td:first-child]:whitespace-normal [&_td:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th]:px-3 [&_th:first-child]:pl-0 [&_th:last-child]:pr-0">
                 <thead className="border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="pb-3">Cliente / origem</th>
@@ -401,10 +401,10 @@ export default function FinancePage() {
                         <td className="py-4">
                           <p className="font-semibold">{row.clientName}</p>
                           <p className="max-w-[200px] truncate text-xs text-muted-foreground">
-                            {row.description}
-                            {row.quoteNumber
-                              ? ` · Orçamento #${row.quoteNumber}`
-                              : ""}
+                            {row.quoteNumber &&
+                            !row.description.includes(`#${row.quoteNumber}`)
+                              ? `${row.description} · Orçamento #${row.quoteNumber}`
+                              : row.description}
                           </p>
                         </td>
                         <td className="py-4 text-xs">
@@ -418,7 +418,7 @@ export default function FinancePage() {
                         <td className="py-4 text-right font-semibold">
                           {money(row.originalAmount)}
                         </td>
-                        <td className="py-4 text-right text-emerald-700">
+                        <td className="py-4 text-right text-emerald-700 dark:text-emerald-300">
                           {money(row.receivedAmount)}
                         </td>
                         <td className="py-4 text-right font-semibold">

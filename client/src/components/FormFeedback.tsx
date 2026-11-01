@@ -110,7 +110,7 @@ export function AsyncButton({
       className={cn(className)}
     >
       {pending ? <Spinner aria-hidden="true" /> : null}
-      <span>{pending ? loadingLabel : children}</span>
+      <span className="inline-flex items-center">{pending ? loadingLabel : children}</span>
     </Button>
   );
 }
