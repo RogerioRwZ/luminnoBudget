@@ -271,7 +271,7 @@ export default function FinancePage() {
           </Button>
         </div>
       </div>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
             <CircleDollarSign className="h-5 w-5 text-primary" />
@@ -321,7 +321,7 @@ export default function FinancePage() {
         </Card>
       </section>
       <Card className="border-border/70 shadow-sm">
-        <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div>
             <CardTitle className="font-display text-lg">
               Cobranças e parcelas
@@ -334,7 +334,7 @@ export default function FinancePage() {
           <WalletCards className="h-5 w-5 text-primary" />
         </CardHeader>
         <CardContent>
-          <div className="mb-5 grid gap-3 rounded-xl bg-muted/50 p-3 md:grid-cols-[1fr_220px]">
+          <div className="mb-5 grid grid-cols-1 gap-3 rounded-xl bg-muted/50 p-3 md:grid-cols-[minmax(0,1fr)_220px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input

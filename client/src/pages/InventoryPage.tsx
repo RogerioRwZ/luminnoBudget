@@ -251,7 +251,7 @@ export default function InventoryPage() {
           </Button>
         </div>
       </div>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
             <Boxes className="h-5 w-5 text-primary" />
@@ -297,9 +297,9 @@ export default function InventoryPage() {
           </CardContent>
         </Card>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.12fr)_0.88fr]">
         <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
                 Saldo por produto
@@ -312,7 +312,7 @@ export default function InventoryPage() {
             <Boxes className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="mb-4 grid gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-3">
+            <div className="mb-4 grid grid-cols-1 gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-3">
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   Fornecedor
@@ -494,7 +494,7 @@ export default function InventoryPage() {
       </section>
       <section>
         <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
                 Entregas parciais de orçamentos aprovados
@@ -617,7 +617,7 @@ export default function InventoryPage() {
       </section>
       <section>
         <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
                 Histórico de movimentações

@@ -308,14 +308,14 @@ export default function SettingsPage() {
           impresso.
         </p>
       </div>
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_0.65fr]">
         <Card className="border-border/70 shadow-sm">
           <CardHeader>
             <CardTitle className="font-display text-lg">
               Dados comerciais
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormError className="sm:col-span-2" message={formError} />
             <Field
               label="Razão social / nome da empresa"

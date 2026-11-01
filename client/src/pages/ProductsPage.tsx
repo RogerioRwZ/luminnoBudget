@@ -218,7 +218,7 @@ export default function ProductsPage() {
                 </div>
               </div>
             ) : null}
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
               <div className="rounded-xl border border-dashed border-border bg-muted/30 p-3 sm:col-span-2">
                 <div className="flex items-center gap-2">
                   <Hash className="h-4 w-4 text-primary" />
@@ -439,7 +439,7 @@ export default function ProductsPage() {
               </Button>
             </div>
           ) : filtered.length ? (
-            <div className="grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
+            <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
               {filtered.map(product => {
                 const stock = Number(product.stockQuantity);
                 const point = Number(product.reorderPoint);

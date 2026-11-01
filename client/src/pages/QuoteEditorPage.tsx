@@ -816,7 +816,7 @@ export default function QuoteEditorPage() {
           </AsyncButton>
         </div>
       </div>
-      <div className="no-print grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="no-print grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6">
           <Card className="border-border/70 shadow-sm">
             <CardHeader className="border-b border-border pb-4">
@@ -824,7 +824,7 @@ export default function QuoteEditorPage() {
                 Dados da proposta
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 pt-5 md:grid-cols-3">
+            <CardContent className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-3">
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select
@@ -879,7 +879,7 @@ export default function QuoteEditorPage() {
             <CardHeader className="border-b border-border pb-4">
               <CardTitle className="font-display text-lg">Cliente</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 pt-5 md:grid-cols-2">
+            <CardContent className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label>Selecionar cliente cadastrado</Label>
                 <Select
@@ -888,7 +888,7 @@ export default function QuoteEditorPage() {
                     value !== "manual" && selectCustomer(value)
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Buscar cliente cadastrado" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1266,7 +1266,7 @@ export default function QuoteEditorPage() {
                 </span>
                 <b>{money(summary.productsSubtotal)}</b>
               </div>
-              <div className="grid grid-cols-[1fr_90px] gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_90px] gap-2">
                 <Select
                   value={draft.discountMode}
                   onValueChange={(discountMode: QuoteDraft["discountMode"]) =>
@@ -1298,7 +1298,7 @@ export default function QuoteEditorPage() {
                 <span>Desconto aplicado</span>
                 <span>− {money(summary.discountAmount)}</span>
               </div>
-              <div className="grid grid-cols-[1fr_90px] items-center gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_90px] items-center gap-2">
                 <Label htmlFor="quote-shipping" className="text-xs text-muted-foreground">Frete</Label>
                 <Input
                   id="quote-shipping"
@@ -1331,7 +1331,7 @@ export default function QuoteEditorPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-[1fr_82px] gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_82px] gap-2">
                 <Select
                   value={draft.pixDiscountMode}
                   onValueChange={(
