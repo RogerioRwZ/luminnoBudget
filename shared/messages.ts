@@ -1,3 +1,5 @@
+import { plural } from "./plural";
+
 export type MessageEvent =
   | "quote_sent"
   | "quote_approved"
@@ -87,9 +89,9 @@ export function renderMessage(template: string, variables: MessageVariables) {
 }
 
 export function daysPhrase(daysRemaining: number) {
-  if (daysRemaining < 0) return `venceu há ${Math.abs(daysRemaining)} dia(s)`;
+  if (daysRemaining < 0) return `venceu há ${plural(Math.abs(daysRemaining), "dia", "dias")}`;
   if (daysRemaining === 0) return "vence hoje";
-  return `vence em ${daysRemaining} dia(s)`;
+  return `vence em ${plural(daysRemaining, "dia", "dias")}`;
 }
 
 export function whatsappLink(phone: string, text: string) {

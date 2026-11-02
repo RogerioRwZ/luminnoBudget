@@ -27,6 +27,7 @@ import { formatDateInput, money } from "@/lib/format";
 import { createQuotePdfBlob, createQuotePdfDataUrl, type QuotePdfInput } from "@/lib/quotePdf";
 import { trpc } from "@/lib/trpc";
 import { calculateQuote } from "@shared/quote";
+import { QUOTE_STATUS_LABELS, type QuoteStatus } from "@shared/quoteStatus";
 import {
   duplicateArrayItem,
   duplicateDraftRoom,
@@ -38,7 +39,9 @@ import {
 } from "@shared/quoteDraft";
 import { openPickingPrintDocument } from "@shared/pickingPrint";
 import { buildWhatsAppProposal } from "@shared/whatsapp";
-import { parseFiniteNumber, validateQuoteDraft } from "@shared/formValidation";
+import { validateQuoteDraft } from "@shared/formValidation";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { MoneyInput } from "@/components/MoneyInput";
 import {
   ArrowDown,
   ArrowLeft,
@@ -55,6 +58,7 @@ import {
   PackagePlus,
   Plus,
   Printer,
+  ScanLine,
   Save,
   Search,
   Trash2,
@@ -144,12 +148,6 @@ const blankItem = (): DraftItem => ({
   quantity: 1,
   unitPrice: 0,
 });
-const statusLabels = {
-  draft: "Rascunho",
-  open: "Em aberto",
-  approved: "Aprovado",
-  lost: "Perdido",
-};
 const escapePrint = (value: string | number | null | undefined) =>
   String(value ?? "").replace(
     /[&<>'"]/g,
@@ -305,11 +303,16 @@ export default function QuoteEditorPage() {
     },
   });
   const [editorError, setEditorError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
+  const serverDraftFingerprint = useMemo(
+    () => (quoteQuery.data ? JSON.stringify(fromQuote(quoteQuery.data as QuoteRecord)) : null),
+    [quoteQuery.data]
+  );
   const localDraft = useDraftAutosave<QuoteDraft | null>(
     `quote-${draft?.id ?? "new"}`,
     draft,
-    { enabled: Boolean(draft) }
+    { enabled: Boolean(draft), pristineFingerprint: serverDraftFingerprint }
   );
   const [searches, setSearches] = useState<string[]>([]);
   const [preview, setPreview] = useState(false);
@@ -759,7 +762,7 @@ export default function QuoteEditorPage() {
               <h2 className="page-title">Orçamento #{draft.quoteNumber}</h2>
             </div>
             <Badge variant="secondary" className="bg-primary/10 text-primary">
-              {statusLabels[draft.status]}
+              {QUOTE_STATUS_LABELS[draft.status]}
             </Badge>
           </div>
         </div>
@@ -794,6 +797,23 @@ export default function QuoteEditorPage() {
             <Printer className="mr-2 h-4 w-4" />
             {isPreparingPrint ? "Preparando PDF…" : "Imprimir"}
           </Button>
+          <Button
+            variant="outline"
+            onClick={generatePdfHistory}
+            disabled={savePdf.isPending || isPreparingPrint || isGeneratingPdf}
+            title="Gera o PDF e guarda uma cópia no histórico do orçamento"
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            {savePdf.isPending || isGeneratingPdf ? "Gerando PDF…" : "Gerar e salvar PDF"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setLocation(`/operacao?orcamento=${draft.id}`)}
+            title="Versões, mensagens ao cliente, comentários internos e restauração"
+          >
+            <ScanLine className="mr-2 h-4 w-4" />
+            Ferramentas
+          </Button>
           <AsyncButton
             onClick={() => {
               const validation = validateQuoteDraft(draft);
@@ -816,7 +836,7 @@ export default function QuoteEditorPage() {
           </AsyncButton>
         </div>
       </div>
-      <div className="no-print grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="no-print grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6">
           <Card className="border-border/70 shadow-sm">
             <CardHeader className="border-b border-border pb-4">
@@ -824,7 +844,7 @@ export default function QuoteEditorPage() {
                 Dados da proposta
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 pt-5 md:grid-cols-3">
+            <CardContent className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-3">
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select
@@ -837,10 +857,11 @@ export default function QuoteEditorPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="draft">Rascunho</SelectItem>
-                    <SelectItem value="open">Em aberto</SelectItem>
-                    <SelectItem value="approved">Aprovado</SelectItem>
-                    <SelectItem value="lost">Perdido</SelectItem>
+                    {(Object.keys(QUOTE_STATUS_LABELS) as QuoteStatus[]).map(status => (
+                      <SelectItem key={status} value={status}>
+                        {QUOTE_STATUS_LABELS[status]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -879,7 +900,7 @@ export default function QuoteEditorPage() {
             <CardHeader className="border-b border-border pb-4">
               <CardTitle className="font-display text-lg">Cliente</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 pt-5 md:grid-cols-2">
+            <CardContent className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label>Selecionar cliente cadastrado</Label>
                 <Select
@@ -888,7 +909,7 @@ export default function QuoteEditorPage() {
                     value !== "manual" && selectCustomer(value)
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Buscar cliente cadastrado" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1121,7 +1142,8 @@ export default function QuoteEditorPage() {
                                 })
                               }
                               aria-label={`Descrição do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
-                              className="h-8 border-0 bg-transparent px-0 text-sm font-semibold shadow-none focus-visible:ring-0"
+                              title={item.shortDescription}
+                              className="h-8 text-ellipsis border-0 bg-transparent px-0 text-sm font-semibold shadow-none focus-visible:ring-0"
                             />
                             <div className="flex gap-2">
                               <Input
@@ -1146,28 +1168,19 @@ export default function QuoteEditorPage() {
                               />
                             </div>
                           </div>
-                          <Input
-                            type="number"
-                            min="0.01"
-                            step="0.01"
+                          <MoneyInput
+                            format="quantity"
                             value={item.quantity}
-                            onChange={e =>
-                              updateItem(roomIndex, itemIndex, {
-                                quantity: parseFiniteNumber(e.target.value),
-                              })
+                            onValueChange={quantity =>
+                              updateItem(roomIndex, itemIndex, { quantity })
                             }
                             aria-label={`Quantidade do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                             className="h-9"
                           />
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                          <MoneyInput
                             value={item.unitPrice}
-                            onChange={e =>
-                              updateItem(roomIndex, itemIndex, {
-                                unitPrice: parseFiniteNumber(e.target.value),
-                              })
+                            onValueChange={unitPrice =>
+                              updateItem(roomIndex, itemIndex, { unitPrice })
                             }
                             aria-label={`Valor unitário do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                             className="h-9"
@@ -1195,7 +1208,7 @@ export default function QuoteEditorPage() {
                         <div className="flex justify-end border-t border-border px-4 py-3">
                           <div className="flex gap-8 text-sm">
                             <span className="italic text-muted-foreground">
-                              Total do Grupo
+                              Total do ambiente
                             </span>
                             <b>{money(summary.rooms[roomIndex])}</b>
                           </div>
@@ -1266,7 +1279,7 @@ export default function QuoteEditorPage() {
                 </span>
                 <b>{money(summary.productsSubtotal)}</b>
               </div>
-              <div className="grid grid-cols-[1fr_90px] gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_90px] gap-2">
                 <Select
                   value={draft.discountMode}
                   onValueChange={(discountMode: QuoteDraft["discountMode"]) =>
@@ -1281,16 +1294,10 @@ export default function QuoteEditorPage() {
                     <SelectItem value="fixed">Desconto (R$)</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
+                <MoneyInput
                   className="h-9"
-                  type="number"
-                  min="0"
                   value={draft.discountValue}
-                  onChange={e =>
-                    changeDraft({
-                      discountValue: parseFiniteNumber(e.target.value),
-                    })
-                  }
+                  onValueChange={discountValue => changeDraft({ discountValue })}
                   aria-label="Valor do desconto"
                 />
               </div>
@@ -1298,23 +1305,18 @@ export default function QuoteEditorPage() {
                 <span>Desconto aplicado</span>
                 <span>− {money(summary.discountAmount)}</span>
               </div>
-              <div className="grid grid-cols-[1fr_90px] items-center gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_90px] items-center gap-2">
                 <Label htmlFor="quote-shipping" className="text-xs text-muted-foreground">Frete</Label>
-                <Input
+                <MoneyInput
                   id="quote-shipping"
                   className="h-9"
-                  type="number"
-                  min="0"
-                  step="0.01"
                   value={draft.shipping}
-                  onChange={e =>
-                    changeDraft({ shipping: parseFiniteNumber(e.target.value) })
-                  }
+                  onValueChange={shipping => changeDraft({ shipping })}
                 />
               </div>
               <div className="border-t border-border pt-4">
-                <div className="flex items-end justify-between">
-                  <span className="font-display text-sm font-bold">
+                <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+                  <span className="pb-1 font-display text-sm font-bold">
                     Total do orçamento
                   </span>
                   <b className="font-display text-2xl tracking-tight">
@@ -1331,7 +1333,7 @@ export default function QuoteEditorPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-[1fr_82px] gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_82px] gap-2">
                 <Select
                   value={draft.pixDiscountMode}
                   onValueChange={(
@@ -1346,15 +1348,11 @@ export default function QuoteEditorPage() {
                     <SelectItem value="fixed">PIX (R$)</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
+                <MoneyInput
                   className="h-9"
-                  type="number"
-                  min="0"
                   value={draft.pixDiscountValue}
-                  onChange={e =>
-                    changeDraft({
-                      pixDiscountValue: parseFiniteNumber(e.target.value),
-                    })
+                  onValueChange={pixDiscountValue =>
+                    changeDraft({ pixDiscountValue })
                   }
                   aria-label="Valor do desconto PIX"
                 />
@@ -1394,20 +1392,23 @@ export default function QuoteEditorPage() {
           </Card>
           <QuoteFinancePanel quoteId={draft.id} quoteStatus={draft.status} />
           <Button
-            variant="destructive"
-            className="w-full"
-            onClick={() => {
-              if (
-                window.confirm(
-                  "Excluir este orçamento? Esta ação não pode ser desfeita."
-                )
-              )
-                remove.mutate({ id: draft.id });
-            }}
+            variant="ghost"
+            size="sm"
+            className="w-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => setConfirmDelete(true)}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Excluir orçamento
           </Button>
+          <ConfirmDialog
+            open={confirmDelete}
+            onOpenChange={setConfirmDelete}
+            title={`Excluir o orçamento #${draft.quoteNumber}?`}
+            description="O orçamento, seus itens e o histórico de versões serão removidos. Esta ação não pode ser desfeita."
+            confirmLabel="Excluir orçamento"
+            destructive
+            onConfirm={() => remove.mutate({ id: draft.id })}
+          />
         </aside>
       </div>
       {preview ? (
@@ -1426,24 +1427,6 @@ export default function QuoteEditorPage() {
         </section>
       ) : null}
       <QuotePdfHistoryPanel quoteId={draft.id} />
-      <div className="no-print fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-2xl border border-border bg-card/95 p-2 shadow-xl backdrop-blur">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setLocation("/historico-pdfs")}
-        >
-          <FileText className="mr-1.5 h-3.5 w-3.5" />
-          Histórico
-        </Button>
-        <Button
-          size="sm"
-          onClick={generatePdfHistory}
-          disabled={savePdf.isPending || isPreparingPrint || isGeneratingPdf}
-        >
-          <FileText className="mr-1.5 h-3.5 w-3.5" />
-          {savePdf.isPending || isGeneratingPdf ? "Gerando PDF…" : "Gerar e salvar PDF"}
-        </Button>
-      </div>
     </div>
   );
 }

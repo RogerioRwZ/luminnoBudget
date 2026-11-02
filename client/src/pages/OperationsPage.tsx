@@ -18,6 +18,7 @@ import { Camera, CameraOff, MessageCircle, Send } from "lucide-react";
 import { MessageDialog, type DialogMessage } from "@/components/MessageDialog";
 import { dateOnly } from "@/lib/format";
 import { MESSAGE_VARIABLES, type MessageEvent } from "@shared/messages";
+import { QUOTE_STATUS_LABELS, type QuoteStatus } from "@shared/quoteStatus";
 
 type Detector = {
   detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
@@ -86,7 +87,7 @@ function FinancialComparison({
           return (
             <div
               key={key}
-              className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2"
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2"
             >
               <dt className="text-muted-foreground">{label}</dt>
               <dd>{money(currentValue)}</dd>
@@ -129,7 +130,10 @@ function QuoteSnapshotPreview({
             #{quote.quoteNumber ?? "—"} — {quote.clientName || "Sem cliente"}
           </p>
           <p className="text-xs text-muted-foreground">
-            Status: {quote.status ?? "—"}
+            Status:{" "}
+            {quote.status && quote.status in QUOTE_STATUS_LABELS
+              ? QUOTE_STATUS_LABELS[quote.status as QuoteStatus]
+              : "—"}
           </p>
           <div className="mt-3 space-y-2">
             {quote.rooms?.map((room, index) => (
@@ -296,7 +300,11 @@ const eventLabels: Record<string, string> = {
 };
 
 export default function OperationsPage() {
-  const [quoteId, setQuoteId] = useState<number | undefined>();
+  // Aberta pelo editor com ?orcamento=ID, já chega com a proposta escolhida.
+  const [quoteId, setQuoteId] = useState<number | undefined>(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("orcamento"));
+    return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+  });
   const [barcode, setBarcode] = useState("");
   const [comment, setComment] = useState("");
   const [changeNote, setChangeNote] = useState("");
@@ -531,24 +539,20 @@ export default function OperationsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-          Operação
+    <div className="mx-auto max-w-7xl space-y-6">
+      <div>
+        <p className="eyebrow">Operação</p>
+        <h2 className="page-title">Ferramentas do dia a dia</h2>
+        <p className="page-description">
+          Versione propostas, consulte produtos e organize informações internas
+          da obra.
         </p>
         <div className="mt-2 flex flex-wrap gap-3">
           <DraftAutosaveStatus status={commentDraft.status} />
           <DraftAutosaveStatus status={restoreDraft.status} />
           <DraftAutosaveStatus status={templateDraft.status} />
         </div>
-        <h1 className="font-display text-3xl font-bold tracking-tight">
-          Ferramentas do dia a dia
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          Versione propostas, consulte produtos e organize informações internas
-          da obra.
-        </p>
-      </header>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Selecionar orçamento</CardTitle>
@@ -572,7 +576,7 @@ export default function OperationsPage() {
           </select>
           {selectedQuote ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Status: {selectedQuote.status}
+              Status: {QUOTE_STATUS_LABELS[selectedQuote.status]}
             </p>
           ) : null}
           {quoteId ? (
@@ -696,7 +700,7 @@ export default function OperationsPage() {
           setQuoteMessageRequested(false);
         }}
       />
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Leitor de código de barras</CardTitle>
@@ -799,7 +803,7 @@ export default function OperationsPage() {
                     e itens antes de confirmar.
                   </p>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <QuoteSnapshotPreview title="Atual" quote={selectedQuote} />
                   <QuoteSnapshotPreview
                     title={`Snapshot ${selectedVersion.versionNumber}`}
@@ -958,7 +962,7 @@ export default function OperationsPage() {
           <CardTitle>Modelos por evento</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <Label htmlFor="template-event">Evento</Label>
               <select
@@ -1015,7 +1019,7 @@ export default function OperationsPage() {
           >
             Salvar modelo
           </AsyncButton>
-          <div className="mt-4 grid gap-2 md:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
             {templates.data?.map(template => (
               <div key={template.id} className="rounded-lg border p-3 text-sm">
                 <strong>{template.name}</strong>

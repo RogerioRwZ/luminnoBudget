@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { plural } from "@shared/plural";
 
 const bytes = (value?: number | null) => {
   if (value == null) return "Indisponível";
@@ -184,7 +185,7 @@ export default function AdminPage() {
           </Button>
         </div>
       ) : null}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatusCard
           icon={Activity}
           title="Aplicação"
@@ -226,7 +227,7 @@ export default function AdminPage() {
           tone="text-amber-600"
         />
       </div>
-      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <Card className="border-border/70 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -321,7 +322,7 @@ export default function AdminPage() {
             <CardDescription>
               {usersLoading
                 ? "Carregando usuários…"
-                : `${users.length} usuário(s) local(is) cadastrado(s).`}
+                : `${plural(users.length, "usuário cadastrado", "usuários cadastrados")}.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -349,7 +350,7 @@ export default function AdminPage() {
             Informações operacionais
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
+        <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
           <Info
             label="Versão do Node"
             value={
@@ -464,7 +465,7 @@ function UserAccessCard({
           </Badge>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Nome</Label>
           <Input value={name} onChange={event => setName(event.target.value)} />

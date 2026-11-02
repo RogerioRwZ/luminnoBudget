@@ -1,5 +1,6 @@
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
 import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import {
   AsyncButton,
@@ -19,6 +20,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { trpc } from "@/lib/trpc";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../server/routers";
 import {
   parseFiniteNumber,
   validateSettingsNumbers,
@@ -71,13 +74,40 @@ const emptySettings: SettingsForm = {
     "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
 
+function formFromSettings(data: inferRouterOutputs<AppRouter>["settings"]["get"]): SettingsForm {
+  return {
+    companyName: data.companyName,
+    tradingName: data.tradingName,
+    logoUrl: data.logoUrl ?? "",
+    document: data.document ?? "",
+    address: data.address ?? "",
+    phone: data.phone ?? "",
+    email: data.email ?? "",
+    pixKey: data.pixKey ?? "",
+    pixRecipient: data.pixRecipient ?? "",
+    pixCity: data.pixCity ?? "",
+    defaultPixDiscountMode: data.defaultPixDiscountMode,
+    defaultPixDiscountValue: Number(data.defaultPixDiscountValue),
+    defaultInstallments: data.defaultInstallments,
+    alertThresholdDays: data.alertThresholdDays,
+    defaultTerms: data.defaultTerms ?? "",
+  };
+}
+
 export default function SettingsPage() {
   const utils = trpc.useUtils();
   const { data, isLoading, error, refetch } = trpc.settings.get.useQuery();
   const [form, setForm] = useState<SettingsForm>(emptySettings);
   const [formError, setFormError] = useState("");
+  const { data: auth } = trpc.auth.status.useQuery(undefined, {
+    staleTime: Infinity,
+  });
+  // Só administradores alteram a loja; os demais veem os dados em leitura.
+  const isAdmin = auth?.user?.role === "admin";
+  const [pendingRestore, setPendingRestore] = useState<Record<string, unknown> | null>(null);
   const settingsDraft = useDraftAutosave("settings", form, {
-    enabled: Boolean(data),
+    enabled: Boolean(data) && isAdmin,
+    pristineFingerprint: data ? JSON.stringify(formFromSettings(data)) : null,
   });
   const save = trpc.settings.save.useMutation({
     onSuccess: () => {
@@ -134,24 +164,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!data) return;
-    setForm({
-      companyName: data.companyName,
-      tradingName: data.tradingName,
-      logoUrl: data.logoUrl ?? "",
-      document: data.document ?? "",
-      address: data.address ?? "",
-      phone: data.phone ?? "",
-      email: data.email ?? "",
-      pixKey: data.pixKey ?? "",
-      pixRecipient: data.pixRecipient ?? "",
-      pixCity: data.pixCity ?? "",
-      defaultPixDiscountMode: data.defaultPixDiscountMode,
-      defaultPixDiscountValue: Number(data.defaultPixDiscountValue),
-      defaultInstallments: data.defaultInstallments,
-      alertThresholdDays: data.alertThresholdDays,
-      defaultTerms: data.defaultTerms ?? "",
-    });
+    setForm(formFromSettings(data));
   }, [data]);
+
+  // Atalho "Backup manual" da barra lateral abre esta tela em #backup.
+  useEffect(() => {
+    if (!data || !isAdmin || window.location.hash !== "#backup") return;
+    document.getElementById("backup")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [data, isAdmin]);
 
   const logoFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -204,12 +224,7 @@ export default function SettingsPage() {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result));
-        if (
-          window.confirm(
-            "A restauração substituirá os dados atuais. Deseja continuar?"
-          )
-        )
-          importBackup.mutate({ data: parsed, replace: true });
+        setPendingRestore(parsed);
       } catch {
         const message =
           "O arquivo selecionado não é um JSON válido. Escolha um backup exportado pela Luminno.";
@@ -270,7 +285,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <div>
         <p className="eyebrow">Preferências da loja</p>
         <h2 className="page-title flex flex-wrap items-center gap-3">
@@ -307,15 +322,25 @@ export default function SettingsPage() {
           Os dados abaixo são usados nos novos orçamentos e no documento
           impresso.
         </p>
+        {!isAdmin ? (
+          <p
+            role="note"
+            className="mt-3 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground"
+          >
+            Somente administradores podem alterar as configurações da loja.
+            Você está vendo os dados em modo de leitura.
+          </p>
+        ) : null}
       </div>
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+      <fieldset disabled={!isAdmin} className="m-0 min-w-0 border-0 p-0">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
         <Card className="border-border/70 shadow-sm">
           <CardHeader>
             <CardTitle className="font-display text-lg">
               Dados comerciais
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormError className="sm:col-span-2" message={formError} />
             <Field
               label="Razão social / nome da empresa"
@@ -384,9 +409,8 @@ export default function SettingsPage() {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    Envie um arquivo JPG, PNG ou WEBP de até 5 MB. O logotipo
-                    fica armazenado no servidor da Luminno e não depende de URL
-                    externa.
+                    Envie uma imagem JPG, PNG ou WEBP de até 5 MB. Ela aparece
+                    no topo dos PDFs de orçamento.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button
@@ -518,8 +542,8 @@ export default function SettingsPage() {
                 <div className="min-w-0 flex-1">
                   <Label>Antecedência do alerta</Label>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Mostra no Dashboard as propostas pendentes que vencem dentro
-                    desse período.
+                    Mostra na Visão geral as propostas em negociação que vencem
+                    dentro desse período.
                   </p>
                   <div className="mt-3 flex items-center gap-2">
                     <Input
@@ -566,6 +590,7 @@ export default function SettingsPage() {
               }
               rows={4}
             />
+            {isAdmin ? (
             <div className="mt-4 flex justify-end">
               <AsyncButton
                 pending={save.isPending || uploadLogo.isPending}
@@ -580,9 +605,23 @@ export default function SettingsPage() {
                 Salvar configurações
               </AsyncButton>
             </div>
+            ) : null}
           </CardContent>
         </Card>
-        <Card className="border-border/70 shadow-sm lg:col-span-2">
+        {isAdmin ? (<>
+        <ConfirmDialog
+          open={pendingRestore !== null}
+          onOpenChange={open => !open && setPendingRestore(null)}
+          title="Restaurar este backup?"
+          description="Todos os dados atuais da loja serão substituídos pelos do arquivo. Exporte um backup antes se quiser guardar a situação atual."
+          confirmLabel="Substituir e restaurar"
+          destructive
+          onConfirm={() => {
+            if (pendingRestore) importBackup.mutate({ data: pendingRestore, replace: true });
+            setPendingRestore(null);
+          }}
+        />
+        <Card id="backup" className="scroll-mt-24 border-border/70 shadow-sm lg:col-span-2">
           <CardHeader>
             <CardTitle className="font-display text-lg">
               Backup e restauração manual
@@ -631,7 +670,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+        </>) : null}
       </div>
+      </fieldset>
     </div>
   );
 }

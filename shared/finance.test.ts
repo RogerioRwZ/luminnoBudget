@@ -32,6 +32,8 @@ describe("regras financeiras", () => {
     expect(calculateReceivableStatus({ originalAmount: 100, receivedAmount: 100, cancelled: false, dueDate, now })).toBe("paid");
     expect(calculateReceivableStatus({ originalAmount: 100, receivedAmount: 0, cancelled: false, dueDate, now: new Date("2026-02-02T12:00:00Z") })).toBe("overdue");
     expect(calculateReceivableStatus({ originalAmount: 100, receivedAmount: 0, cancelled: true, dueDate, now })).toBe("cancelled");
+    // Paga em parte e já vencida: continua em atraso.
+    expect(calculateReceivableStatus({ originalAmount: 100, receivedAmount: 25, cancelled: false, dueDate, now: new Date("2026-02-02T12:00:00Z") })).toBe("overdue");
   });
 
   it("não permite saldo negativo após recebimentos", () => {

@@ -13,6 +13,7 @@ import { dateTime } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { History, Search } from "lucide-react";
 import { useEffect, useState } from "react";
+import { plural } from "@shared/plural";
 
 const ENTITY_LABELS = {
   quote: "Orçamentos",
@@ -88,7 +89,7 @@ export function ActivityLogPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <div className="space-y-1.5 lg:col-span-2">
             <Label htmlFor="activity-search">Buscar</Label>
             <div className="relative">
@@ -202,7 +203,7 @@ export function ActivityLogPanel({
         {data && data.totalPages > 1 ? (
           <div className="flex items-center justify-between gap-2 text-sm">
             <span className="text-muted-foreground">
-              {data.total} atividade(s) · página {data.page} de {data.totalPages}
+              {plural(data.total, "atividade", "atividades")} · página {data.page} de {data.totalPages}
             </span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" disabled={data.page <= 1} onClick={() => setPage(data.page - 1)}>

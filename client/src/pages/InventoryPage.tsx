@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { plural } from "@shared/plural";
 
 type MovementForm = {
   productId: number;
@@ -53,22 +54,22 @@ const movementMeta = {
   entry: {
     label: "Entrada",
     icon: ArrowDownToLine,
-    className: "bg-emerald-500/10 text-emerald-700",
+    className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   },
   delivery: {
     label: "Entrega",
     icon: ArrowUpFromLine,
-    className: "bg-amber-500/10 text-amber-700",
+    className: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
   },
   adjustment: {
     label: "Ajuste",
     icon: SlidersHorizontal,
-    className: "bg-sky-500/10 text-sky-700",
+    className: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
   },
   return: {
     label: "Devolução",
     icon: RotateCcw,
-    className: "bg-violet-500/10 text-violet-700",
+    className: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
   },
 } as const;
 
@@ -143,7 +144,7 @@ export default function InventoryPage() {
     onSuccess: result => {
       refresh();
       toast.success(
-        `Entrega registrada. Restam ${result.pendingQuantity} unidade(s) neste item.`
+        `Entrega registrada. ${result.pendingQuantity === 1 ? "Resta 1 unidade" : `Restam ${result.pendingQuantity} unidades`} neste item.`
       );
       setDeliveryOpen(false);
       setSelectedLine(null);
@@ -251,7 +252,7 @@ export default function InventoryPage() {
           </Button>
         </div>
       </div>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
             <Boxes className="h-5 w-5 text-primary" />
@@ -265,7 +266,7 @@ export default function InventoryPage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <PackageCheck className="h-5 w-5 text-emerald-600" />
+            <PackageCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Valor em estoque
             </p>
@@ -276,7 +277,7 @@ export default function InventoryPage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Abaixo da reposição
             </p>
@@ -287,7 +288,7 @@ export default function InventoryPage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <ClipboardList className="h-5 w-5 text-amber-600" />
+            <ClipboardList className="h-5 w-5 text-amber-600 dark:text-amber-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Itens pendentes de entrega
             </p>
@@ -297,9 +298,9 @@ export default function InventoryPage() {
           </CardContent>
         </Card>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
         <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
                 Saldo por produto
@@ -312,7 +313,7 @@ export default function InventoryPage() {
             <Boxes className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="mb-4 grid gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-3">
+            <div className="mb-4 grid grid-cols-1 gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-3">
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   Fornecedor
@@ -424,7 +425,7 @@ export default function InventoryPage() {
                         </Badge>
                         <Badge
                           variant="secondary"
-                          className="bg-amber-500/10 text-amber-700"
+                          className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
                         >
                           Res.: {product.reservedQuantity}
                         </Badge>
@@ -474,7 +475,7 @@ export default function InventoryPage() {
                     </div>
                     <Badge
                       variant="secondary"
-                      className="bg-red-500/10 text-red-700"
+                      className="bg-red-500/10 text-red-700 dark:text-red-300"
                     >
                       {product.stockQuantity} {product.unit}
                     </Badge>
@@ -483,7 +484,7 @@ export default function InventoryPage() {
               </div>
             ) : (
               <div className="py-10 text-center">
-                <PackageCheck className="mx-auto h-7 w-7 text-emerald-600" />
+                <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
                 <p className="mt-3 text-sm font-semibold">
                   Todos os itens estão acima da reposição.
                 </p>
@@ -494,7 +495,7 @@ export default function InventoryPage() {
       </section>
       <section>
         <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
                 Entregas parciais de orçamentos aprovados
@@ -532,7 +533,7 @@ export default function InventoryPage() {
                     key={line.quoteItemId}
                     className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center"
                   >
-                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 font-display text-sm font-bold text-amber-700">
+                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 font-display text-sm font-bold text-amber-700 dark:text-amber-300">
                       #{line.quoteNumber}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -547,13 +548,13 @@ export default function InventoryPage() {
                       <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                         <Badge
                           variant="secondary"
-                          className="bg-sky-500/10 text-sky-700"
+                          className="bg-sky-500/10 text-sky-700 dark:text-sky-300"
                         >
                           Entregue: {line.deliveredQuantity}
                         </Badge>
                         <Badge
                           variant="secondary"
-                          className="bg-amber-500/10 text-amber-700"
+                          className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
                         >
                           Reservado: {line.reservedQuantity}
                         </Badge>
@@ -562,7 +563,7 @@ export default function InventoryPage() {
                         </Badge>
                         <Badge
                           variant="secondary"
-                          className="bg-emerald-500/10 text-emerald-700"
+                          className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                         >
                           Disponível: {line.availableQuantity}
                         </Badge>
@@ -570,8 +571,8 @@ export default function InventoryPage() {
                       {line.deliveries.length ? (
                         <details className="mt-2 text-xs text-muted-foreground">
                           <summary className="cursor-pointer">
-                            Ver {line.deliveries.length} entrega(s)
-                            registrada(s)
+                            Ver{" "}
+                            {plural(line.deliveries.length, "entrega registrada", "entregas registradas")}
                           </summary>
                           <div className="mt-2 space-y-1 rounded-lg bg-muted/50 p-2">
                             {line.deliveries.map(delivery => (
@@ -602,7 +603,7 @@ export default function InventoryPage() {
               </div>
             ) : (
               <div className="py-10 text-center">
-                <PackageCheck className="mx-auto h-7 w-7 text-emerald-600" />
+                <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
                 <p className="mt-3 text-sm font-semibold">
                   Não há itens pendentes de entrega.
                 </p>
@@ -617,7 +618,7 @@ export default function InventoryPage() {
       </section>
       <section>
         <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
                 Histórico de movimentações

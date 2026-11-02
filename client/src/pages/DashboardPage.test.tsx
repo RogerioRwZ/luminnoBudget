@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    auth: { status: { useQuery: () => ({ data: { user: { role: "user" } } }) } },
     dashboard: {
       useQuery: () => ({
         data: undefined,

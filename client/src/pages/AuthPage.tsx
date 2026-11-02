@@ -144,9 +144,11 @@ export default function AuthPage({
                 placeholder="ex.: ana.silva"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Use letras minúsculas, números, ponto, hífen ou sublinhado.
-            </p>
+            {setupRequired ? (
+              <p className="text-xs text-muted-foreground">
+                Use letras minúsculas, números, ponto, hífen ou sublinhado.
+              </p>
+            ) : null}
           </div>
           {setupRequired ? (
             <div className="space-y-2">

@@ -19,7 +19,7 @@ describe("mensagens a partir de modelos", () => {
   it("monta links de WhatsApp e e-mail codificados", () => {
     expect(whatsappLink("5511988887777", "Olá & bom dia")).toBe("https://wa.me/5511988887777?text=Ol%C3%A1%20%26%20bom%20dia");
     expect(mailtoLink("a@b.com", "Assunto", "Linha 1\nLinha 2")).toBe("mailto:a%40b.com?subject=Assunto&body=Linha%201%0ALinha%202");
-    expect(daysPhrase(-2)).toBe("venceu há 2 dia(s)");
+    expect(daysPhrase(-2)).toBe("venceu há 2 dias");
     expect(daysPhrase(0)).toBe("vence hoje");
   });
 });

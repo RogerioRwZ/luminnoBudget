@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
-import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
@@ -71,9 +71,7 @@ export default function ProductsPage() {
       utils.product.list.invalidate();
       utils.inventory.invalidate();
       setFormError("");
-      window.localStorage.removeItem(
-        `luminno:draft:product-${form.id ?? "new"}`
-      );
+      removeDraft(`product-${form.id ?? "new"}`);
       toast.success("Produto salvo com sucesso");
       setOpen(false);
     },
@@ -169,8 +167,8 @@ export default function ProductsPage() {
           <p className="eyebrow">Base de produtos</p>
           <h2 className="page-title">Catálogo</h2>
           <p className="page-description">
-            Códigos numéricos são gerados automaticamente a partir de 1.
-            Cadastre fornecedor, preços e reposição.
+            Cadastre os produtos com fornecedor, preço e ponto de reposição.
+            O código de cada produto é criado automaticamente.
           </p>
         </div>
         <Dialog open={open} onOpenChange={handleOpen}>
@@ -218,7 +216,7 @@ export default function ProductsPage() {
                 </div>
               </div>
             ) : null}
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
               <div className="rounded-xl border border-dashed border-border bg-muted/30 p-3 sm:col-span-2">
                 <div className="flex items-center gap-2">
                   <Hash className="h-4 w-4 text-primary" />
@@ -439,7 +437,7 @@ export default function ProductsPage() {
               </Button>
             </div>
           ) : filtered.length ? (
-            <div className="grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
+            <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
               {filtered.map(product => {
                 const stock = Number(product.stockQuantity);
                 const point = Number(product.reorderPoint);

@@ -4,7 +4,7 @@ import {
   getFormErrorMessage,
 } from "@/components/FormFeedback";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
-import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,18 +38,19 @@ import { useMemo, useState } from "react";
 import { MessageDialog } from "@/components/MessageDialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { plural } from "@shared/plural";
 
 const nowInput = () => new Date().toISOString().slice(0, 16);
 const dateInput = () => new Date().toISOString().slice(0, 10);
 const statusMeta: Record<FinanceStatus, { label: string; className: string }> =
   {
-    open: { label: "Em aberto", className: "bg-sky-500/10 text-sky-700" },
-    partial: { label: "Parcial", className: "bg-amber-500/15 text-amber-800" },
+    open: { label: "Em aberto", className: "bg-sky-500/10 text-sky-700 dark:text-sky-300" },
+    partial: { label: "Parcial", className: "bg-amber-500/15 text-amber-800 dark:text-amber-300" },
     paid: {
       label: "Recebida",
-      className: "bg-emerald-500/10 text-emerald-700",
+      className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     },
-    overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700" },
+    overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700 dark:text-red-300" },
     cancelled: {
       label: "Cancelada",
       className: "bg-slate-500/10 text-slate-700",
@@ -138,7 +139,7 @@ export default function FinancePage() {
     onSuccess: ids => {
       refresh();
       setCreateOpen(false);
-      window.localStorage.removeItem("luminno:draft:finance-create");
+      removeDraft("finance-create");
       setCreateForm({
         clientId: "",
         clientName: "",
@@ -148,7 +149,7 @@ export default function FinancePage() {
         firstDueDate: dateInput(),
       });
       setFinanceError("");
-      toast.success(`${ids.length} cobrança(s) criada(s).`);
+      toast.success(`${plural(ids.length, "cobrança criada", "cobranças criadas")}.`);
     },
     onError: error => {
       const message = getFormErrorMessage(
@@ -164,7 +165,7 @@ export default function FinancePage() {
       refresh();
       setPaymentOpen(false);
       setSelected(null);
-      window.localStorage.removeItem("luminno:draft:finance-payment");
+      removeDraft("finance-payment");
       toast.success(
         result.status === "paid"
           ? "Cobrança quitada."
@@ -271,7 +272,7 @@ export default function FinancePage() {
           </Button>
         </div>
       </div>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
             <CircleDollarSign className="h-5 w-5 text-primary" />
@@ -285,7 +286,7 @@ export default function FinancePage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <Banknote className="h-5 w-5 text-emerald-600" />
+            <Banknote className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Recebido no mês
             </p>
@@ -296,7 +297,7 @@ export default function FinancePage() {
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <CalendarClock className="h-5 w-5 text-red-600" />
+            <CalendarClock className="h-5 w-5 text-red-600 dark:text-red-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Em atraso
             </p>
@@ -304,13 +305,13 @@ export default function FinancePage() {
               {money(totals?.overdueAmount)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {totals?.overdueCount ?? 0} cobrança(s)
+              {plural(totals?.overdueCount ?? 0, "cobrança", "cobranças")}
             </p>
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-sm">
           <CardContent className="p-5">
-            <Landmark className="h-5 w-5 text-sky-600" />
+            <Landmark className="h-5 w-5 text-sky-600 dark:text-sky-300" />
             <p className="mt-5 text-xs font-semibold text-muted-foreground">
               Previsto em carteira
             </p>
@@ -321,7 +322,7 @@ export default function FinancePage() {
         </Card>
       </section>
       <Card className="border-border/70 shadow-sm">
-        <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div>
             <CardTitle className="font-display text-lg">
               Cobranças e parcelas
@@ -334,7 +335,7 @@ export default function FinancePage() {
           <WalletCards className="h-5 w-5 text-primary" />
         </CardHeader>
         <CardContent>
-          <div className="mb-5 grid gap-3 rounded-xl bg-muted/50 p-3 md:grid-cols-[1fr_220px]">
+          <div className="mb-5 grid grid-cols-1 gap-3 rounded-xl bg-muted/50 p-3 md:grid-cols-[minmax(0,1fr)_220px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -377,7 +378,7 @@ export default function FinancePage() {
             </div>
           ) : filtered.length ? (
             <div className="overflow-x-auto">
-              <table className="min-w-[980px] w-full text-sm">
+              <table className="w-full min-w-[980px] text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_td:first-child]:whitespace-normal [&_td:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th]:px-3 [&_th:first-child]:pl-0 [&_th:last-child]:pr-0">
                 <thead className="border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="pb-3">Cliente / origem</th>
@@ -401,10 +402,10 @@ export default function FinancePage() {
                         <td className="py-4">
                           <p className="font-semibold">{row.clientName}</p>
                           <p className="max-w-[200px] truncate text-xs text-muted-foreground">
-                            {row.description}
-                            {row.quoteNumber
-                              ? ` · Orçamento #${row.quoteNumber}`
-                              : ""}
+                            {row.quoteNumber &&
+                            !row.description.includes(`#${row.quoteNumber}`)
+                              ? `${row.description} · Orçamento #${row.quoteNumber}`
+                              : row.description}
                           </p>
                         </td>
                         <td className="py-4 text-xs">
@@ -418,7 +419,7 @@ export default function FinancePage() {
                         <td className="py-4 text-right font-semibold">
                           {money(row.originalAmount)}
                         </td>
-                        <td className="py-4 text-right text-emerald-700">
+                        <td className="py-4 text-right text-emerald-700 dark:text-emerald-300">
                           {money(row.receivedAmount)}
                         </td>
                         <td className="py-4 text-right font-semibold">
@@ -494,7 +495,7 @@ export default function FinancePage() {
                           {row.payments.length ? (
                             <details className="mt-2 text-right text-xs text-muted-foreground">
                               <summary className="cursor-pointer">
-                                {row.payments.length} movimentação(ões)
+                                {plural(row.payments.length, "movimentação", "movimentações")}
                               </summary>
                               <div className="mt-1 rounded-lg bg-muted/50 p-2 text-left">
                                 {row.payments.map(payment => (

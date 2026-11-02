@@ -11,8 +11,8 @@ describe("aggregateDashboardStatuses", () => {
     ]);
     expect(summaries).toEqual([
       { key: "approved", label: "Aprovados", count: 1, value: 300 },
-      { key: "pending", label: "Pendentes", count: 2, value: 200 },
-      { key: "rejected", label: "Rejeitados", count: 1, value: 45 },
+      { key: "pending", label: "Em negociação", count: 2, value: 200 },
+      { key: "rejected", label: "Não aprovados", count: 1, value: 45 },
     ]);
   });
 });

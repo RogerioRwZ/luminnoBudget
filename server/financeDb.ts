@@ -137,7 +137,9 @@ export async function recordFinancePayment(input: { receivableId: number; type: 
     }).$returningId();
     const receivedAmount = roundMoney(current.receivedAmount + (input.type === "receipt" ? input.amount : -input.amount));
     const calculated = calculateReceivableStatus({ originalAmount: current.originalAmount, receivedAmount, cancelled: false, dueDate: receivable.dueDate });
-    await tx.update(financeReceivables).set({ status: calculated === "overdue" ? "open" : calculated }).where(eq(financeReceivables.id, receivable.id));
+    // "overdue" é calculado na leitura; no banco fica o estado de pagamento.
+    const stored = calculated === "overdue" ? (receivedAmount > 0 ? "partial" : "open") : calculated;
+    await tx.update(financeReceivables).set({ status: stored }).where(eq(financeReceivables.id, receivable.id));
     return { paymentId: result[0]!.id, status: calculated, receivedAmount, remainingAmount: remainingReceivableAmount(current.originalAmount, receivedAmount) };
   });
 }

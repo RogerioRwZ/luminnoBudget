@@ -4,7 +4,7 @@ import {
   getFormErrorMessage,
 } from "@/components/FormFeedback";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
-import { useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -33,6 +33,8 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { normalizeWhatsAppPhone } from "@shared/whatsapp";
+import { QUOTE_STATUS_LABELS } from "@shared/quoteStatus";
+import { plural } from "@shared/plural";
 
 type CustomerForm = {
   id?: number;
@@ -67,9 +69,7 @@ export default function CustomersPage() {
     onSuccess: () => {
       utils.customers.list.invalidate();
       setFormError("");
-      window.localStorage.removeItem(
-        `luminno:draft:customer-${form.id ?? "new"}`
-      );
+      removeDraft(`customer-${form.id ?? "new"}`);
       toast.success("Cliente salvo com sucesso");
       setOpen(false);
     },
@@ -180,7 +180,7 @@ export default function CustomersPage() {
                 </div>
               </div>
             ) : null}
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Nome do cliente *</Label>
                 <Input
@@ -294,7 +294,7 @@ export default function CustomersPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold">
-                      {customer.quoteCount} orçamento(s)
+                      {plural(customer.quoteCount, "orçamento", "orçamentos")}
                     </span>
                     <Button
                       variant="ghost"
@@ -412,13 +412,7 @@ export default function CustomersPage() {
                           Orçamento #{quote.quoteNumber}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {quote.status === "approved"
-                            ? "Aprovado"
-                            : quote.status === "open"
-                              ? "Em aberto"
-                              : quote.status === "lost"
-                                ? "Perdido"
-                                : "Rascunho"}{" "}
+                          {QUOTE_STATUS_LABELS[quote.status]}{" "}
                           · {dateOnly(quote.issueDate)}
                         </p>
                       </div>

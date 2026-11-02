@@ -15,8 +15,8 @@ export type StatusSummary = {
 export function aggregateDashboardStatuses(quotes: DashboardQuoteLike[]) {
   const groups: Record<StatusSummary["key"], StatusSummary> = {
     approved: { key: "approved", label: "Aprovados", count: 0, value: 0 },
-    pending: { key: "pending", label: "Pendentes", count: 0, value: 0 },
-    rejected: { key: "rejected", label: "Rejeitados", count: 0, value: 0 },
+    pending: { key: "pending", label: "Em negociação", count: 0, value: 0 },
+    rejected: { key: "rejected", label: "Não aprovados", count: 0, value: 0 },
   };
   quotes.forEach((quote) => {
     const key = quote.status === "approved" ? "approved" : quote.status === "lost" ? "rejected" : "pending";
