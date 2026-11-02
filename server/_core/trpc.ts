@@ -1,4 +1,5 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
+import { canAccess, type Area } from "@shared/permissions";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -43,3 +44,14 @@ export const adminProcedure = t.procedure.use(
     });
   }),
 );
+
+// Acesso por área conforme o perfil do usuário (shared/permissions).
+export const areaProcedure = (...areas: Area[]) =>
+  protectedProcedure.use(
+    t.middleware(async ({ ctx, next }) => {
+      if (!canAccess(ctx.user?.role, ...areas)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Seu perfil não tem acesso a esta área. Fale com o administrador." });
+      }
+      return next();
+    }),
+  );

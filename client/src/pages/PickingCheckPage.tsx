@@ -1,4 +1,6 @@
 import { AsyncButton, getFormErrorMessage } from "@/components/FormFeedback";
+import { CameraBarcodeScanner } from "@/components/CameraBarcodeScanner";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +62,7 @@ export default function PickingCheckPage() {
   const quoteId = Number(params.id);
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
+  const { can } = usePermissions();
   const picking = trpc.inventory.picking.useQuery(
     { quoteId },
     { enabled: Number.isInteger(quoteId) && quoteId > 0 }
@@ -106,6 +109,10 @@ export default function PickingCheckPage() {
     const value = code.trim();
     setCode("");
     scanRef.current?.focus();
+    processCode(value);
+  };
+  // Mesmo tratamento para leitor USB, código digitado e câmera.
+  const processCode = (value: string) => {
     if (!value) return;
     const normalized = value.toLocaleLowerCase("pt-BR");
     const item = items.find(
@@ -179,9 +186,11 @@ export default function PickingCheckPage() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Estoque
           </Button>
-          <Button variant="outline" onClick={() => setLocation(`/orcamentos/${quote.id}`)}>
-            Abrir orçamento
-          </Button>
+          {can("quotes") ? (
+            <Button variant="outline" onClick={() => setLocation(`/orcamentos/${quote.id}`)}>
+              Abrir orçamento
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -225,6 +234,11 @@ export default function PickingCheckPage() {
                   Lançar
                 </Button>
               </form>
+              <CameraBarcodeScanner
+                continuous
+                label="Ler com a câmera do celular"
+                onDetected={processCode}
+              />
               {feedback ? (
                 <div role="status" aria-live="polite" className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${feedbackStyle[feedback.tone]}`}>
                   <FeedbackIcon className="mt-0.5 h-4 w-4 shrink-0" />

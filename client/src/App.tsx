@@ -3,7 +3,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import AuthPage from "@/pages/AuthPage";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
+import { canOpenPage } from "@shared/permissions";
+import { ShieldAlert } from "lucide-react";
 import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -34,7 +36,23 @@ const RouteFallback = () => (
   </div>
 );
 
+function NoAccess() {
+  return (
+    <div className="grid min-h-[60vh] place-items-center text-center">
+      <div className="max-w-sm">
+        <ShieldAlert className="mx-auto h-8 w-8 text-muted-foreground" />
+        <h2 className="mt-4 font-display text-xl font-bold">Área fora do seu perfil</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Seu perfil de acesso não inclui esta página. Se precisar dela, peça
+          ao administrador para ajustar o seu perfil.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function Router() {
+  const [location] = useLocation();
   const { data, isLoading, error } = trpc.auth.status.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   if (isLoading) return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Verificando acesso seguro…</div>;
   if (error || !data) return <div className="grid min-h-screen place-items-center bg-background p-6 text-center"><div><p className="font-display text-xl font-bold">Não foi possível verificar o acesso.</p><p className="mt-2 text-sm text-muted-foreground">Confirme a conexão com o banco de dados e tente novamente.</p></div></div>;
@@ -43,7 +61,7 @@ export function Router() {
   return (
     <DashboardLayout user={data.user}>
       <Suspense fallback={<RouteFallback />}>
-        <Switch>
+        {!canOpenPage(data.user.role, location) ? <NoAccess /> : <Switch>
           <Route path="/" component={DashboardPage} />
           <Route path="/orcamentos" component={QuotesPage} />
           <Route path="/orcamentos/novo" component={QuoteEditorPage} />
@@ -60,7 +78,7 @@ export function Router() {
           <Route path="/operacao" component={OperationsPage} />
           <Route path="/administracao" component={AdminPage} />
           <Route component={NotFound} />
-        </Switch>
+        </Switch>}
       </Suspense>
     </DashboardLayout>
   );

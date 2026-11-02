@@ -13,6 +13,7 @@ import {
   getQuote,
   getSettings,
   getPickingList,
+  registerFollowUp,
   getProduct,
   importBackup,
   listClients,
@@ -28,13 +29,15 @@ import {
 } from "../quoteDb";
 import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
+import { canAccess, USER_ROLES } from "../../shared/permissions";
+import { LOST_REASONS, LOST_REASON_LABELS } from "../../shared/followUp";
 import { deleteAppointment, findConflicts, listAppointments, saveAppointment, setAppointmentStatus, upcomingAppointments } from "../agendaDb";
 import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_TYPE_LABELS } from "../../shared/agenda";
 import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, getReceivableSummary, recordFinancePayment } from "../financeDb";
 import { changedFields, formatActivityMoney as brl, listActivity, recordActivity, type ActivityEntity, type ActivityEntry } from "../activityLog";
 import { messageForQuote, messageForReceivable, pendingMessages } from "../messagesDb";
 import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
-import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, areaProcedure, protectedProcedure, router } from "../_core/trpc";
 import { plural } from "../../shared/plural";
 import { quotePdfFileName } from "../../shared/quoteFileName";
 
@@ -154,6 +157,9 @@ const quoteInput = z.object({
   pixDiscountValue: money,
   installments: z.coerce.number().int().min(1).max(24).default(8),
   notes: nullableText,
+  followUpAt: z.coerce.date().nullable().optional(),
+  lostReason: z.enum(LOST_REASONS).nullable().optional(),
+  lostNotes: z.string().trim().max(500).nullable().optional(),
   rooms: z.array(z.object({
     id: z.number().int().positive().optional(),
     name: z.string().trim().min(1, "Informe o nome do ambiente").max(160),
@@ -162,15 +168,20 @@ const quoteInput = z.object({
 });
 
 export const businessRouter = router({
-  dashboard: protectedProcedure.query(dashboardMetrics),
+  // Quem não tem acesso ao Financeiro vê o painel sem os valores recebidos.
+  dashboard: protectedProcedure.query(async ({ ctx }) => {
+    const data = await dashboardMetrics();
+    if (canAccess(ctx.user.role, "finance")) return data;
+    return { ...data, finance: null, monthly: data.monthly.map((month) => ({ ...month, received: 0 })) };
+  }),
   customers: router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listClients(input?.search)),
-    save: protectedProcedure.input(clientInput).mutation(async ({ ctx, input }) => {
+    save: areaProcedure("customers").input(clientInput).mutation(async ({ ctx, input }) => {
       const id = await saveClient({ ...input, email: input.email || null });
       await log(ctx, { action: input.id ? "customer.update" : "customer.create", entityType: "customer", entityId: id, summary: `${input.id ? "Atualizou" : "Cadastrou"} o cliente ${input.name}` });
       return id;
     }),
-    statement: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+    statement: areaProcedure("customers").input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
       const statement = await customerStatement(input.id);
       if (!statement) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
       return statement;
@@ -178,7 +189,7 @@ export const businessRouter = router({
   }),
   product: router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProducts(input?.search)),
-    save: protectedProcedure.input(productInput).mutation(async ({ ctx, input }) => {
+    save: areaProcedure("catalog").input(productInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getProduct(input.id) : null;
       const id = await saveProduct({ ...input, imageUrl: input.imageUrl || null });
       if (!before) {
@@ -192,7 +203,7 @@ export const businessRouter = router({
       }
       return id;
     }),
-    setBarcode: protectedProcedure.input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
+    setBarcode: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
       try {
         const result = await updateProductBarcode(input.productId, input.barcode || null);
         await log(ctx, { action: "product.barcode", entityType: "product", entityId: input.productId, summary: input.barcode ? `Vinculou o código de barras ${input.barcode} ao produto #${input.productId}` : `Removeu o código de barras do produto #${input.productId}` });
@@ -203,12 +214,12 @@ export const businessRouter = router({
       }
     }),
     findByBarcode: protectedProcedure.input(z.object({ barcode: z.string().trim().min(3).max(64) })).query(({ input }) => findProductByBarcode(input.barcode)),
-    archive: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    archive: areaProcedure("catalog").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const product = await getProduct(input.id);
       await deleteProduct(input.id);
       await log(ctx, { action: "product.archive", entityType: "product", entityId: input.id, summary: `Arquivou o produto #${product?.code ?? input.id} ${product?.shortDescription ?? ""}`.trim() });
     }),
-    uploadImage: protectedProcedure.input(z.object({
+    uploadImage: areaProcedure("catalog").input(z.object({
       fileName: z.string().trim().min(1).max(120),
       mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
       dataUrl: z.string().min(32).max(7_000_000),
@@ -223,8 +234,8 @@ export const businessRouter = router({
     }),
   }),
   quote: router({
-    list: protectedProcedure.query(listQuotes),
-    listPaged: protectedProcedure
+    list: areaProcedure("quotes", "agenda", "pdfs").query(listQuotes),
+    listPaged: areaProcedure("quotes", "pdfs")
       .input(
         z
           .object({
@@ -237,29 +248,38 @@ export const businessRouter = router({
           .optional()
       )
       .query(({ input }) => listQuotesPaged(input ?? {})),
-    get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => getQuote(input.id)),
-    create: protectedProcedure.mutation(async ({ ctx }) => {
+    get: areaProcedure("quotes", "pdfs").input(z.object({ id: z.number().int().positive() })).query(({ input }) => getQuote(input.id)),
+    create: areaProcedure("quotes").mutation(async ({ ctx }) => {
       const created = await createQuote();
       if (created) await log(ctx, { action: "quote.create", entityType: "quote", entityId: created.id, summary: `Criou o orçamento #${created.quoteNumber}` });
       return created;
     }),
     // O editor salva sozinho enquanto a pessoa digita; por isso só mudanças
     // de status entram no registro de atividades, não cada edição.
-    save: protectedProcedure.input(quoteInput).mutation(async ({ ctx, input }) => {
+    save: areaProcedure("quotes").input(quoteInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getQuote(input.id) : null;
+      if (input.status === "lost" && before?.status !== "lost" && !input.lostReason) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o motivo de não aprovação." });
+      }
       const saved = await saveQuote(input, ctx.user.id);
       if (saved && before && before.status !== saved.status) {
         const verb = saved.status === "approved" ? "Aprovou" : saved.status === "lost" ? "Marcou como não aprovado" : `Mudou para ${STATUS_LABELS[saved.status]}`;
-        await log(ctx, { action: `quote.${saved.status}`, entityType: "quote", entityId: saved.id, summary: `${verb} o orçamento #${saved.quoteNumber} (${saved.clientName || "sem cliente"}, ${brl(saved.summary.total)})`, details: { de: before.status, para: saved.status } });
+        await log(ctx, { action: `quote.${saved.status}`, entityType: "quote", entityId: saved.id, summary: `${verb} o orçamento #${saved.quoteNumber} (${saved.clientName || "sem cliente"}, ${brl(saved.summary.total)})${saved.status === "lost" && saved.lostReason ? ` — motivo: ${LOST_REASON_LABELS[saved.lostReason].toLowerCase()}` : ""}`, details: { de: before.status, para: saved.status, motivo: saved.lostNotes ?? undefined } });
       }
       return saved;
     }),
-    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    // "Retorno feito": registra o contato e agenda o próximo.
+    followUpDone: areaProcedure("quotes").input(z.object({ id: z.number().int().positive(), days: z.number().int().min(1).max(60), note: z.string().trim().max(300).optional() })).mutation(async ({ ctx, input }) => {
+      const result = await registerFollowUp(input.id, input.days);
+      await log(ctx, { action: "quote.followup", entityType: "quote", entityId: input.id, summary: `Registrou retorno do orçamento #${result.quoteNumber}${result.clientName ? ` (${result.clientName})` : ""}; próximo em ${plural(input.days, "dia", "dias")}${input.note ? `: ${input.note}` : ""}` });
+      return result;
+    }),
+    delete: areaProcedure("quotes").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const quote = await getQuote(input.id);
       await deleteQuote(input.id);
       await log(ctx, { action: "quote.delete", entityType: "quote", entityId: input.id, summary: `Excluiu o orçamento #${quote?.quoteNumber ?? input.id}${quote?.clientName ? ` (${quote.clientName})` : ""}` });
     }),
-    duplicate: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    duplicate: areaProcedure("quotes").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const source = await getQuote(input.id);
       if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
       const fresh = await createQuote();
@@ -286,24 +306,24 @@ export const businessRouter = router({
       if (copy) await log(ctx, { action: "quote.duplicate", entityType: "quote", entityId: copy.id, summary: `Duplicou o orçamento #${source.quoteNumber} como #${copy.quoteNumber}` });
       return copy;
     }),
-    pdfHistory: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuotePdfHistory(input.quoteId)),
-    pdfHistoryAll: protectedProcedure.query(listAllQuotePdfHistory),
-    versions: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuoteVersions(input.quoteId)),
-    createVersion: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), changeNote: z.string().trim().max(512).nullable().optional() })).mutation(async ({ ctx, input }) => {
+    pdfHistory: areaProcedure("quotes", "pdfs").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuotePdfHistory(input.quoteId)),
+    pdfHistoryAll: areaProcedure("quotes", "pdfs").query(listAllQuotePdfHistory),
+    versions: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuoteVersions(input.quoteId)),
+    createVersion: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive(), changeNote: z.string().trim().max(512).nullable().optional() })).mutation(async ({ ctx, input }) => {
       const quote = await getQuote(input.quoteId);
       if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
       return createQuoteVersion({ quoteId: input.quoteId, snapshot: quote, changeNote: input.changeNote, userId: ctx.user.id });
     }),
-    restoreVersion: protectedProcedure.input(z.object({ versionId: z.number().int().positive(), comment: z.string().trim().min(10, "Informe uma justificativa com pelo menos 10 caracteres.").max(4000) })).mutation(async ({ ctx, input }) => {
+    restoreVersion: areaProcedure("quotes").input(z.object({ versionId: z.number().int().positive(), comment: z.string().trim().min(10, "Informe uma justificativa com pelo menos 10 caracteres.").max(4000) })).mutation(async ({ ctx, input }) => {
       const result = await restoreQuoteVersion({ ...input, userId: ctx.user.id });
       await log(ctx, { action: "quote.restore", entityType: "quote", entityId: result.quoteId, summary: `Restaurou a versão ${result.sourceVersion} do orçamento`, details: { justificativa: input.comment } });
       return result;
     }),
-    comments: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listComments(input.quoteId)),
-    addComment: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), body: z.string().trim().min(1).max(4000) })).mutation(({ ctx, input }) => addComment({ ...input, userId: ctx.user.id })),
-    resolveComment: protectedProcedure.input(z.object({ id: z.number().int().positive(), resolved: z.boolean() })).mutation(({ input }) => resolveComment(input.id, input.resolved)),
-    attachments: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listAttachments(input.quoteId)),
-    uploadAttachment: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), fileName: z.string().trim().min(1).max(180), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png", "image/webp"]), dataUrl: z.string().min(32).max(22_000_000) })).mutation(async ({ ctx, input }) => {
+    comments: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listComments(input.quoteId)),
+    addComment: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive(), body: z.string().trim().min(1).max(4000) })).mutation(({ ctx, input }) => addComment({ ...input, userId: ctx.user.id })),
+    resolveComment: areaProcedure("quotes").input(z.object({ id: z.number().int().positive(), resolved: z.boolean() })).mutation(({ input }) => resolveComment(input.id, input.resolved)),
+    attachments: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listAttachments(input.quoteId)),
+    uploadAttachment: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive(), fileName: z.string().trim().min(1).max(180), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png", "image/webp"]), dataUrl: z.string().min(32).max(22_000_000) })).mutation(async ({ ctx, input }) => {
       const separator = input.dataUrl.indexOf(",");
       if (separator === -1) throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo inválido." });
       const bytes = Buffer.from(input.dataUrl.slice(separator + 1), "base64");
@@ -311,7 +331,7 @@ export const businessRouter = router({
       try { const stored = await saveLocalAttachment(input.fileName, input.mimeType, bytes); const attachment = await addAttachment({ quoteId: input.quoteId, fileName: input.fileName, mimeType: input.mimeType, storageKey: stored.key, fileSize: stored.fileSize, userId: ctx.user.id }); await log(ctx, { action: "quote.attachment", entityType: "quote", entityId: input.quoteId, summary: `Anexou ${input.fileName} ao orçamento` }); return attachment; }
       catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o anexo." }); }
     }),
-    savePdf: protectedProcedure.input(z.object({
+    savePdf: areaProcedure("quotes").input(z.object({
       quoteId: z.number().int().positive(),
       dataUrl: z.string().min(32).max(12_000_000),
       // Valores da tela no momento da geração: o salvamento automático pode
@@ -337,10 +357,10 @@ export const businessRouter = router({
     }),
   }),
   finance: router({
-    overview: protectedProcedure.query(financeOverview),
-    clients: protectedProcedure.query(financeClients),
-    byQuote: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => financeByQuote(input.quoteId)),
-    create: protectedProcedure.input(z.object({
+    overview: areaProcedure("finance").query(financeOverview),
+    clients: areaProcedure("finance").query(financeClients),
+    byQuote: areaProcedure("finance").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => financeByQuote(input.quoteId)),
+    create: areaProcedure("finance").input(z.object({
       quoteId: z.number().int().positive().nullable().optional(),
       clientId: z.number().int().positive().nullable().optional(),
       clientName: z.string().trim().min(1, "Informe o cliente").max(240),
@@ -353,7 +373,7 @@ export const businessRouter = router({
       await log(ctx, { action: "finance.create", entityType: "finance", entityId: ids[0] ?? null, summary: `Lançou cobrança de ${brl(input.totalAmount)} em ${input.installmentCount}x para ${input.clientName}: ${input.description}` });
       return ids;
     }),
-    recordPayment: protectedProcedure.input(z.object({
+    recordPayment: areaProcedure("finance").input(z.object({
       receivableId: z.number().int().positive(),
       type: z.enum(["receipt", "reversal"]),
       amount: money.refine((value) => value > 0, "Informe um valor maior que zero"),
@@ -368,13 +388,13 @@ export const businessRouter = router({
       await log(ctx, { action: input.type === "receipt" ? "finance.receipt" : "finance.reversal", entityType: "finance", entityId: input.receivableId, summary: `${input.type === "receipt" ? "Registrou recebimento" : "Estornou"} de ${brl(input.amount)} ${where}`, details: { forma: input.paymentMethod, referencia: input.reference ?? null, observacao: input.notes ?? null } });
       return result;
     }),
-    cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    cancel: areaProcedure("finance").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const result = await cancelReceivable(input.id);
       const receivable = await getReceivableSummary(input.id);
       await log(ctx, { action: "finance.cancel", entityType: "finance", entityId: input.id, summary: `Cancelou a cobrança ${receivable ? `${receivable.installmentNumber}/${receivable.installmentCount} de ${receivable.clientName} (${brl(receivable.originalAmount)})` : `#${input.id}`}` });
       return result;
     }),
-    message: protectedProcedure.input(z.object({ receivableId: z.number().int().positive() })).query(async ({ input }) => {
+    message: areaProcedure("finance").input(z.object({ receivableId: z.number().int().positive() })).query(async ({ input }) => {
       try {
         return await messageForReceivable(input.receivableId);
       } catch (error) {
@@ -383,11 +403,11 @@ export const businessRouter = router({
     }),
   }),
   inventory: router({
-    overview: protectedProcedure.query(inventoryOverview),
-    fulfillments: protectedProcedure.query(approvedFulfillments),
-    purchases: protectedProcedure.query(purchaseSuggestions),
-    picking: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => getPickingList(input.quoteId)),
-    move: protectedProcedure.input(z.object({
+    overview: areaProcedure("stock").query(inventoryOverview),
+    fulfillments: areaProcedure("stock").query(approvedFulfillments),
+    purchases: areaProcedure("purchases").query(purchaseSuggestions),
+    picking: areaProcedure("stock", "quotes").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => getPickingList(input.quoteId)),
+    move: areaProcedure("stock").input(z.object({
       productId: z.number().int().positive(),
       type: z.enum(["entry", "adjustment", "return"]),
       quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais"),
@@ -401,7 +421,7 @@ export const businessRouter = router({
       await log(ctx, { action: `stock.${input.type}`, entityType: "stock", entityId: input.productId, summary: `${label} de estoque: ${input.quantity > 0 && input.type === "adjustment" ? "+" : ""}${input.quantity} ${product?.unit ?? ""} em #${product?.code ?? input.productId} ${product?.shortDescription ?? ""} (saldo ${result.beforeQuantity} → ${result.afterQuantity})`.replace(/\s+/g, " "), details: { responsavel: input.responsible ?? null, observacao: input.notes ?? null } });
       return result;
     }),
-    deliver: protectedProcedure.input(z.object({
+    deliver: areaProcedure("stock").input(z.object({
       quoteId: z.number().int().positive(),
       quoteItemId: z.number().int().positive(),
       quantity: deliveryQuantity,
@@ -412,7 +432,7 @@ export const businessRouter = router({
       return result;
     }),
     // Vários itens de uma vez (conferência por código de barras).
-    deliverMany: protectedProcedure.input(z.object({
+    deliverMany: areaProcedure("stock").input(z.object({
       quoteId: z.number().int().positive(),
       lines: z.array(z.object({ quoteItemId: z.number().int().positive(), quantity: deliveryQuantity })).min(1).max(500),
       ...deliveryMeta,
@@ -421,28 +441,28 @@ export const businessRouter = router({
       await logDelivery(ctx, input.quoteId, results, input.responsible);
       return results;
     }),
-    deliverAll: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), ...deliveryMeta })).mutation(async ({ ctx, input }) => {
+    deliverAll: areaProcedure("stock").input(z.object({ quoteId: z.number().int().positive(), ...deliveryMeta })).mutation(async ({ ctx, input }) => {
       const results = await deliverAllAvailable(input);
       await logDelivery(ctx, input.quoteId, results, input.responsible);
       return results;
     }),
   }),
   agenda: router({
-    list: protectedProcedure.input(z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((range) => range.to > range.from && range.to.getTime() - range.from.getTime() <= 62 * 24 * 60 * 60_000, "Período inválido")).query(({ input }) => listAppointments(input)),
-    upcoming: protectedProcedure.query(() => upcomingAppointments(6)),
-    conflicts: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), responsible: z.string().max(240).nullable().optional(), scheduledAt: z.coerce.date(), durationMinutes: z.number().int().min(15).max(24 * 60) })).query(({ input }) => findConflicts(input)),
-    save: protectedProcedure.input(appointmentInput).mutation(async ({ ctx, input }) => {
+    list: areaProcedure("agenda").input(z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((range) => range.to > range.from && range.to.getTime() - range.from.getTime() <= 62 * 24 * 60 * 60_000, "Período inválido")).query(({ input }) => listAppointments(input)),
+    upcoming: areaProcedure("agenda").query(() => upcomingAppointments(6)),
+    conflicts: areaProcedure("agenda").input(z.object({ id: z.number().int().positive().optional(), responsible: z.string().max(240).nullable().optional(), scheduledAt: z.coerce.date(), durationMinutes: z.number().int().min(15).max(24 * 60) })).query(({ input }) => findConflicts(input)),
+    save: areaProcedure("agenda").input(appointmentInput).mutation(async ({ ctx, input }) => {
       const saved = await saveAppointment(input, ctx.user.id);
       const when = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(saved.scheduledAt);
       await log(ctx, { action: input.id ? "appointment.update" : "appointment.create", entityType: "appointment", entityId: saved.id, summary: `${input.id ? "Alterou" : "Agendou"} ${APPOINTMENT_TYPE_LABELS[saved.type].toLowerCase()} de ${saved.clientName} para ${when}` });
       return saved;
     }),
-    setStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["scheduled", "done", "cancelled"]) })).mutation(async ({ ctx, input }) => {
+    setStatus: areaProcedure("agenda").input(z.object({ id: z.number().int().positive(), status: z.enum(["scheduled", "done", "cancelled"]) })).mutation(async ({ ctx, input }) => {
       const saved = await setAppointmentStatus(input.id, input.status);
       await log(ctx, { action: `appointment.${input.status}`, entityType: "appointment", entityId: saved.id, summary: `Marcou ${APPOINTMENT_TYPE_LABELS[saved.type].toLowerCase()} de ${saved.clientName} como ${APPOINTMENT_STATUS_LABELS[input.status].toLowerCase()}` });
       return saved;
     }),
-    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    delete: areaProcedure("agenda").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const removed = await deleteAppointment(input.id);
       await log(ctx, { action: "appointment.delete", entityType: "appointment", entityId: removed.id, summary: `Excluiu ${APPOINTMENT_TYPE_LABELS[removed.type].toLowerCase()} de ${removed.clientName}` });
     }),
@@ -477,6 +497,7 @@ export const businessRouter = router({
       defaultPixDiscountValue: money,
       defaultInstallments: z.coerce.number().int().min(1).max(24),
       alertThresholdDays: z.coerce.number().int().min(1).max(60),
+      followUpDays: z.coerce.number().int().min(1).max(30).default(3),
       defaultTerms: nullableText,
     })).mutation(async ({ ctx, input }) => {
       const before = await getSettings();
@@ -499,16 +520,16 @@ export const businessRouter = router({
     }),
   }),
   templates: router({
-    list: protectedProcedure.query(listMessageTemplates),
-    save: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), event: z.enum(["quote_sent", "quote_approved", "quote_expiring", "quote_expired", "payment_due", "payment_overdue", "delivery_scheduled", "delivery_completed"]), name: z.string().trim().min(1).max(160), subject: z.string().trim().max(240).nullable().optional(), body: z.string().trim().min(1).max(12000), active: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+    list: areaProcedure("quotes", "finance").query(listMessageTemplates),
+    save: areaProcedure("quotes", "finance").input(z.object({ id: z.number().int().positive().optional(), event: z.enum(["quote_sent", "quote_approved", "quote_expiring", "quote_expired", "payment_due", "payment_overdue", "delivery_scheduled", "delivery_completed"]), name: z.string().trim().min(1).max(160), subject: z.string().trim().max(240).nullable().optional(), body: z.string().trim().min(1).max(12000), active: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       const result = await saveMessageTemplate(input);
       await log(ctx, { action: "message.template", entityType: "message", entityId: result.id, summary: `Salvou o modelo de mensagem "${input.name}" (${MESSAGE_EVENT_LABELS[input.event]})` });
       return result;
     }),
   }),
   messages: router({
-    pending: protectedProcedure.query(() => pendingMessages()),
-    forQuote: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), event: messageEvent })).query(async ({ input }) => {
+    pending: areaProcedure("quotes", "finance").query(() => pendingMessages()),
+    forQuote: areaProcedure("quotes", "finance").input(z.object({ quoteId: z.number().int().positive(), event: messageEvent })).query(async ({ input }) => {
       try {
         return await messageForQuote(input.quoteId, input.event);
       } catch (error) {
@@ -517,7 +538,7 @@ export const businessRouter = router({
     }),
     // O envio acontece no WhatsApp ou no e-mail da própria pessoa; aqui só
     // registramos que a mensagem foi aberta para envio.
-    logSent: protectedProcedure.input(z.object({ event: messageEvent, channel: z.enum(["whatsapp", "email", "copy"]), clientName: z.string().trim().max(240), quoteId: z.number().int().positive().nullable().optional(), receivableId: z.number().int().positive().nullable().optional() })).mutation(async ({ ctx, input }) => {
+    logSent: areaProcedure("quotes", "finance").input(z.object({ event: messageEvent, channel: z.enum(["whatsapp", "email", "copy"]), clientName: z.string().trim().max(240), quoteId: z.number().int().positive().nullable().optional(), receivableId: z.number().int().positive().nullable().optional() })).mutation(async ({ ctx, input }) => {
       const channel = { whatsapp: "WhatsApp", email: "e-mail", copy: "cópia manual" }[input.channel];
       await log(ctx, { action: `message.${input.channel}`, entityType: "message", entityId: input.receivableId ?? input.quoteId ?? null, summary: `Enviou "${MESSAGE_EVENT_LABELS[input.event]}" para ${input.clientName || "cliente sem nome"} por ${channel}`, details: { quoteId: input.quoteId ?? null, receivableId: input.receivableId ?? null } });
       return { logged: true } as const;

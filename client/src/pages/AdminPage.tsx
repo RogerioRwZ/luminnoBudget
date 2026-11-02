@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { ROLE_DESCRIPTIONS, ROLE_LABELS, USER_ROLES, type UserRole } from "@shared/permissions";
 import {
   AsyncButton,
   FormError,
@@ -66,7 +67,7 @@ export default function AdminPage() {
     name: "",
     email: "",
     password: "",
-    role: "user" as "user" | "admin",
+    role: "user" as UserRole,
   });
   const [adminError, setAdminError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -288,7 +289,7 @@ export default function AdminPage() {
               <Label>Papel</Label>
               <Select
                 value={newUser.role}
-                onValueChange={(role: "user" | "admin") =>
+                onValueChange={(role: UserRole) =>
                   setNewUser({ ...newUser, role })
                 }
               >
@@ -296,10 +297,16 @@ export default function AdminPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">Usuário operacional</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
+                  {USER_ROLES.map(option => (
+                    <SelectItem key={option} value={option}>
+                      {ROLE_LABELS[option]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                {ROLE_DESCRIPTIONS[newUser.role]}
+              </p>
             </div>
             <AsyncButton
               className="w-full"
@@ -428,7 +435,7 @@ function UserAccessCard({
     username: string;
     name: string | null;
     email: string | null;
-    role: "user" | "admin";
+    role: UserRole;
     isActive: boolean;
   };
   saving: boolean;
@@ -437,7 +444,7 @@ function UserAccessCard({
     id: number;
     name: string;
     email?: string;
-    role: "user" | "admin";
+    role: UserRole;
     isActive: boolean;
   }) => void;
   onReset: (password: string) => void;
@@ -458,7 +465,7 @@ function UserAccessCard({
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={role === "admin" ? "default" : "secondary"}>
-            {role === "admin" ? "Administrador" : "Operacional"}
+            {ROLE_LABELS[role]}
           </Badge>
           <Badge variant={isActive ? "outline" : "destructive"}>
             {isActive ? "Ativo" : "Inativo"}
@@ -482,16 +489,20 @@ function UserAccessCard({
           <Label>Papel</Label>
           <Select
             value={role}
-            onValueChange={(value: "user" | "admin") => setRole(value)}
+            onValueChange={(value: UserRole) => setRole(value)}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="user">Usuário operacional</SelectItem>
-              <SelectItem value="admin">Administrador</SelectItem>
+              {USER_ROLES.map(option => (
+                <SelectItem key={option} value={option}>
+                  {ROLE_LABELS[option]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>
         </div>
         <div className="flex items-end gap-3 pb-2">
           <Switch checked={isActive} onCheckedChange={setActive} />

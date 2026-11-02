@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { canOpenPage, ROLE_LABELS, type UserRole } from "@shared/permissions";
 import {
   Sidebar,
   SidebarContent,
@@ -62,7 +63,7 @@ function useSystemHealth() {
   });
 }
 
-type LocalUser = { username: string; name: string | null; role: "user" | "admin" };
+type LocalUser = { username: string; name: string | null; role: UserRole };
 
 type DashboardLayoutProps = {
   children: React.ReactNode;
@@ -80,8 +81,10 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
     onLoggedOut();
   } });
   const isAdmin = user.role === "admin";
-  const visibleItems = isAdmin ? [...menuItems, adminItem] : menuItems;
-  const activeItem = visibleItems.find((item) => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
+  const allowedItems = menuItems.filter((item) => canOpenPage(user.role, item.path));
+  const visibleItems = isAdmin ? [...allowedItems, adminItem] : allowedItems;
+  // Título vem de todas as páginas: quem abre uma área fora do perfil vê o nome dela, não "não encontrada".
+  const activeItem = [...menuItems, adminItem].find((item) => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
   const health = useSystemHealth();
   const healthState = health.isPending ? "checking" : health.data ? "online" : "offline";
 
@@ -138,7 +141,7 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
             {theme === "dark" ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
             <span className="group-data-[collapsible=icon]:hidden">Tema {theme === "dark" ? "claro" : "escuro"}</span>
           </button>
-          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs group-data-[collapsible=icon]:hidden"><div className="min-w-0"><p className="truncate font-semibold">{currentUser?.name || user.name || user.username}</p><p className="truncate text-muted-foreground">@{user.username}</p></div><button onClick={() => logout.mutate()} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground" aria-label="Sair do sistema"><LogOut className="h-4 w-4" /></button></div>
+          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs group-data-[collapsible=icon]:hidden"><div className="min-w-0"><p className="truncate font-semibold">{currentUser?.name || user.name || user.username}</p><p className="truncate text-muted-foreground">@{user.username} · {ROLE_LABELS[user.role] ?? user.role}</p></div><button onClick={() => logout.mutate()} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground" aria-label="Sair do sistema"><LogOut className="h-4 w-4" /></button></div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-h-screen min-w-0 bg-background">

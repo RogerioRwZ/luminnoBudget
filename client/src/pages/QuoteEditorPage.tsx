@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuotePdfHistoryPanel } from "@/components/QuotePdfHistoryPanel";
 import { QuoteFinancePanel } from "@/components/QuoteFinancePanel";
+import { usePermissions } from "@/hooks/usePermissions";
+import { LOST_REASONS, LOST_REASON_LABELS, type LostReason } from "@shared/followUp";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -41,6 +43,13 @@ import { openPickingPrintDocument } from "@shared/pickingPrint";
 import { buildWhatsAppProposal } from "@shared/whatsapp";
 import { validateQuoteDraft } from "@shared/formValidation";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/MoneyInput";
 import {
   ArrowDown,
@@ -100,6 +109,9 @@ type QuoteDraft = {
   pixDiscountValue: number;
   installments: number;
   notes: string;
+  followUpAt: Date | null;
+  lostReason: LostReason | null;
+  lostNotes: string;
   rooms: DraftRoom[];
 };
 type QuoteRecord = {
@@ -117,6 +129,9 @@ type QuoteRecord = {
   pixDiscountMode: "percentage" | "fixed";
   installments: number;
   notes: string | null;
+  followUpAt?: Date | string | null;
+  lostReason?: LostReason | null;
+  lostNotes?: string | null;
   issueDate: Date | string;
   validUntil: Date | string | null;
   discountValue: number | string;
@@ -180,6 +195,9 @@ function fromQuote(quote: QuoteRecord): QuoteDraft {
     pixDiscountValue: Number(quote.pixDiscountValue),
     installments: quote.installments,
     notes: quote.notes ?? "",
+    followUpAt: quote.followUpAt ? new Date(quote.followUpAt) : null,
+    lostReason: quote.lostReason ?? null,
+    lostNotes: quote.lostNotes ?? "",
     rooms: quote.rooms.map(room => ({
       name: room.name,
       items: room.items.map(item => ({
@@ -213,6 +231,8 @@ export default function QuoteEditorPage() {
   const { data: products = [] } = trpc.product.list.useQuery();
   const { data: customers = [] } = trpc.customers.list.useQuery();
   const settingsQuery = trpc.settings.get.useQuery();
+  const { can } = usePermissions();
+  const [lossDialog, setLossDialog] = useState<{ reason: LostReason; notes: string } | null>(null);
   const settings = settingsQuery.data as StoreSettings | undefined;
   const pickingQuery = trpc.inventory.picking.useQuery(
     { quoteId: Number.isFinite(quoteId) && quoteId > 0 ? quoteId : 1 },
@@ -735,22 +755,26 @@ export default function QuoteEditorPage() {
             alterá-los, mude o status para Em aberto.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setLocation(`/estoque/conferencia/${draft.id}`)}
-            >
-              <ScanBarcode className="mr-2 h-4 w-4" />
-              Conferir separação
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setLocation(`/agenda?orcamento=${draft.id}`)}
-            >
-              <CalendarPlus className="mr-2 h-4 w-4" />
-              Agendar
-            </Button>
+            {can("stock") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setLocation(`/estoque/conferencia/${draft.id}`)}
+              >
+                <ScanBarcode className="mr-2 h-4 w-4" />
+                Conferir separação
+              </Button>
+            ) : null}
+            {can("agenda") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setLocation(`/agenda?orcamento=${draft.id}`)}
+              >
+                <CalendarPlus className="mr-2 h-4 w-4" />
+                Agendar
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -880,7 +904,10 @@ export default function QuoteEditorPage() {
                 <Select
                   value={draft.status}
                   onValueChange={(status: QuoteDraft["status"]) =>
-                    changeDraft({ status })
+                    // "Não aprovado" pede o motivo antes de mudar o status.
+                    status === "lost" && draft.status !== "lost"
+                      ? setLossDialog({ reason: draft.lostReason ?? "price", notes: draft.lostNotes })
+                      : changeDraft({ status })
                   }
                 >
                   <SelectTrigger>
@@ -909,6 +936,58 @@ export default function QuoteEditorPage() {
                   }}
                 />
               </div>
+              {draft.status === "open" || draft.status === "draft" ? (
+                <div className="space-y-2 md:col-span-3">
+                  <Label htmlFor="quote-follow-up">Próximo retorno ao cliente</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      id="quote-follow-up"
+                      type="date"
+                      className="w-auto"
+                      value={formatDateInput(draft.followUpAt)}
+                      onChange={e =>
+                        changeDraft({
+                          followUpAt: e.target.value
+                            ? new Date(`${e.target.value}T09:00:00`)
+                            : null,
+                        })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {draft.followUpAt
+                        ? "Aparece na Visão geral no dia marcado."
+                        : draft.status === "open"
+                          ? "Sem retorno agendado."
+                          : "Ao mudar para Em aberto, o retorno é agendado sozinho."}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+              {draft.status === "lost" ? (
+                <div className="space-y-2 md:col-span-3">
+                  <Label htmlFor="quote-lost-reason">Motivo de não aprovação</Label>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                    <select
+                      id="quote-lost-reason"
+                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      value={draft.lostReason ?? ""}
+                      onChange={e => changeDraft({ lostReason: (e.target.value || null) as LostReason | null })}
+                    >
+                      <option value="">Não informado</option>
+                      {LOST_REASONS.map(reason => (
+                        <option key={reason} value={reason}>{LOST_REASON_LABELS[reason]}</option>
+                      ))}
+                    </select>
+                    <Input
+                      aria-label="Detalhe do motivo"
+                      value={draft.lostNotes}
+                      maxLength={500}
+                      placeholder="Detalhe (opcional), ex.: concorrente cobrou 12% menos"
+                      onChange={e => changeDraft({ lostNotes: e.target.value })}
+                    />
+                  </div>
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="quote-valid-until">Validade</Label>
                 <Input
@@ -1420,7 +1499,9 @@ export default function QuoteEditorPage() {
               </div>
             </CardContent>
           </Card>
-          <QuoteFinancePanel quoteId={draft.id} quoteStatus={draft.status} />
+          {can("finance") ? (
+            <QuoteFinancePanel quoteId={draft.id} quoteStatus={draft.status} />
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -1439,6 +1520,60 @@ export default function QuoteEditorPage() {
             destructive
             onConfirm={() => remove.mutate({ id: draft.id })}
           />
+          <Dialog open={lossDialog !== null} onOpenChange={open => !open && setLossDialog(null)}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Por que a proposta não foi aprovada?</DialogTitle>
+                <DialogDescription>
+                  O motivo entra no relatório da Visão geral e ajuda a entender
+                  o que impede as vendas.
+                </DialogDescription>
+              </DialogHeader>
+              {lossDialog ? (
+                <div className="space-y-4 py-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Motivo">
+                    {LOST_REASONS.map(reason => (
+                      <Button
+                        key={reason}
+                        type="button"
+                        role="radio"
+                        aria-checked={lossDialog.reason === reason}
+                        variant={lossDialog.reason === reason ? "default" : "outline"}
+                        className="justify-start"
+                        onClick={() => setLossDialog({ ...lossDialog, reason })}
+                      >
+                        {LOST_REASON_LABELS[reason]}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="loss-notes">Detalhe (opcional)</Label>
+                    <Input
+                      id="loss-notes"
+                      maxLength={500}
+                      value={lossDialog.notes}
+                      placeholder="Ex.: concorrente cobrou 12% menos"
+                      onChange={e => setLossDialog({ ...lossDialog, notes: e.target.value })}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setLossDialog(null)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (!lossDialog) return;
+                    changeDraft({ status: "lost", lostReason: lossDialog.reason, lostNotes: lossDialog.notes });
+                    setLossDialog(null);
+                  }}
+                >
+                  Marcar como não aprovado
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </aside>
       </div>
       {preview ? (

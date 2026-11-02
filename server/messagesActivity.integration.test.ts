@@ -110,7 +110,7 @@ describe("mensagens, PIX e registro de atividades", () => {
     const base = { id: quote.id, quoteNumber: quote.quoteNumber, clientId: null, clientName: "Cliente Status", professional: "", issueDate: new Date(), validUntil: null, discountMode: "percentage" as const, discountValue: 0, shipping: 0, pixDiscountMode: "percentage" as const, pixDiscountValue: 0, installments: 1, notes: null, rooms: [{ name: "GERAL", items: [{ code: "X", shortDescription: "Item", unit: "UN", quantity: 1, unitPrice: 10 }] }] };
     await caller.quote.save({ ...base, status: "open" });
     await caller.quote.save({ ...base, status: "open", discountValue: 1 }); // edição comum: não registra
-    await caller.quote.save({ ...base, status: "lost" });
+    await caller.quote.save({ ...base, status: "lost", lostReason: "price" });
 
     const productId = await caller.product.save({ shortDescription: "Spot teste atividade", unitPrice: 100, unit: "UN", reorderPoint: 0, active: true });
     created.products.push(productId);
@@ -119,7 +119,7 @@ describe("mensagens, PIX e registro de atividades", () => {
     const log = await admin().activity.list({ userId: OPERATOR_ID });
     const summaries = log.entries.map((entry) => plain(entry.summary));
     expect(summaries.filter((text) => text.includes(`orçamento #${quote.quoteNumber}`))).toEqual([
-      `Marcou como não aprovado o orçamento #${quote.quoteNumber} (Cliente Status, R$ 10,00)`,
+      `Marcou como não aprovado o orçamento #${quote.quoteNumber} (Cliente Status, R$ 10,00) — motivo: preço`,
       `Mudou para em aberto o orçamento #${quote.quoteNumber} (Cliente Status, R$ 10,00)`,
       `Criou o orçamento #${quote.quoteNumber}`,
     ]);

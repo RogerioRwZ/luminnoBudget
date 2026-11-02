@@ -4,10 +4,11 @@ import { z } from "zod";
 import { adminProcedure, router } from "../_core/trpc";
 import { getUploadDirectory } from "../localStorage";
 import { recordActivity } from "../activityLog";
+import { ROLE_LABELS, USER_ROLES } from "../../shared/permissions";
 import { countActiveLocalAdmins, countLocalUsers, createLocalUser, getLocalUserForAdmin, listLocalUsers, resetLocalUserPassword, updateLocalUser, verifyDatabaseConnection } from "../localUserDb";
 
 const optionalEmail = z.string().email().optional().or(z.literal(""));
-const role = z.enum(["user", "admin"]);
+const role = z.enum(USER_ROLES);
 
 export const adminRouter = router({
   systemStatus: adminProcedure.query(async () => {
@@ -36,7 +37,7 @@ export const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const created = await createLocalUser({ ...input, email: input.email || null });
-        await recordActivity(ctx.user, { action: "user.create", entityType: "user", entityId: created.id, summary: `Criou o usuário ${created.username} (${input.role === "admin" ? "administrador" : "usuário"})` }, ctx.req);
+        await recordActivity(ctx.user, { action: "user.create", entityType: "user", entityId: created.id, summary: `Criou o usuário ${created.username} (${ROLE_LABELS[input.role]})` }, ctx.req);
         return created;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível criar o usuário." });
@@ -56,7 +57,7 @@ export const adminRouter = router({
       }
       const updated = await updateLocalUser(input.id, { ...input, email: input.email || null });
       const notes = [
-        target.role !== input.role ? `perfil ${target.role === "admin" ? "administrador" : "usuário"} → ${input.role === "admin" ? "administrador" : "usuário"}` : "",
+        target.role !== input.role ? `perfil ${ROLE_LABELS[target.role]} → ${ROLE_LABELS[input.role]}` : "",
         target.isActive !== input.isActive ? (input.isActive ? "reativado" : "desativado") : "",
       ].filter(Boolean);
       await recordActivity(ctx.user, { action: "user.update", entityType: "user", entityId: input.id, summary: `Atualizou o usuário ${target.username}${notes.length ? `: ${notes.join(", ")}` : ""}` }, ctx.req);

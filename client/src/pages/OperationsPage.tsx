@@ -14,16 +14,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Camera, CameraOff, MessageCircle, Send } from "lucide-react";
+import { MessageCircle, Send } from "lucide-react";
+import { CameraBarcodeScanner } from "@/components/CameraBarcodeScanner";
 import { MessageDialog, type DialogMessage } from "@/components/MessageDialog";
 import { dateOnly } from "@/lib/format";
 import { MESSAGE_VARIABLES, type MessageEvent } from "@shared/messages";
 import { QUOTE_STATUS_LABELS, type QuoteStatus } from "@shared/quoteStatus";
 
-type Detector = {
-  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
-};
-type DetectorConstructor = new (options?: { formats?: string[] }) => Detector;
 type PreviewQuote = {
   quoteNumber?: number;
   clientName?: string;
@@ -180,110 +177,6 @@ function QuoteSnapshotPreview({
           Selecione uma versão para comparar.
         </p>
       )}
-    </div>
-  );
-}
-
-function CameraBarcodeScanner({
-  onDetected,
-}: {
-  onDetected: (value: string) => void;
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [active, setActive] = useState(false);
-  const [message, setMessage] = useState("");
-  useEffect(
-    () => () => {
-      streamRef.current?.getTracks().forEach(track => track.stop());
-    },
-    []
-  );
-  async function toggle() {
-    if (active) {
-      streamRef.current?.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-      setActive(false);
-      return;
-    }
-    const DetectorClass = (
-      window as Window & { BarcodeDetector?: DetectorConstructor }
-    ).BarcodeDetector;
-    if (!DetectorClass) {
-      setMessage(
-        "Seu navegador não oferece leitura por câmera. Use o leitor USB ou digite o código."
-      );
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMessage("A câmera não está disponível neste dispositivo.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      setActive(true);
-      setMessage("");
-      const video = videoRef.current;
-      if (!video) return;
-      video.srcObject = stream;
-      await video.play();
-      const detector = new DetectorClass({
-        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39"],
-      });
-      let running = true;
-      const scan = async () => {
-        if (!running || !streamRef.current) return;
-        try {
-          const result = await detector.detect(video);
-          const value = result[0]?.rawValue?.trim();
-          if (value) {
-            onDetected(value);
-            stream.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-            setActive(false);
-            return;
-          }
-        } catch {
-          /* câmera pode falhar entre frames */
-        }
-        window.setTimeout(scan, 180);
-      };
-      void scan();
-    } catch {
-      setMessage(
-        "Não foi possível acessar a câmera. Verifique a permissão e use o leitor USB se necessário."
-      );
-    }
-  }
-  return (
-    <div className="mt-3">
-      <Button type="button" variant="outline" onClick={toggle}>
-        <span className="mr-2">
-          {active ? (
-            <CameraOff className="h-4 w-4" />
-          ) : (
-            <Camera className="h-4 w-4" />
-          )}
-        </span>
-        {active ? "Parar câmera" : "Ler pela câmera"}
-      </Button>
-      {active ? (
-        <video
-          ref={videoRef}
-          className="mt-3 aspect-video w-full max-w-sm rounded-xl bg-black object-cover"
-          muted
-          playsInline
-        />
-      ) : null}
-      {message ? (
-        <p role="status" className="mt-2 text-xs text-muted-foreground">
-          {message}
-        </p>
-      ) : null}
     </div>
   );
 }

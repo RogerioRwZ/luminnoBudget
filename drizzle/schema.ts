@@ -19,7 +19,7 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   passwordHash: varchar("passwordHash", { length: 255 }),
   isActive: boolean("isActive").notNull().default(true),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "sales", "stock", "finance"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -79,6 +79,10 @@ export const quotes = mysqlTable("quotes", {
   // Ordem de chegada dos aprovados: o estoque que entra atende primeiro quem
   // foi aprovado antes.
   approvedAt: timestamp("approvedAt"),
+  // Acompanhamento das propostas em negociação.
+  followUpAt: timestamp("followUpAt"),
+  lostReason: mysqlEnum("lostReason", ["price", "deadline", "competitor", "postponed", "product", "no_response", "other"]),
+  lostNotes: varchar("lostNotes", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -242,6 +246,7 @@ export const storeSettings = mysqlTable("storeSettings", {
   defaultPixDiscountMode: mysqlEnum("defaultPixDiscountMode", ["percentage", "fixed"]).notNull().default("percentage"),
   defaultPixDiscountValue: decimal("defaultPixDiscountValue", { precision: 12, scale: 2 }).notNull().default("0"),
   defaultInstallments: int("defaultInstallments").notNull().default(8),
+  followUpDays: int("followUpDays").notNull().default(3),
   alertThresholdDays: int("alertThresholdDays").notNull().default(7),
   defaultTerms: text("defaultTerms"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

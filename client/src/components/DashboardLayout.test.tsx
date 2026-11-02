@@ -24,7 +24,7 @@ vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => false }));
 
 import DashboardLayout from "./DashboardLayout";
 
-type Role = "user" | "admin";
+type Role = "user" | "admin" | "sales" | "stock" | "finance";
 function renderLayout(role: Role, health: { ok: boolean; database: string }, onLoggedOut = vi.fn()) {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: health.ok, json: async () => ({ database: health.database }) })));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -57,5 +57,13 @@ describe("DashboardLayout", () => {
     expect(await screen.findByText("Sistema ativo")).toBeTruthy();
     expect(screen.queryByText("Backup manual")).toBeNull();
     expect(screen.queryByText("Administração")).toBeNull();
+  });
+
+  it("mostra no menu só as áreas do perfil", async () => {
+    renderLayout("stock", { ok: true, database: "online" });
+    expect(await screen.findByText("Sistema ativo")).toBeTruthy();
+    for (const label of ["Estoque", "Compras", "Agenda", "Catálogo"]) expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    for (const label of ["Orçamentos", "Financeiro", "Clientes"]) expect(screen.queryByRole("button", { name: label })).toBeNull();
+    expect(screen.getByText(/Expedição e estoque/)).toBeTruthy();
   });
 });

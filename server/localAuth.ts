@@ -1,3 +1,4 @@
+import { USER_ROLES, type UserRole } from "../shared/permissions";
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { SignJWT, jwtVerify } from "jose";
@@ -18,7 +19,7 @@ export function getAuthRateLimitSecret() {
 export type LocalSession = {
   userId: number;
   username: string;
-  role: "user" | "admin";
+  role: UserRole;
   /** Impressão digital do hash de senha no momento do login (ver passwordFingerprint). */
   passwordVersion?: string;
 };
@@ -28,7 +29,7 @@ export type SafeUser = {
   username: string;
   name: string | null;
   email: string | null;
-  role: "user" | "admin";
+  role: UserRole;
   isActive: boolean;
   createdAt: Date;
   lastSignedIn: Date;
@@ -113,7 +114,7 @@ export async function verifyLocalSession(token: string): Promise<LocalSession | 
     const { payload } = await jwtVerify(token, getSecret());
     const userId = Number(payload.sub);
     const username = typeof payload.username === "string" ? payload.username : "";
-    const role = payload.role === "admin" ? "admin" : payload.role === "user" ? "user" : null;
+    const role = USER_ROLES.find((candidate) => candidate === payload.role) ?? null;
     if (!Number.isSafeInteger(userId) || userId < 1 || !username || !role) return null;
     const session: LocalSession = { userId, username, role };
     if (typeof payload.pv === "string") session.passwordVersion = payload.pv;
