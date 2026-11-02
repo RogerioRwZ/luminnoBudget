@@ -82,6 +82,25 @@ Roda em um único servidor (Node.js + MySQL), com login próprio e arquivos guar
 
 ## Produção
 
+### Instalação automática (Ubuntu Server 22.04 ou 24.04)
+
+Num servidor Ubuntu novo, como root:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/RogerioRwZ/luminnoBudget/main/deploy/install-ubuntu.sh
+sudo bash install-ubuntu.sh --domain orcamentos.minhaloja.com.br --email voce@minhaloja.com.br
+```
+
+O script instala e configura tudo: Node.js 24, MySQL com usuários próprios e senhas aleatórias, build, tabelas, serviço `systemd`, HTTPS com Caddy, firewall, fuso horário, backup diário às 02:15 e o comando `sudo luminno-update confirm` para atualizar depois. Ao final, abra o endereço e crie o administrador.
+
+Outras formas de acesso:
+- `--http`: só pelo IP, sem HTTPS (rede interna);
+- `--cloudflare-tunnel`: Cloudflare Tunnel, sem abrir portas (o token é pedido na tela).
+
+Veja todas as opções com `--help`. O script pode ser executado de novo com segurança: mantém senhas, banco e configuração, e completa o que faltar.
+
+### Instalação manual
+
 Siga o **[Guia completo de instalação](GUIA-INSTALACAO-COMPLETA.md)**. Ele leva uma VPS Ubuntu 24.04 do zero até o sistema no ar, passando por:
 - MySQL, serviço `systemd` e HTTPS com Caddy;
 - backup diário;
@@ -116,7 +135,9 @@ O detalhamento de cada arquivo está em [ESTRUTURA-TECNICA-DA-APLICACAO.md](ESTR
 
 | Documento | Conteúdo |
 |---|---|
-| [GUIA-INSTALACAO-COMPLETA.md](GUIA-INSTALACAO-COMPLETA.md) | Instalação e atualização em produção (**use este**) |
+| [deploy/install-ubuntu.sh](deploy/install-ubuntu.sh) | Instalação automática no Ubuntu Server |
+| [deploy/update.sh](deploy/update.sh) | Atualização com backup (instalado como `luminno-update`) |
+| [GUIA-INSTALACAO-COMPLETA.md](GUIA-INSTALACAO-COMPLETA.md) | Instalação e atualização em produção, passo a passo |
 | [guia-exportacao-vps-cloudflared.md](guia-exportacao-vps-cloudflared.md) | Publicação via Cloudflare Tunnel, alternativa ao Caddy |
 | [ESTRUTURA-TECNICA-DA-APLICACAO.md](ESTRUTURA-TECNICA-DA-APLICACAO.md) | Arquitetura e responsabilidades de cada parte |
 | [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | Auditoria de segurança anterior |
