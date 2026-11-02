@@ -650,7 +650,7 @@ export default function QuoteEditorPage() {
             : `${failedImageCount} imagens (logotipo e/ou fotos de produto) não puderam ser incluídas no PDF. O documento foi gerado normalmente sem elas.`
         );
       }
-      savePdf.mutate({ quoteId: draft.id, dataUrl });
+      savePdf.mutate({ quoteId: draft.id, dataUrl, clientName: draft.clientName, professional: draft.professional });
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.");
     } finally {
@@ -916,7 +916,7 @@ export default function QuoteEditorPage() {
                     <SelectItem value="manual">Preenchimento manual</SelectItem>
                     {customers.map(customer => (
                       <SelectItem key={customer.id} value={String(customer.id)}>
-                        {customer.name} — {customer.professional}
+                        {customer.professional ? `${customer.name} — ${customer.professional}` : customer.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -934,7 +934,7 @@ export default function QuoteEditorPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quote-professional">
-                  Profissional responsável
+                  Profissional responsável (opcional)
                 </Label>
                 <Input
                   id="quote-professional"

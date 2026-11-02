@@ -33,6 +33,7 @@ import { messageForQuote, messageForReceivable, pendingMessages } from "../messa
 import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { plural } from "../../shared/plural";
+import { quotePdfFileName } from "../../shared/quoteFileName";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
 
@@ -62,7 +63,7 @@ const itemImageLocation = z.string().trim().max(2000).refine(
 const clientInput = z.object({
   id: z.number().int().positive().optional(),
   name: z.string().trim().min(1, "Informe o nome do cliente").max(240),
-  professional: z.string().trim().min(1, "Informe o profissional responsável").max(240),
+  professional: z.string().trim().max(240).default(""),
   document: nullableText,
   stateRegistration: nullableText,
   phone: nullableText,
@@ -287,6 +288,10 @@ export const businessRouter = router({
     savePdf: protectedProcedure.input(z.object({
       quoteId: z.number().int().positive(),
       dataUrl: z.string().min(32).max(12_000_000),
+      // Valores da tela no momento da geração: o salvamento automático pode
+      // ainda não ter gravado uma edição recente do nome.
+      clientName: z.string().max(240).optional(),
+      professional: z.string().max(240).optional(),
     })).mutation(async ({ ctx, input }) => {
       const separator = input.dataUrl.indexOf(",");
       if (!input.dataUrl.startsWith("data:application/pdf") || separator === -1) {
@@ -296,8 +301,7 @@ export const businessRouter = router({
       if (bytes.length > 8 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "O PDF deve ter no máximo 8 MB." });
       const quote = await getQuote(input.quoteId);
       if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
-      const generatedAt = new Date();
-      const fileName = `orcamento-${String(quote.quoteNumber).padStart(4, "0")}-${generatedAt.toISOString().replace(/[:.]/g, "-")}.pdf`;
+      const fileName = quotePdfFileName({ quoteNumber: quote.quoteNumber, clientName: input.clientName ?? quote.clientName, professional: input.professional ?? quote.professional });
       try {
         const stored = await saveLocalPdf(fileName, bytes);
         return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, storageKey: stored.key, fileSize: stored.fileSize });

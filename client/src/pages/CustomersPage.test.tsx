@@ -40,7 +40,7 @@ describe("CustomersPage", () => {
     const { container } = render(<CustomersPage />);
     fireEvent.click(screen.getByRole("button", { name: "Novo cliente" }));
     expect(screen.getByLabelText("Nome do cliente *")).toBeTruthy();
-    expect(screen.getByLabelText("Profissional responsável *")).toBeTruthy();
+    expect(screen.getByLabelText("Profissional responsável")).toBeTruthy();
     expect(screen.getByLabelText("Endereço")).toBeTruthy();
     expectNoUnnamedFormControls(container);
   });

@@ -14,6 +14,7 @@ describe("form validation", () => {
     expect(validateQuoteDraft({ ...base, issueDate: new Date("invalid") })).toContain("emissão");
     expect(validateQuoteDraft({ ...base, rooms: [{ name: "SALA", items: [{ shortDescription: "Item", quantity: 0, unitPrice: 10 }] }] })).toContain("quantidade");
     expect(validateQuoteDraft(base)).toBeNull();
+    expect(validateQuoteDraft({ ...base, professional: "" })).toBeNull();
   });
 
   it("rejeita item sem descrição (ex.: item manual adicionado e nunca preenchido)", () => {
