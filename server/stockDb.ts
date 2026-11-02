@@ -275,3 +275,15 @@ export async function purchaseSuggestions() {
     .map(([supplierName, lines]) => ({ supplierName, lines: lines.sort((first, second) => second.shortageQuantity - first.shortageQuantity || first.shortDescription.localeCompare(second.shortDescription, "pt-BR")) }))
     .sort((first, second) => (first.supplierName ? 0 : 1) - (second.supplierName ? 0 : 1) || first.supplierName.localeCompare(second.supplierName, "pt-BR"));
 }
+
+// Saldo livre (estoque menos reservas) de cada produto ativo: usado pelo
+// orçamento para avisar falta e sugerir outra variação do mesmo modelo.
+export async function productAvailability() {
+  const db = await database();
+  const [productRows, reservations] = await Promise.all([
+    db.select({ id: products.id, stockQuantity: products.stockQuantity }).from(products).where(eq(products.active, true)),
+    db.select({ productId: quoteItemReservations.productId, reservedQuantity: quoteItemReservations.reservedQuantity }).from(quoteItemReservations),
+  ]);
+  const reserved = sumBy(reservations, (row) => row.productId, (row) => toNumber(row.reservedQuantity));
+  return productRows.map((product) => ({ productId: product.id, available: Math.max(0, calculateAvailableStock(toNumber(product.stockQuantity), reserved.get(product.id) ?? 0)) }));
+}

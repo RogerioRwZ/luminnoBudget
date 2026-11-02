@@ -9,14 +9,17 @@ Roda em um único servidor (Node.js + MySQL), com login próprio e arquivos guar
 | Módulo | O que faz |
 |---|---|
 | **Visão geral** | Propostas e valores por status, evolução mensal (orçado, aprovado e recebido), taxa de conversão, ticket médio, produtos mais cotados e alertas de validade com lembrete por WhatsApp. |
-| **Orçamentos** | Itens organizados por ambiente, desconto, frete, preço no PIX e parcelamento. Também tem duplicação de orçamentos, busca, filtros por status e validade, paginação e exportação CSV. |
+| **Orçamentos** | Itens organizados por ambiente, desconto, frete, preço no PIX e parcelamento. Também tem duplicação de orçamentos, busca, filtros por status e validade, paginação e exportação CSV. Mostra a margem (para quem vê custo), avisa quando o desconto passa do limite e, se uma variação não tem estoque livre, sugere outra do mesmo modelo para trocar com um clique. |
 | **PDF e impressão** | Proposta em PDF com a identidade da loja: dados do cliente e da proposta, destaques de valor (total, PIX e parcelado), itens por ambiente com fotos, resumo financeiro, QR Code PIX, observações e campo de aceite. Pré-visualizar, imprimir e salvar usam o mesmo documento. Histórico de PDFs gerados e lista de separação com o mesmo visual. |
-| **Catálogo** | Produtos com foto, código automático, fornecedor, ponto de reposição e código de barras. |
+| **Catálogo** | Produtos com foto, código automático, fornecedor, preço de custo e margem, ponto de reposição e código de barras. O custo nunca é enviado ao perfil Vendas. |
 | **Estoque** | Entradas, ajustes e devoluções. Ao aprovar um orçamento, o estoque fica reservado automaticamente, e as entregas podem ser parciais. Há alerta de estoque baixo e exportação CSV. |
 | **Financeiro** | Contas a receber geradas na aprovação do orçamento ou lançadas avulsas, com parcelas, recebimentos parciais, estornos, cobranças em atraso e exportação CSV. O botão de cobrança prepara a mensagem ao cliente com QR Code PIX do saldo da parcela. |
+| **Comissões** | Comissão por profissional (arquiteto, designer), gerada conforme o cliente paga e sem o frete, no percentual fixado na aprovação. Registro de pagamentos, saldo a pagar e exportação para Excel. |
+| **Relatórios** | Vendas por período por vendedor, profissional, modelo e variação, com margem bruta e exportação para Excel (resumo e itens vendidos). |
+| **Resumo do dia** | Sino no topo com o que pede atenção hoje, conforme o perfil: agenda, retornos, propostas vencendo, parcelas, pedidos prontos para retirada e mercadoria aguardando compra. Abre sozinho na primeira entrada do dia e pode ser copiado ou enviado pelo WhatsApp. |
 | **Clientes** | Cadastro de clientes e ficha de cada um, com orçamentos, valores aprovados, recebidos e a receber, taxa de conversão e atalho para o WhatsApp. |
 | **Operação** | Para cada orçamento: versões com comparação financeira e restauração justificada, comentários internos e anexos (plantas, PDFs e imagens). Também tem o leitor de código de barras, por leitor USB ou pela câmera do celular, e os modelos de mensagem por evento (proposta enviada, aprovada, vencendo, cobrança etc.). As **mensagens do dia** listam propostas vencendo e parcelas a vencer ou em atraso, com o texto do modelo preenchido, para enviar pelo WhatsApp ou e-mail. |
-| **Configurações** | Dados da loja, logotipo, chave, favorecido e cidade do PIX, condições padrão, dias de alerta e backup/restauração em JSON. |
+| **Configurações** | Dados da loja, logotipo, chave, favorecido e cidade do PIX, condições padrão, dias de alerta, desconto máximo, margem mínima, comissão padrão e backup/restauração em JSON. |
 | **Administração** | Usuários e perfis (usuário/administrador), status do sistema (banco, disco, tempo no ar) e **registro de atividades**: quem aprovou orçamentos, registrou recebimentos e estornos, ajustou estoque, mudou preços, configurações e usuários, e quando. |
 
 ## Tecnologias

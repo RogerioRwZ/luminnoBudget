@@ -28,10 +28,12 @@ import {
   saveQuote,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
+import { approvedFulfillments, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
 import { VARIANT_FIELDS, type VariantKey } from "../../shared/variants";
-import { canAccess, USER_ROLES } from "../../shared/permissions";
+import { canAccess, canSeeCost, USER_ROLES } from "../../shared/permissions";
+import { commissionReport, dailySummary, deleteCommissionPayment, recordCommissionPayment, salesReport, saveProfessional } from "../reportsDb";
+import { withoutCost } from "../../shared/salesReport";
 import { LOST_REASONS, LOST_REASON_LABELS } from "../../shared/followUp";
 import { deleteAppointment, findConflicts, listAppointments, saveAppointment, setAppointmentStatus, upcomingAppointments } from "../agendaDb";
 import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_TYPE_LABELS } from "../../shared/agenda";
@@ -88,6 +90,8 @@ async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, resu
   await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: quoteId, summary: `Registrou retirada de ${plural(results.length, "item", "itens")} do orçamento #${quote?.quoteNumber ?? quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}${complete ? " — pedido totalmente entregue" : ""}`, details: { responsavel: responsible ?? null } });
 }
 
+const periodInput = z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((range) => range.to > range.from && range.to.getTime() - range.from.getTime() <= 367 * 24 * 60 * 60_000, "Escolha um período de até um ano.");
+
 const appointmentInput = z.object({
   id: z.number().int().positive().optional(),
   type: z.enum(["delivery", "technical_visit", "installation"]),
@@ -115,6 +119,7 @@ const productInput = z.object({
   unit: z.string().trim().min(1).max(16).default("UN"),
   supplierName: z.string().trim().max(240).nullable().optional().or(z.literal("")),
   unitPrice: money,
+  costPrice: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
   reorderPoint: money,
   active: z.boolean().default(true),
   parentId: z.number().int().positive().nullable().optional(),
@@ -198,12 +203,13 @@ export const businessRouter = router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProducts(input?.search)),
     save: areaProcedure("catalog").input(productInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getProduct(input.id) : null;
-      const id = await saveProduct({ ...input, imageUrl: input.imageUrl || null });
+      // Quem não vê o custo também não pode alterá-lo.
+      const id = await saveProduct({ ...input, costPrice: canSeeCost(ctx.user.role) ? input.costPrice : undefined, imageUrl: input.imageUrl || null });
       const saved = (await getProduct(id))!;
       if (!before) {
         await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})` });
       } else {
-        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["shortDescription", "unitPrice", "reorderPoint", "supplierName", "unit", "active"]);
+        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["shortDescription", "unitPrice", "costPrice", "reorderPoint", "supplierName", "unit", "active"]);
         if (Object.keys(changes).length) {
           const price = changes.unitPrice ? `: preço ${brl(Number(changes.unitPrice.de))} → ${brl(Number(changes.unitPrice.para))}` : "";
           await log(ctx, { action: changes.unitPrice ? "product.price" : "product.update", entityType: "product", entityId: id, summary: `Alterou o produto #${before.code} ${input.shortDescription}${price}`, details: changes });
@@ -227,6 +233,7 @@ export const businessRouter = router({
         throw error;
       }
     }),
+    availability: areaProcedure("quotes", "stock", "catalog").query(productAvailability),
     findByBarcode: protectedProcedure.input(z.object({ barcode: z.string().trim().min(3).max(64) })).query(({ input }) => findProductByBarcode(input.barcode)),
     archive: areaProcedure("catalog").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const product = await getProduct(input.id);
@@ -264,7 +271,7 @@ export const businessRouter = router({
       .query(({ input }) => listQuotesPaged(input ?? {})),
     get: areaProcedure("quotes", "pdfs").input(z.object({ id: z.number().int().positive() })).query(({ input }) => getQuote(input.id)),
     create: areaProcedure("quotes").mutation(async ({ ctx }) => {
-      const created = await createQuote();
+      const created = await createQuote(ctx.user.id);
       if (created) await log(ctx, { action: "quote.create", entityType: "quote", entityId: created.id, summary: `Criou o orçamento #${created.quoteNumber}` });
       return created;
     }),
@@ -296,7 +303,7 @@ export const businessRouter = router({
     duplicate: areaProcedure("quotes").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const source = await getQuote(input.id);
       if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
-      const fresh = await createQuote();
+      const fresh = await createQuote(ctx.user.id);
       if (!fresh) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível criar a cópia do orçamento" });
       const copy = await saveQuote({
         ...source,
@@ -512,6 +519,9 @@ export const businessRouter = router({
       defaultInstallments: z.coerce.number().int().min(1).max(24),
       alertThresholdDays: z.coerce.number().int().min(1).max(60),
       followUpDays: z.coerce.number().int().min(1).max(30).default(3),
+      maxDiscountPercent: z.coerce.number().min(0).max(100).default(0),
+      minMarginPercent: z.coerce.number().min(0).max(100).default(0),
+      defaultCommissionPercent: z.coerce.number().min(0).max(100).default(0),
       defaultTerms: nullableText,
     })).mutation(async ({ ctx, input }) => {
       const before = await getSettings();
@@ -527,11 +537,50 @@ export const businessRouter = router({
         pixCity: input.pixCity || null,
         defaultTerms: input.defaultTerms || null,
         defaultPixDiscountValue: input.defaultPixDiscountValue.toFixed(2),
+        maxDiscountPercent: input.maxDiscountPercent.toFixed(2),
+        minMarginPercent: input.minMarginPercent.toFixed(2),
+        defaultCommissionPercent: input.defaultCommissionPercent.toFixed(2),
       });
-      const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "defaultTerms"]);
+      const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "followUpDays", "maxDiscountPercent", "minMarginPercent", "defaultCommissionPercent", "defaultTerms"]);
       if (Object.keys(changes).length) await log(ctx, { action: "settings.update", entityType: "settings", summary: `Alterou as configurações da loja: ${Object.keys(changes).join(", ")}`, details: changes });
       return saved;
     }),
+  }),
+  reports: router({
+    sales: areaProcedure("reports").input(periodInput).query(async ({ ctx, input }) => {
+      const report = await salesReport(input);
+      return canSeeCost(ctx.user.role) ? report : withoutCost(report);
+    }),
+  }),
+  commissions: router({
+    overview: areaProcedure("finance").input(periodInput).query(({ input }) => commissionReport(input)),
+    saveProfessional: areaProcedure("finance").input(z.object({
+      name: z.string().trim().min(1, "Informe o nome do profissional").max(240),
+      commissionPercent: z.coerce.number().min(0).max(100).nullable(),
+      phone: nullableText,
+    })).mutation(async ({ ctx, input }) => {
+      const id = await saveProfessional(input);
+      await log(ctx, { action: "commission.rate", entityType: "finance", entityId: id, summary: `Definiu a comissão de ${input.name} em ${input.commissionPercent === null ? "padrão da loja" : `${input.commissionPercent}%`}` });
+      return id;
+    }),
+    pay: areaProcedure("finance").input(z.object({
+      professional: z.string().trim().min(1).max(240),
+      amount: money.refine((value) => value > 0, "Informe um valor maior que zero"),
+      paidAt: z.coerce.date(),
+      notes: z.string().trim().max(500).nullable().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const id = await recordCommissionPayment(input, ctx.user.id);
+      await log(ctx, { action: "commission.pay", entityType: "finance", entityId: id, summary: `Registrou pagamento de comissão de ${brl(input.amount)} para ${input.professional}`, details: { observacao: input.notes ?? null } });
+      return id;
+    }),
+    deletePayment: areaProcedure("finance").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const removed = await deleteCommissionPayment(input.id);
+      await log(ctx, { action: "commission.delete", entityType: "finance", entityId: input.id, summary: `Excluiu pagamento de comissão de ${brl(removed.amount)} para ${removed.professional}` });
+    }),
+  }),
+  // Resumo do dia: cada seção só vem para quem tem acesso à área.
+  summary: router({
+    today: protectedProcedure.query(({ ctx }) => dailySummary(ctx.user.role)),
   }),
   templates: router({
     list: areaProcedure("quotes", "finance").query(listMessageTemplates),

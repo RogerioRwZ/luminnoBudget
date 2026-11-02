@@ -53,6 +53,9 @@ type SettingsForm = {
   defaultInstallments: number;
   alertThresholdDays: number;
   followUpDays: number;
+  maxDiscountPercent: number;
+  minMarginPercent: number;
+  defaultCommissionPercent: number;
   defaultTerms: string;
 };
 
@@ -72,6 +75,9 @@ const emptySettings: SettingsForm = {
   defaultInstallments: 8,
   alertThresholdDays: 7,
   followUpDays: 3,
+  maxDiscountPercent: 0,
+  minMarginPercent: 0,
+  defaultCommissionPercent: 0,
   defaultTerms:
     "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
@@ -93,6 +99,9 @@ function formFromSettings(data: inferRouterOutputs<AppRouter>["settings"]["get"]
     defaultInstallments: data.defaultInstallments,
     alertThresholdDays: data.alertThresholdDays,
     followUpDays: data.followUpDays,
+    maxDiscountPercent: Number(data.maxDiscountPercent ?? 0),
+    minMarginPercent: Number(data.minMarginPercent ?? 0),
+    defaultCommissionPercent: Number(data.defaultCommissionPercent ?? 0),
     defaultTerms: data.defaultTerms ?? "",
   };
 }
@@ -598,6 +607,40 @@ export default function SettingsPage() {
                   className="w-20 bg-background"
                 />
                 <span className="text-sm font-medium">dias</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border p-3">
+              <Label>Limites de negociação e comissão</Label>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                O orçamento avisa quando o desconto passa do limite ou a margem
+                fica abaixo do mínimo. Use 0 para não avisar. A comissão padrão
+                vale para profissionais sem percentual próprio (em Comissões).
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {([
+                  ["maxDiscountPercent", "Desconto máximo"],
+                  ["minMarginPercent", "Margem mínima"],
+                  ["defaultCommissionPercent", "Comissão padrão"],
+                ] as const).map(([key, label]) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label htmlFor={`setting-${key}`} className="text-xs">{label}</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id={`setting-${key}`}
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        value={form[key]}
+                        onChange={event =>
+                          setForm({ ...form, [key]: Math.min(100, Math.max(0, parseFiniteNumber(event.target.value) || 0)) })
+                        }
+                        className="w-24 bg-background"
+                      />
+                      <span className="text-sm font-medium">%</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </CardContent>

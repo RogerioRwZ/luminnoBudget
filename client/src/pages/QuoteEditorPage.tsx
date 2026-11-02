@@ -14,6 +14,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuotePdfHistoryPanel } from "@/components/QuotePdfHistoryPanel";
 import { QuoteFinancePanel } from "@/components/QuoteFinancePanel";
 import { usePermissions } from "@/hooks/usePermissions";
+import { QuoteMarginPanel, StockShortageHint } from "@/components/QuoteInsights";
+import { canSeeCost } from "@shared/permissions";
 import { LOST_REASONS, LOST_REASON_LABELS, type LostReason } from "@shared/followUp";
 import { parseAttributes, variantLabel } from "@shared/variants";
 import { Input } from "@/components/ui/input";
@@ -76,7 +78,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
@@ -157,6 +159,8 @@ type StoreSettings = {
   phone: string | null;
   pixKey: string | null;
   pixRecipient: string | null;
+  maxDiscountPercent?: string | number;
+  minMarginPercent?: string | number;
 };
 
 const blankItem = (): DraftItem => ({
@@ -232,7 +236,10 @@ export default function QuoteEditorPage() {
   const { data: products = [] } = trpc.product.list.useQuery();
   const { data: customers = [] } = trpc.customers.list.useQuery();
   const settingsQuery = trpc.settings.get.useQuery();
-  const { can } = usePermissions();
+  const { can, role } = usePermissions();
+  const showCost = canSeeCost(role);
+  const { data: availabilityRows } = trpc.product.availability.useQuery(undefined, { staleTime: 30_000 });
+  const availability = useMemo(() => new Map((availabilityRows ?? []).map(row => [row.productId, row.available])), [availabilityRows]);
   const [lossDialog, setLossDialog] = useState<{ reason: LostReason; notes: string } | null>(null);
   const settings = settingsQuery.data as StoreSettings | undefined;
   const pickingQuery = trpc.inventory.picking.useQuery(
@@ -405,6 +412,25 @@ export default function QuoteEditorPage() {
     return families;
   }, [activeProducts]);
   const [openFamily, setOpenFamily] = useState<string | null>(null);
+  const productById = useMemo(() => new Map(products.map(product => [product.id, product])), [products]);
+  // Falta de estoque só interessa enquanto a proposta está em negociação:
+  // aprovada, ela já tem reserva (e o restante aparece em Compras).
+  const neededByProduct = useMemo(() => {
+    const totals = new Map<number, number>();
+    if (draft && (draft.status === "draft" || draft.status === "open")) {
+      draft.rooms.forEach(room => room.items.forEach(item => {
+        if (item.productId) totals.set(item.productId, (totals.get(item.productId) ?? 0) + item.quantity);
+      }));
+    }
+    return totals;
+  }, [draft]);
+  const marginItems = useMemo(
+    () => (draft?.rooms ?? []).flatMap(room => room.items.map(item => {
+      const cost = item.productId ? (productById.get(item.productId) as { costPrice?: string | null } | undefined)?.costPrice : null;
+      return { quantity: item.quantity, unitPrice: item.unitPrice, unitCost: cost === null || cost === undefined ? null : Number(cost) };
+    })),
+    [draft, productById]
+  );
   // Deslocamento (offset) do item global de cada ambiente, para numerar os
   // campos de item de forma contínua entre ambientes (item 1, 2, 3...),
   // independentemente de quantos ambientes existam.
@@ -1275,7 +1301,12 @@ export default function QuoteEditorPage() {
                         <span>Total</span>
                         <span></span>
                       </div>
-                      {room.items.map((item, itemIndex) => (
+                      {room.items.map((item, itemIndex) => {
+                        const catalogProduct = item.productId ? productById.get(item.productId) : undefined;
+                        const needed = item.productId ? neededByProduct.get(item.productId) ?? 0 : 0;
+                        const short = Boolean(catalogProduct && availabilityRows && needed > (availability.get(catalogProduct.id) ?? 0));
+                        return (
+                        <Fragment key={itemIndex}>
                         <div
                           draggable
                           onDragStart={event => {
@@ -1378,7 +1409,30 @@ export default function QuoteEditorPage() {
                             <X className="h-4 w-4" />
                           </Button>
                         </div>
-                      ))}
+                        {short && catalogProduct ? (
+                          <StockShortageHint
+                            productId={catalogProduct.id}
+                            attributes={catalogProduct.attributes}
+                            unit={item.unit}
+                            needed={needed}
+                            availability={availability}
+                            family={familyMembers.get(catalogProduct.parentId ?? catalogProduct.id) ?? []}
+                            onSwap={member => {
+                              updateItem(roomIndex, itemIndex, {
+                                productId: member.id,
+                                code: member.code,
+                                shortDescription: member.shortDescription,
+                                imageUrl: member.imageUrl,
+                                unit: member.unit,
+                                unitPrice: Number(member.unitPrice),
+                              });
+                              toast.success(`Trocado por ${member.shortDescription}.`);
+                            }}
+                          />
+                        ) : null}
+                        </Fragment>
+                        );
+                      })}
                       {room.items.length ? (
                         <div className="flex justify-end border-t border-border px-4 py-3">
                           <div className="flex gap-8 text-sm">
@@ -1480,6 +1534,14 @@ export default function QuoteEditorPage() {
                 <span>Desconto aplicado</span>
                 <span>− {money(summary.discountAmount)}</span>
               </div>
+              <QuoteMarginPanel
+                items={marginItems}
+                productsSubtotal={summary.productsSubtotal}
+                discountAmount={summary.discountAmount}
+                maxDiscountPercent={Number(settings?.maxDiscountPercent ?? 0)}
+                minMarginPercent={Number(settings?.minMarginPercent ?? 0)}
+                showCost={showCost}
+              />
               <div className="grid grid-cols-[minmax(0,1fr)_90px] items-center gap-2">
                 <Label htmlFor="quote-shipping" className="text-xs text-muted-foreground">Frete</Label>
                 <MoneyInput

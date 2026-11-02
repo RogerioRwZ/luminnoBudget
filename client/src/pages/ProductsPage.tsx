@@ -21,6 +21,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
 import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
+import { usePermissions } from "@/hooks/usePermissions";
+import { canSeeCost } from "@shared/permissions";
+import { percentLabel } from "@shared/margin";
 import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
@@ -59,6 +62,8 @@ type ProductForm = {
   unit: string;
   supplierName: string;
   unitPrice: number;
+  // Texto: vazio quer dizer "custo não informado", diferente de custo zero.
+  costPrice: string;
   reorderPoint: number;
   active: boolean;
   parentId: number | null;
@@ -76,6 +81,7 @@ const emptyProduct: ProductForm = {
   unit: "UN",
   supplierName: "",
   unitPrice: 0,
+  costPrice: "",
   reorderPoint: 0,
   active: true,
   parentId: null,
@@ -93,6 +99,7 @@ type Product = {
   unit: string;
   supplierName: string | null;
   unitPrice: string | number;
+  costPrice?: string | number | null;
   stockQuantity: string | number;
   reorderPoint: string | number;
   active: boolean;
@@ -101,9 +108,24 @@ type Product = {
   attributes: string | null;
 };
 const toFormAttributes = (text: string | null) => ({ ...emptyAttributes, ...parseAttributes(text) });
+const costText = (value: string | number | null | undefined) => (value === null || value === undefined ? "" : String(Number(value)));
+const marginOf = (price: string | number, cost: string | number | null | undefined) =>
+  cost === null || cost === undefined || cost === "" || Number(price) <= 0 ? null : (Number(price) - Number(cost)) / Number(price);
+
+function CostLine({ price, cost }: { price: string | number; cost: string | number | null | undefined }) {
+  const margin = marginOf(price, cost);
+  if (margin === null) return <span className="text-[11px] text-muted-foreground">sem custo</span>;
+  return (
+    <span className={`text-[11px] ${margin < 0 ? "font-semibold text-red-700 dark:text-red-300" : "text-muted-foreground"}`}>
+      custo {money(cost)} · margem {percentLabel(margin)}
+    </span>
+  );
+}
 
 export default function ProductsPage() {
   const utils = trpc.useUtils();
+  const { role } = usePermissions();
+  const showCost = canSeeCost(role);
   const { data = [], isLoading, error, refetch } = trpc.product.list.useQuery();
   const save = trpc.product.save.useMutation({
     onSuccess: () => {
@@ -192,6 +214,7 @@ export default function ProductsPage() {
       unit: root.unit,
       supplierName: root.supplierName ?? "",
       unitPrice: Number(root.unitPrice),
+      costPrice: costText(root.costPrice),
       reorderPoint: Number(root.reorderPoint),
     });
     setOpen(true);
@@ -203,6 +226,8 @@ export default function ProductsPage() {
       modelName: familyMode ? form.modelName || form.shortDescription : null,
       attributes: form.attributes,
       parentId: form.parentId,
+      // Quem não vê o custo não envia o campo, e o custo gravado é mantido.
+      costPrice: showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined,
     });
   const edit = (product: Product) => {
     setForm({
@@ -216,6 +241,7 @@ export default function ProductsPage() {
       unit: product.unit,
       supplierName: product.supplierName ?? "",
       unitPrice: Number(product.unitPrice),
+      costPrice: costText(product.costPrice),
       reorderPoint: Number(product.reorderPoint),
       active: product.active,
       parentId: product.parentId,
@@ -469,6 +495,25 @@ export default function ProductsPage() {
                   }
                 />
               </div>
+              {showCost ? (
+                <div className="space-y-2">
+                  <Label htmlFor="product-cost">Preço de custo</Label>
+                  <Input
+                    id="product-cost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Não informado"
+                    value={form.costPrice}
+                    onChange={e => setForm({ ...form, costPrice: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {marginOf(form.unitPrice, form.costPrice) === null
+                      ? "Não aparece para o perfil Vendas."
+                      : `Margem de ${percentLabel(marginOf(form.unitPrice, form.costPrice))} sobre o preço de venda.`}
+                  </p>
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label>Ponto de reposição</Label>
                 <Input
@@ -649,6 +694,7 @@ export default function ProductsPage() {
                         <span className="font-mono text-muted-foreground">#{member.code}</span>
                         <span className="font-mono text-muted-foreground">{member.barcode ? `EAN ${member.barcode}` : "sem EAN"}</span>
                         <span className="font-semibold">{money(member.unitPrice)}</span>
+                        {showCost ? <CostLine price={member.unitPrice} cost={member.costPrice} /> : null}
                         <Badge variant="secondary" className={point > 0 && stock <= point ? "bg-red-500/10 text-red-700" : "bg-emerald-500/10 text-emerald-700"}>
                           {stock} {member.unit}
                         </Badge>
@@ -711,6 +757,7 @@ export default function ProductsPage() {
                           {product.active ? "Ativo" : "Arquivado"}
                         </span>
                       </div>
+                      {showCost ? <CostLine price={product.unitPrice} cost={product.costPrice} /> : null}
                       <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/60 px-2.5 py-2 text-xs">
                         <span className="flex items-center gap-1.5 text-muted-foreground">
                           <Boxes className="h-3.5 w-3.5" />

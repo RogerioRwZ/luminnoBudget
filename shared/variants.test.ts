@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, splitList, variantCombinations, variantLabel } from "./variants";
+import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, rankSubstitutes, splitList, variantCombinations, variantLabel } from "./variants";
 
 describe("variações de produto", () => {
   it("padroniza temperatura e potência e monta o nome", () => {
@@ -19,5 +19,18 @@ describe("variações de produto", () => {
     expect(attributesKey({ color: "Preto" })).toBe(attributesKey(cleanAttributes({ color: "preto" })));
     expect(parseAttributes("{não é json")).toEqual({});
     expect(parseAttributes('{"power":"10w"}')).toEqual({ power: "10W" });
+  });
+});
+
+describe("substituição sugerida", () => {
+  const candidate = (id: number, attributes: Record<string, string>, available: number) => ({ id, attributes: JSON.stringify(attributes), available });
+  it("sugere variações com estoque, das mais parecidas para as menos", () => {
+    const ranked = rankSubstitutes({ color: "Preto", colorTemperature: "3000K", power: "7W" }, [
+      candidate(1, { color: "Branco", colorTemperature: "3000K", power: "7W" }, 50),
+      candidate(2, { color: "Preto", colorTemperature: "4000K", power: "7W" }, 5),
+      candidate(3, { color: "Preto", colorTemperature: "2700K", power: "7W" }, 1),
+      candidate(4, { color: "Preto", colorTemperature: "4000K", power: "10W" }, 20),
+    ], 4);
+    expect(ranked.map((entry) => entry.id)).toEqual([2, 4, 1]);
   });
 });

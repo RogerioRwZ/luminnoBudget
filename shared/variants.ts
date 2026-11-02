@@ -63,3 +63,22 @@ export function variantCombinations(lists: Partial<Record<VariantKey, string[]>>
 export function splitList(text: string) {
   return text.split(/[,;\n]/).map((value) => value.trim()).filter(Boolean);
 }
+
+// Peso de cada atributo ao sugerir uma variação no lugar de outra: trocar a
+// temperatura de cor ou a potência incomoda menos que trocar o acabamento.
+const SUBSTITUTE_WEIGHTS: Record<VariantKey, number> = { color: 5, colorTemperature: 2, power: 2, other: 1 };
+
+// Variações do mesmo modelo com estoque para atender a quantidade pedida, das
+// mais parecidas com a pedida para as menos parecidas.
+export function rankSubstitutes<T extends { attributes: string | null; available: number }>(target: VariantAttributes, candidates: T[], needed: number, limit = 3) {
+  return candidates
+    .filter((candidate) => candidate.available >= needed)
+    .map((candidate) => {
+      const attributes = parseAttributes(candidate.attributes);
+      const score = VARIANT_FIELDS.reduce((sum, { key }) => sum + (target[key] && attributes[key] === target[key] ? SUBSTITUTE_WEIGHTS[key] : 0), 0);
+      return { candidate, score };
+    })
+    .sort((first, second) => second.score - first.score || second.candidate.available - first.candidate.available)
+    .slice(0, limit)
+    .map((entry) => entry.candidate);
+}

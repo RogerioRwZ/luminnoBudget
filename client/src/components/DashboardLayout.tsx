@@ -2,6 +2,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import {
   ArchiveRestore,
+  BarChart3,
+  HandCoins,
   CalendarDays,
   ShoppingCart,
   FileText,
@@ -19,6 +21,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { DailySummaryButton } from "./DailySummary";
 import { useLocation } from "wouter";
 import { canOpenPage, ROLE_LABELS, type UserRole } from "@shared/permissions";
 import {
@@ -40,6 +43,8 @@ const menuItems = [
   { icon: CalendarDays, label: "Agenda", path: "/agenda" },
   { icon: Files, label: "Histórico de PDFs", path: "/historico-pdfs" },
   { icon: Landmark, label: "Financeiro", path: "/financeiro" },
+  { icon: HandCoins, label: "Comissões", path: "/comissoes" },
+  { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
   { icon: PackageSearch, label: "Catálogo", path: "/catalogo" },
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: ShoppingCart, label: "Compras", path: "/compras" },
@@ -63,7 +68,7 @@ function useSystemHealth() {
   });
 }
 
-type LocalUser = { username: string; name: string | null; role: UserRole };
+type LocalUser = { id: number; username: string; name: string | null; role: UserRole };
 
 type DashboardLayoutProps = {
   children: React.ReactNode;
@@ -151,13 +156,16 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Luminno Iluminação</p>
             <h1 className="truncate font-display text-lg font-bold tracking-tight">{activeItem?.label ?? "Página não encontrada"}</h1>
           </div>
+          <div className="ml-auto flex items-center gap-4">
           <div
             role="status"
-            className="ml-auto hidden items-center gap-2 text-xs text-muted-foreground sm:flex"
+            className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex"
             title={healthState === "offline" ? "O servidor ou o banco de dados não respondeu. Tente recarregar a página." : undefined}
           >
             <span className={`h-2 w-2 rounded-full ${healthState === "online" ? "bg-emerald-500" : healthState === "offline" ? "bg-red-500" : "bg-muted-foreground/50"}`} />
             {healthState === "online" ? "Sistema ativo" : healthState === "offline" ? "Sistema indisponível" : "Verificando…"}
+          </div>
+          <DailySummaryButton userId={user.id} />
           </div>
         </header>
         <main className="min-w-0 p-4 md:p-8">{children}</main>

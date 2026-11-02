@@ -49,6 +49,8 @@ export const products = mysqlTable("products", {
   unit: varchar("unit", { length: 16 }).notNull().default("UN"),
   supplierName: varchar("supplierName", { length: 240 }),
   unitPrice: decimal("unitPrice", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Preço de custo: nunca aparece para o perfil Vendas.
+  costPrice: decimal("costPrice", { precision: 12, scale: 2 }),
   stockQuantity: decimal("stockQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
   reorderPoint: decimal("reorderPoint", { precision: 12, scale: 2 }).notNull().default("0"),
   active: boolean("active").notNull().default(true),
@@ -88,6 +90,10 @@ export const quotes = mysqlTable("quotes", {
   followUpAt: timestamp("followUpAt"),
   lostReason: mysqlEnum("lostReason", ["price", "deadline", "competitor", "postponed", "product", "no_response", "other"]),
   lostNotes: varchar("lostNotes", { length: 500 }),
+  // Quem criou o orçamento (relatório de vendas por vendedor).
+  sellerUserId: int("sellerUserId"),
+  // Percentual de comissão do profissional fixado na aprovação.
+  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -109,6 +115,9 @@ export const quoteItems = mysqlTable("quoteItems", {
   unit: varchar("unit", { length: 16 }).notNull().default("UN"),
   quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull().default("1"),
   unitPrice: decimal("unitPrice", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Custo do produto no momento em que o item foi gravado: a margem de uma
+  // venda não muda quando o custo do catálogo é reajustado depois.
+  unitCost: decimal("unitCost", { precision: 12, scale: 2 }),
   sortOrder: int("sortOrder").notNull().default(0),
 });
 
@@ -252,6 +261,11 @@ export const storeSettings = mysqlTable("storeSettings", {
   defaultPixDiscountValue: decimal("defaultPixDiscountValue", { precision: 12, scale: 2 }).notNull().default("0"),
   defaultInstallments: int("defaultInstallments").notNull().default(8),
   followUpDays: int("followUpDays").notNull().default(3),
+  // Desconto acima deste percentual gera aviso no orçamento (0 = sem limite).
+  maxDiscountPercent: decimal("maxDiscountPercent", { precision: 5, scale: 2 }).notNull().default("0"),
+  // Margem abaixo deste percentual gera aviso (0 = sem aviso).
+  minMarginPercent: decimal("minMarginPercent", { precision: 5, scale: 2 }).notNull().default("0"),
+  defaultCommissionPercent: decimal("defaultCommissionPercent", { precision: 5, scale: 2 }).notNull().default("0"),
   alertThresholdDays: int("alertThresholdDays").notNull().default(7),
   defaultTerms: text("defaultTerms"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -275,6 +289,27 @@ export const appointments = mysqlTable("appointments", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("appointments_scheduledAt_idx").on(table.scheduledAt)]);
+
+// Comissão dos profissionais (arquitetos, designers). O nome é o mesmo
+// texto usado nos orçamentos; sem cadastro, vale a comissão padrão da loja.
+export const professionals = mysqlTable("professionals", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 240 }).notNull().unique(),
+  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
+  phone: varchar("phone", { length: 40 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const commissionPayments = mysqlTable("commissionPayments", {
+  id: int("id").autoincrement().primaryKey(),
+  professional: varchar("professional", { length: 240 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  paidAt: timestamp("paidAt").notNull(),
+  notes: varchar("notes", { length: 500 }),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("commissionPayments_professional_idx").on(table.professional)]);
 
 // Registro de atividades: quem fez o quê e quando. O nome do usuário é
 // copiado no momento da ação para o histórico continuar legível mesmo se o

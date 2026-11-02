@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({ auth: { status: { invalidate: mocks.invalidateStatus }, me: { invalidate: mocks.invalidateMe } } }),
+    summary: { today: { useQuery: () => ({ data: undefined }) } },
+    settings: { get: { useQuery: () => ({ data: undefined }) } },
     auth: {
       me: { useQuery: () => ({ data: { name: "Rogerio" } }) },
       logout: { useMutation: ({ onSuccess }: { onSuccess: () => void | Promise<void> }) => ({ mutate: () => { mocks.onSuccess = onSuccess; void onSuccess(); } }) },
@@ -28,7 +30,7 @@ type Role = "user" | "admin" | "sales" | "stock" | "finance";
 function renderLayout(role: Role, health: { ok: boolean; database: string }, onLoggedOut = vi.fn()) {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: health.ok, json: async () => ({ database: health.database }) })));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><DashboardLayout user={{ username: "teste", name: "Rogerio", role }} onLoggedOut={onLoggedOut}><p>Conteúdo</p></DashboardLayout></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><DashboardLayout user={{ id: 1, username: "teste", name: "Rogerio", role }} onLoggedOut={onLoggedOut}><p>Conteúdo</p></DashboardLayout></QueryClientProvider>);
   return onLoggedOut;
 }
 
