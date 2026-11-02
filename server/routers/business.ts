@@ -26,8 +26,10 @@ import {
   saveQuote,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, recordStockMovement } from "../stockDb";
+import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
+import { deleteAppointment, findConflicts, listAppointments, saveAppointment, setAppointmentStatus, upcomingAppointments } from "../agendaDb";
+import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_TYPE_LABELS } from "../../shared/agenda";
 import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, getReceivableSummary, recordFinancePayment } from "../financeDb";
 import { changedFields, formatActivityMoney as brl, listActivity, recordActivity, type ActivityEntity, type ActivityEntry } from "../activityLog";
 import { messageForQuote, messageForReceivable, pendingMessages } from "../messagesDb";
@@ -80,6 +82,20 @@ async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, resu
   const complete = lines.every((line) => line.pendingQuantity <= 0);
   await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: quoteId, summary: `Registrou retirada de ${plural(results.length, "item", "itens")} do orçamento #${quote?.quoteNumber ?? quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}${complete ? " — pedido totalmente entregue" : ""}`, details: { responsavel: responsible ?? null } });
 }
+
+const appointmentInput = z.object({
+  id: z.number().int().positive().optional(),
+  type: z.enum(["delivery", "technical_visit", "installation"]),
+  quoteId: z.number().int().positive().nullable().optional(),
+  clientId: z.number().int().positive().nullable().optional(),
+  clientName: z.string().trim().min(1, "Informe o cliente").max(240),
+  phone: nullableText,
+  address: nullableText,
+  scheduledAt: z.coerce.date(),
+  durationMinutes: z.number().int().min(15, "Duração mínima de 15 minutos").max(24 * 60),
+  responsible: nullableText,
+  notes: nullableText,
+});
 
 const productInput = z.object({
   id: z.number().int().positive().optional(),
@@ -369,6 +385,7 @@ export const businessRouter = router({
   inventory: router({
     overview: protectedProcedure.query(inventoryOverview),
     fulfillments: protectedProcedure.query(approvedFulfillments),
+    purchases: protectedProcedure.query(purchaseSuggestions),
     picking: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => getPickingList(input.quoteId)),
     move: protectedProcedure.input(z.object({
       productId: z.number().int().positive(),
@@ -408,6 +425,26 @@ export const businessRouter = router({
       const results = await deliverAllAvailable(input);
       await logDelivery(ctx, input.quoteId, results, input.responsible);
       return results;
+    }),
+  }),
+  agenda: router({
+    list: protectedProcedure.input(z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((range) => range.to > range.from && range.to.getTime() - range.from.getTime() <= 62 * 24 * 60 * 60_000, "Período inválido")).query(({ input }) => listAppointments(input)),
+    upcoming: protectedProcedure.query(() => upcomingAppointments(6)),
+    conflicts: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), responsible: z.string().max(240).nullable().optional(), scheduledAt: z.coerce.date(), durationMinutes: z.number().int().min(15).max(24 * 60) })).query(({ input }) => findConflicts(input)),
+    save: protectedProcedure.input(appointmentInput).mutation(async ({ ctx, input }) => {
+      const saved = await saveAppointment(input, ctx.user.id);
+      const when = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(saved.scheduledAt);
+      await log(ctx, { action: input.id ? "appointment.update" : "appointment.create", entityType: "appointment", entityId: saved.id, summary: `${input.id ? "Alterou" : "Agendou"} ${APPOINTMENT_TYPE_LABELS[saved.type].toLowerCase()} de ${saved.clientName} para ${when}` });
+      return saved;
+    }),
+    setStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["scheduled", "done", "cancelled"]) })).mutation(async ({ ctx, input }) => {
+      const saved = await setAppointmentStatus(input.id, input.status);
+      await log(ctx, { action: `appointment.${input.status}`, entityType: "appointment", entityId: saved.id, summary: `Marcou ${APPOINTMENT_TYPE_LABELS[saved.type].toLowerCase()} de ${saved.clientName} como ${APPOINTMENT_STATUS_LABELS[input.status].toLowerCase()}` });
+      return saved;
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const removed = await deleteAppointment(input.id);
+      await log(ctx, { action: "appointment.delete", entityType: "appointment", entityId: removed.id, summary: `Excluiu ${APPOINTMENT_TYPE_LABELS[removed.type].toLowerCase()} de ${removed.clientName}` });
     }),
   }),
   settings: router({

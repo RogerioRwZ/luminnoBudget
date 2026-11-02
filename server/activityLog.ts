@@ -2,7 +2,7 @@ import { and, desc, eq, gte, like, lt, or, sql } from "drizzle-orm";
 import { activityLog } from "../drizzle/schema";
 import { getDb } from "./db";
 
-export type ActivityEntity = "quote" | "product" | "finance" | "stock" | "settings" | "user" | "auth" | "backup" | "message" | "customer";
+export type ActivityEntity = "quote" | "product" | "finance" | "stock" | "settings" | "user" | "auth" | "backup" | "message" | "customer" | "appointment";
 
 export type ActivityActor = { id: number; name: string | null; username?: string | null } | null;
 

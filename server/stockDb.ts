@@ -227,3 +227,51 @@ export async function deliverAllAvailable(input: { quoteId: number } & DeliveryM
   if (!lines.length) throw new Error("Não há itens disponíveis para retirada neste orçamento. Confira as reservas no estoque.");
   return deliverQuoteItems({ ...input, lines });
 }
+
+export type PurchaseLine = {
+  productId: number; code: string; shortDescription: string; unit: string;
+  stockQuantity: number; reservedQuantity: number; freeQuantity: number; reorderPoint: number;
+  shortageQuantity: number; reorderQuantity: number; openDemandQuantity: number; openGapQuantity: number;
+  waitingQuotes: Array<{ quoteId: number; quoteNumber: number; clientName: string; quantity: number }>;
+};
+
+// O que comprar, por fornecedor: a falta dos aprovados (já vendido e sem
+// estoque), a reposição até o ponto de pedido e, à parte, o que os
+// orçamentos em negociação pediriam além do estoque livre.
+export async function purchaseSuggestions() {
+  const db = await database();
+  const [productRows, reservations, approved, openQuotes] = await Promise.all([
+    db.select().from(products),
+    db.select().from(quoteItemReservations),
+    approvedFulfillments(),
+    db.select({ productId: quoteItems.productId, quantity: quoteItems.quantity }).from(quoteItems).innerJoin(quoteRooms, eq(quoteRooms.id, quoteItems.quoteRoomId)).innerJoin(quotes, eq(quotes.id, quoteRooms.quoteId)).where(eq(quotes.status, "open")),
+  ]);
+  const reservedByProduct = sumBy(reservations, (row) => row.productId, (row) => toNumber(row.reservedQuantity));
+  const openByProduct = sumBy(openQuotes.filter((row) => row.productId), (row) => row.productId!, (row) => toNumber(row.quantity));
+  const waiting = new Map<number, PurchaseLine["waitingQuotes"]>();
+  approved.filter((line) => line.productId && line.shortageQuantity > 0).forEach((line) => {
+    const list = waiting.get(line.productId!) ?? [];
+    const existing = list.find((entry) => entry.quoteId === line.quoteId);
+    if (existing) existing.quantity = round2(existing.quantity + line.shortageQuantity);
+    else list.push({ quoteId: line.quoteId, quoteNumber: line.quoteNumber, clientName: line.clientName, quantity: line.shortageQuantity });
+    waiting.set(line.productId!, list);
+  });
+  const suppliers = new Map<string, PurchaseLine[]>();
+  for (const product of productRows) {
+    const stockQuantity = toNumber(product.stockQuantity);
+    const reservedQuantity = reservedByProduct.get(product.id) ?? 0;
+    const freeQuantity = Math.max(0, calculateAvailableStock(stockQuantity, reservedQuantity));
+    const reorderPoint = toNumber(product.reorderPoint);
+    const waitingQuotes = waiting.get(product.id) ?? [];
+    const shortageQuantity = round2(waitingQuotes.reduce((sum, entry) => sum + entry.quantity, 0));
+    const reorderQuantity = product.active && reorderPoint > 0 ? Math.max(0, round2(reorderPoint - freeQuantity)) : 0;
+    const openDemandQuantity = openByProduct.get(product.id) ?? 0;
+    const openGapQuantity = Math.max(0, round2(openDemandQuantity - freeQuantity));
+    if (shortageQuantity <= 0 && reorderQuantity <= 0 && openGapQuantity <= 0) continue;
+    const supplier = product.supplierName?.trim() || "";
+    suppliers.set(supplier, [...(suppliers.get(supplier) ?? []), { productId: product.id, code: product.code, shortDescription: product.shortDescription, unit: product.unit, stockQuantity, reservedQuantity, freeQuantity, reorderPoint, shortageQuantity, reorderQuantity, openDemandQuantity, openGapQuantity, waitingQuotes }]);
+  }
+  return Array.from(suppliers.entries())
+    .map(([supplierName, lines]) => ({ supplierName, lines: lines.sort((first, second) => second.shortageQuantity - first.shortageQuantity || first.shortDescription.localeCompare(second.shortDescription, "pt-BR")) }))
+    .sort((first, second) => (first.supplierName ? 0 : 1) - (second.supplierName ? 0 : 1) || first.supplierName.localeCompare(second.supplierName, "pt-BR"));
+}

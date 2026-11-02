@@ -1,5 +1,6 @@
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
+  appointments,
   clients,
   financePayments,
   financeReceivables,
@@ -177,6 +178,7 @@ export async function saveProduct(input: {
   fullDescription?: string | null;
   imageUrl?: string | null;
   imageKey?: string | null;
+  barcode?: string | null;
   unit: string;
   supplierName?: string | null;
   unitPrice: number;
@@ -194,7 +196,13 @@ export async function saveProduct(input: {
     unitPrice: money(input.unitPrice),
     reorderPoint: money(input.reorderPoint ?? 0),
     active: input.active,
+    // O campo do catálogo existia, mas o valor era descartado aqui.
+    ...(input.barcode !== undefined ? { barcode: input.barcode?.trim() || null } : {}),
   };
+  if (input.barcode) {
+    const owner = (await db.select({ id: products.id, shortDescription: products.shortDescription }).from(products).where(eq(products.barcode, input.barcode.trim())).limit(1))[0];
+    if (owner && owner.id !== input.id) throw new Error(`Este código de barras já está no produto "${owner.shortDescription}".`);
+  }
   if (input.id) {
     await db.update(products).set(values).where(eq(products.id, input.id));
     return input.id;
@@ -658,7 +666,7 @@ export async function dashboardMetrics() {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -671,12 +679,13 @@ export async function exportBackup() {
     db.select().from(quoteItemDeliveries),
     db.select().from(stockMovements),
     db.select().from(storeSettings),
+    db.select().from(appointments),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows },
   };
 }
 
@@ -711,6 +720,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     quoteItemDeliveries?: Array<typeof quoteItemDeliveries.$inferInsert>;
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
     storeSettings?: Array<typeof storeSettings.$inferInsert>;
+    appointments?: Array<typeof appointments.$inferInsert>;
   };
   await db.transaction(async (tx) => {
     if (input.replace) {
@@ -726,6 +736,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(products);
       await tx.delete(clients);
       await tx.delete(storeSettings);
+      await tx.delete(appointments);
     }
     if (data.clients?.length) await tx.insert(clients).values(data.clients).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, professional: sql`values(professional)` } });
     if (data.products?.length) await tx.insert(products).values(data.products).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
@@ -738,6 +749,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.quoteItemReservations?.length) await tx.insert(quoteItemReservations).values(data.quoteItemReservations).onDuplicateKeyUpdate({ set: { reservedQuantity: sql`values(reservedQuantity)`, reservedAt: sql`values(reservedAt)` } });
     if (data.quoteItemDeliveries?.length) await tx.insert(quoteItemDeliveries).values(data.quoteItemDeliveries).onDuplicateKeyUpdate({ set: { deliveredQuantity: sql`values(deliveredQuantity)`, deliveredAt: sql`values(deliveredAt)`, responsible: sql`values(responsible)` } });
     if (data.stockMovements?.length) await tx.insert(stockMovements).values(data.stockMovements).onDuplicateKeyUpdate({ set: { quantity: sql`values(quantity)`, afterQuantity: sql`values(afterQuantity)`, occurredAt: sql`values(occurredAt)` } });
+    if (data.appointments?.length) await tx.insert(appointments).values(data.appointments).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, scheduledAt: sql`values(scheduledAt)`, notes: sql`values(notes)` } });
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };

@@ -3,7 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { financePayments, financeReceivables, products, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements } from "../drizzle/schema";
 import { getDb } from "./db";
 import { createQuote, getPickingList, saveProduct, saveQuote, type QuoteDraft } from "./quoteDb";
-import { deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, recordStockMovement } from "./stockDb";
+import { deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, purchaseSuggestions, recordStockMovement } from "./stockDb";
 
 const productIds: number[] = [];
 const quoteIds: number[] = [];
@@ -79,6 +79,9 @@ describe("separação e retiradas", () => {
     const secondItem = second.saved.rooms[0]!.items[0]!.id;
     expect(await lineOf(first.saved.id, firstItem)).toMatchObject({ reservedQuantity: 3, shortageQuantity: 2 });
     expect(await lineOf(second.saved.id, secondItem)).toMatchObject({ reservedQuantity: 0, shortageQuantity: 4 });
+    const purchase = (await purchaseSuggestions()).flatMap((supplier) => supplier.lines).find((line) => line.productId === productId);
+    expect(purchase).toMatchObject({ shortageQuantity: 6, freeQuantity: 0 });
+    expect(purchase!.waitingQuotes.map((entry) => entry.quoteId)).toEqual([first.saved.id, second.saved.id]);
 
     await recordStockMovement({ productId, type: "entry", quantity: 4, occurredAt: new Date() });
     expect(await lineOf(first.saved.id, firstItem)).toMatchObject({ reservedQuantity: 5, shortageQuantity: 0 });
@@ -101,4 +104,17 @@ describe("separação e retiradas", () => {
     const manualDeliveries = await db.select().from(quoteItemDeliveries).where(eq(quoteItemDeliveries.quoteItemId, manualItem!.id));
     expect(manualDeliveries).toEqual([expect.objectContaining({ productId: null, stockMovementId: null })]);
   }, 20_000);
+});
+
+describe("código de barras do catálogo", () => {
+  it("salva o código informado no cadastro e recusa repetido", async () => {
+    const barcode = `789${Date.now()}`.slice(0, 13);
+    const id = await saveProduct({ shortDescription: `Com EAN ${Date.now()}`, unit: "UN", unitPrice: 1, active: true, barcode });
+    productIds.push(id);
+    const db = (await getDb())!;
+    expect((await db.select().from(products).where(eq(products.id, id)))[0]).toMatchObject({ barcode });
+    await expect(saveProduct({ shortDescription: "Outro", unit: "UN", unitPrice: 1, active: true, barcode })).rejects.toThrow(/já está no produto/);
+    await saveProduct({ id, shortDescription: "Com EAN", unit: "UN", unitPrice: 1, active: true });
+    expect((await db.select().from(products).where(eq(products.id, id)))[0]).toMatchObject({ barcode });
+  });
 });
