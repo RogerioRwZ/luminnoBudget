@@ -85,6 +85,13 @@
       "when": 1793597650894,
       "tag": "0011_retornos_perfis",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1793599032272,
+      "tag": "0012_variacoes_produto",
+      "breakpoints": true
     }
   ]
 }

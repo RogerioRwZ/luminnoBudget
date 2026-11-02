@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   appointments,
   clients,
@@ -19,6 +19,7 @@ import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate
 import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
+import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, variantLabel, type VariantAttributes } from "../shared/variants";
 import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
 import { nextProductCode } from "../shared/productCodes";
 import { getDb } from "./db";
@@ -190,10 +191,39 @@ export async function saveProduct(input: {
   unitPrice: number;
   reorderPoint?: number;
   active: boolean;
+  parentId?: number | null;
+  modelName?: string | null;
+  attributes?: VariantAttributes | null;
 }) {
   const db = await database();
+  // Variações: o nome mostrado em todo o sistema é "Modelo — Cor · 3000K · 7W".
+  // Campos não enviados mantêm o que já estava gravado.
+  const current = input.id ? await getProduct(input.id) : null;
+  const attributes = input.attributes !== undefined ? cleanAttributes(input.attributes) : parseAttributes(current?.attributes);
+  let parentId = input.parentId !== undefined ? input.parentId || null : current?.parentId ?? null;
+  let root: typeof current = null;
+  if (parentId) {
+    const parent = await getProduct(parentId);
+    root = parent?.parentId ? await getProduct(parent.parentId) : parent;
+    if (!root) throw new Error("Produto principal do modelo não encontrado.");
+    if (root.id === input.id) [parentId, root] = [null, null];
+    else parentId = root.id;
+  }
+  const children = input.id ? await db.select().from(products).where(eq(products.parentId, input.id)) : [];
+  if (parentId && children.length) throw new Error("Este produto já é o principal de um modelo e não pode virar variação de outro.");
+  const inFamily = Boolean(parentId) || children.length > 0 || Boolean(variantLabel(attributes));
+  const modelName = inFamily ? (input.modelName?.trim() || current?.modelName || root?.modelName || root?.shortDescription || input.shortDescription).slice(0, 400) : null;
+  const rootId = parentId ?? (children.length ? input.id! : null);
+  if (rootId) {
+    const key = attributesKey(attributes);
+    const twin = (await db.select().from(products).where(or(eq(products.id, rootId), eq(products.parentId, rootId)))).find((member) => member.id !== input.id && attributesKey(parseAttributes(member.attributes)) === key);
+    if (twin) throw new Error(variantLabel(attributes) ? `A variação ${variantLabel(attributes)} já existe neste modelo (#${twin.code}).` : `Informe cor, temperatura, potência ou outro detalhe: sem isso a variação fica igual a #${twin.code}.`);
+  }
   const values = {
-    shortDescription: input.shortDescription,
+    shortDescription: modelName ? composeVariantName(modelName, attributes) : input.shortDescription,
+    parentId,
+    modelName,
+    attributes: variantLabel(attributes) ? JSON.stringify(attributes) : null,
     fullDescription: input.fullDescription || null,
     imageUrl: input.imageUrl || null,
     imageKey: input.imageKey || null,
@@ -208,6 +238,12 @@ export async function saveProduct(input: {
   if (input.barcode) {
     const owner = (await db.select({ id: products.id, shortDescription: products.shortDescription }).from(products).where(eq(products.barcode, input.barcode.trim())).limit(1))[0];
     if (owner && owner.id !== input.id) throw new Error(`Este código de barras já está no produto "${owner.shortDescription}".`);
+  }
+  // O principal passa a ter nome de modelo, e renomear o modelo renomeia as variações.
+  if (root && !root.modelName) await db.update(products).set({ modelName: root.shortDescription }).where(eq(products.id, root.id));
+  for (const child of children) {
+    if (child.modelName === modelName) continue;
+    await db.update(products).set({ modelName, shortDescription: composeVariantName(modelName!, parseAttributes(child.attributes)) }).where(eq(products.id, child.id));
   }
   if (input.id) {
     await db.update(products).set(values).where(eq(products.id, input.id));
@@ -228,6 +264,28 @@ export async function saveProduct(input: {
       if (code !== "ER_LOCK_DEADLOCK" || attempt >= 3) throw error;
     }
   }
+}
+
+// Cria as variações escolhidas (por exemplo, cores × temperaturas) copiando
+// os dados do produto principal; as que já existem são puladas. O ponto de
+// reposição começa zerado: senão cada variação nova, sem estoque, já iria
+// para Compras.
+export async function createProductVariants(productId: number, combinations: VariantAttributes[]) {
+  const base = await getProduct(productId);
+  const root = base?.parentId ? await getProduct(base.parentId) : base;
+  if (!root) throw new Error("Produto não encontrado.");
+  const modelName = root.modelName || root.shortDescription;
+  const created: number[] = [];
+  const skipped: string[] = [];
+  for (const combination of combinations) {
+    try {
+      created.push(await saveProduct({ shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), reorderPoint: 0, active: true }));
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("já existe neste modelo")) throw error;
+      skipped.push(variantLabel(cleanAttributes(combination)));
+    }
+  }
+  return { rootId: root.id, created, skipped };
 }
 
 export async function getProduct(id: number) {
