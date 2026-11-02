@@ -33,10 +33,14 @@ import {
   History,
   PackageCheck,
   PackagePlus,
+  ScanBarcode,
+  ShoppingCart,
   RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "wouter";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { plural } from "@shared/plural";
 
@@ -144,7 +148,9 @@ export default function InventoryPage() {
     onSuccess: result => {
       refresh();
       toast.success(
-        `Entrega registrada. ${result.pendingQuantity === 1 ? "Resta 1 unidade" : `Restam ${result.pendingQuantity} unidades`} neste item.`
+        result.pendingQuantity > 0
+          ? `Retirada registrada. Faltam ${result.pendingQuantity.toLocaleString("pt-BR")} neste item.`
+          : "Retirada registrada. Item entregue por completo."
       );
       setDeliveryOpen(false);
       setSelectedLine(null);
@@ -163,10 +169,59 @@ export default function InventoryPage() {
   const lowStock = overview?.lowStock ?? [];
   const movements = overview?.movements ?? [];
   const suppliers = overview?.suppliers ?? [];
-  const pendingLines = useMemo(
-    () => fulfillments.filter(line => line.pendingQuantity > 0),
-    [fulfillments]
-  );
+  // Itens pendentes agrupados por orçamento, para retirar tudo de uma vez
+  // ou conferir com o leitor de código de barras.
+  const pendingQuotes = useMemo(() => {
+    const groups = new Map<
+      number,
+      {
+        quoteId: number;
+        quoteNumber: number;
+        clientName: string;
+        lines: typeof fulfillments;
+      }
+    >();
+    fulfillments
+      .filter(line => line.pendingQuantity > 0)
+      .forEach(line => {
+        const group = groups.get(line.quoteId) ?? {
+          quoteId: line.quoteId,
+          quoteNumber: line.quoteNumber,
+          clientName: line.clientName,
+          lines: [],
+        };
+        group.lines.push(line);
+        groups.set(line.quoteId, group);
+      });
+    return Array.from(groups.values()).map(group => ({
+      ...group,
+      deliverableCount: group.lines.filter(line => line.deliverableQuantity > 0)
+        .length,
+      shortageCount: group.lines.filter(line => line.shortageQuantity > 0)
+        .length,
+    }));
+  }, [fulfillments]);
+  const [deliverAllGroup, setDeliverAllGroup] = useState<
+    (typeof pendingQuotes)[number] | null
+  >(null);
+  const deliverAll = trpc.inventory.deliverAll.useMutation({
+    onSuccess: results => {
+      refresh();
+      setDeliverAllGroup(null);
+      toast.success(
+        `Retirada registrada: ${plural(results.length, "item", "itens")}.`
+      );
+    },
+    onError: error => {
+      setDeliverAllGroup(null);
+      toast.error(
+        getFormErrorMessage(
+          error,
+          "Não foi possível registrar a retirada. Atualize a página e tente novamente."
+        )
+      );
+    },
+  });
   const filteredProducts = useMemo(
     () =>
       filterInventoryProducts(products, {
@@ -190,10 +245,9 @@ export default function InventoryPage() {
   const openDelivery = (line: (typeof fulfillments)[number]) => {
     setSelectedLine(line);
     setDeliveryForm({
-      // Usa o estoque disponível (físico menos reservas de outros orçamentos
-      // aprovados para o mesmo produto), não o estoque físico total — evita
-      // sugerir uma quantidade maior do que a que está realmente livre.
-      quantity: Math.max(0, Math.min(line.pendingQuantity, line.availableQuantity)),
+      // O que este item pode retirar agora: pendente, limitado à reserva
+      // dele e ao estoque físico (itens avulsos: todo o pendente).
+      quantity: line.deliverableQuantity,
       responsible: "",
       notes: "",
       deliveredAt: nowInput(),
@@ -293,7 +347,7 @@ export default function InventoryPage() {
               Itens pendentes de entrega
             </p>
             <p className="mt-1 font-display text-2xl font-bold">
-              {pendingLines.length}
+              {pendingQuotes.reduce((sum, group) => sum + group.lines.length, 0)}
             </p>
           </CardContent>
         </Card>
@@ -498,11 +552,12 @@ export default function InventoryPage() {
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="font-display text-lg">
-                Entregas parciais de orçamentos aprovados
+                Retiradas de orçamentos aprovados
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
-                Aprovar a proposta cria uma reserva. Cada retirada consome a
-                reserva e reduz o saldo físico.
+                Aprovar reserva o estoque disponível; o que faltar aparece em
+                Compras. Cada retirada, total ou parcial, consome a reserva e
+                baixa o estoque.
               </p>
             </div>
             <PackageCheck className="h-5 w-5 text-primary" />
@@ -510,14 +565,14 @@ export default function InventoryPage() {
           <CardContent>
             {fulfillmentsLoading ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                Carregando entregas…
+                Carregando retiradas…
               </p>
             ) : fulfillmentsError ? (
               <div
                 role="alert"
                 className="space-y-3 py-8 text-center text-sm text-muted-foreground"
               >
-                <p>Não foi possível carregar as entregas pendentes.</p>
+                <p>Não foi possível carregar as retiradas pendentes.</p>
                 <Button
                   variant="outline"
                   size="sm"
@@ -526,78 +581,119 @@ export default function InventoryPage() {
                   Tentar novamente
                 </Button>
               </div>
-            ) : pendingLines.length ? (
-              <div className="divide-y divide-border">
-                {pendingLines.map(line => (
+            ) : pendingQuotes.length ? (
+              <div className="space-y-4">
+                {pendingQuotes.map(group => (
                   <div
-                    key={line.quoteItemId}
-                    className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center"
+                    key={group.quoteId}
+                    className="overflow-hidden rounded-xl border border-border/70"
                   >
-                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 font-display text-sm font-bold text-amber-700 dark:text-amber-300">
-                      #{line.quoteNumber}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold">
-                        {line.shortDescription}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {line.clientName || "Cliente não informado"} ·{" "}
-                        {line.roomName} · pedido: {line.orderedQuantity}{" "}
-                        {line.unit}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                        <Badge
-                          variant="secondary"
-                          className="bg-sky-500/10 text-sky-700 dark:text-sky-300"
-                        >
-                          Entregue: {line.deliveredQuantity}
-                        </Badge>
-                        <Badge
-                          variant="secondary"
-                          className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                        >
-                          Reservado: {line.reservedQuantity}
-                        </Badge>
-                        <Badge variant="secondary">
-                          Físico: {line.stockQuantity}
-                        </Badge>
-                        <Badge
-                          variant="secondary"
-                          className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        >
-                          Disponível: {line.availableQuantity}
-                        </Badge>
+                    <div className="flex flex-col gap-3 border-b border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-center">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold">
+                          Orçamento #{group.quoteNumber} ·{" "}
+                          {group.clientName || "Cliente não informado"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {plural(group.lines.length, "item pendente", "itens pendentes")}
+                          {group.shortageCount
+                            ? ` · ${plural(group.shortageCount, "aguardando compra", "aguardando compra")}`
+                            : ""}
+                        </p>
                       </div>
-                      {line.deliveries.length ? (
-                        <details className="mt-2 text-xs text-muted-foreground">
-                          <summary className="cursor-pointer">
-                            Ver{" "}
-                            {plural(line.deliveries.length, "entrega registrada", "entregas registradas")}
-                          </summary>
-                          <div className="mt-2 space-y-1 rounded-lg bg-muted/50 p-2">
-                            {line.deliveries.map(delivery => (
-                              <p key={delivery.id}>
-                                {dateOnly(delivery.deliveredAt)} ·{" "}
-                                {delivery.deliveredQuantity} {line.unit}
-                                {delivery.responsible
-                                  ? ` · ${delivery.responsible}`
-                                  : ""}
-                              </p>
-                            ))}
-                          </div>
-                        </details>
-                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/estoque/conferencia/${group.quoteId}`}>
+                            <ScanBarcode className="mr-2 h-4 w-4" />
+                            Conferir com leitor
+                          </Link>
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!group.deliverableCount}
+                          onClick={() => setDeliverAllGroup(group)}
+                        >
+                          <PackageCheck className="mr-2 h-4 w-4" />
+                          Retirar tudo
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      size="sm"
-                      disabled={
-                        line.stockQuantity <= 0 || line.reservedQuantity <= 0
-                      }
-                      onClick={() => openDelivery(line)}
-                    >
-                      <ArrowUpFromLine className="mr-2 h-4 w-4" />
-                      Registrar entrega
-                    </Button>
+                    <div className="divide-y divide-border">
+                      {group.lines.map(line => (
+                        <div
+                          key={line.quoteItemId}
+                          className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold">
+                              {line.shortDescription}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {line.roomName} · entregue{" "}
+                              {line.deliveredQuantity} de {line.orderedQuantity}{" "}
+                              {line.unit}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                              {line.productId ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                >
+                                  Reservado: {line.reservedQuantity}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary">
+                                  Item avulso, sem estoque
+                                </Badge>
+                              )}
+                              <Badge
+                                variant="secondary"
+                                className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                              >
+                                Pode retirar: {line.deliverableQuantity}
+                              </Badge>
+                              {line.shortageQuantity > 0 ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                                >
+                                  <ShoppingCart className="mr-1 h-3 w-3" />
+                                  Falta comprar: {line.shortageQuantity}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            {line.deliveries.length ? (
+                              <details className="mt-2 text-xs text-muted-foreground">
+                                <summary className="cursor-pointer">
+                                  Ver{" "}
+                                  {plural(line.deliveries.length, "retirada registrada", "retiradas registradas")}
+                                </summary>
+                                <div className="mt-2 space-y-1 rounded-lg bg-muted/50 p-2">
+                                  {line.deliveries.map(delivery => (
+                                    <p key={delivery.id}>
+                                      {dateOnly(delivery.deliveredAt)} ·{" "}
+                                      {delivery.deliveredQuantity} {line.unit}
+                                      {delivery.responsible
+                                        ? ` · ${delivery.responsible}`
+                                        : ""}
+                                    </p>
+                                  ))}
+                                </div>
+                              </details>
+                            ) : null}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={line.deliverableQuantity <= 0}
+                            onClick={() => openDelivery(line)}
+                          >
+                            <ArrowUpFromLine className="mr-2 h-4 w-4" />
+                            Registrar retirada
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -605,17 +701,37 @@ export default function InventoryPage() {
               <div className="py-10 text-center">
                 <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
                 <p className="mt-3 text-sm font-semibold">
-                  Não há itens pendentes de entrega.
+                  Não há itens pendentes de retirada.
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Aprovar um orçamento com produtos vinculados ao catálogo fará
-                  os itens aparecerem aqui.
+                  Os itens de orçamentos aprovados aparecem aqui até serem
+                  entregues por completo.
                 </p>
               </div>
             )}
           </CardContent>
         </Card>
       </section>
+      <ConfirmDialog
+        open={deliverAllGroup !== null}
+        onOpenChange={open => !open && setDeliverAllGroup(null)}
+        title={`Retirar tudo do orçamento #${deliverAllGroup?.quoteNumber ?? ""}?`}
+        description={
+          deliverAllGroup
+            ? `Registra agora a retirada de ${plural(deliverAllGroup.deliverableCount, "item disponível", "itens disponíveis")}${deliverAllGroup.shortageCount ? ". Itens que aguardam compra ficam pendentes" : ""}. O estoque é baixado na hora.`
+            : ""
+        }
+        confirmLabel="Registrar retirada"
+        onConfirm={() =>
+          deliverAllGroup &&
+          deliverAll.mutate({
+            quoteId: deliverAllGroup.quoteId,
+            deliveredAt: new Date(),
+            responsible: null,
+            notes: null,
+          })
+        }
+      />
       <section>
         <Card className="border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
@@ -850,7 +966,7 @@ export default function InventoryPage() {
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Registrar entrega parcial</DialogTitle>
+            <DialogTitle>Registrar retirada</DialogTitle>
             <DialogDescription>
               {selectedLine
                 ? `Orçamento #${selectedLine.quoteNumber} · ${selectedLine.clientName || "Cliente não informado"}`
@@ -863,8 +979,12 @@ export default function InventoryPage() {
               <div className="rounded-xl bg-muted/60 p-3">
                 <p className="font-semibold">{selectedLine.shortDescription}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Reservado: {selectedLine.reservedQuantity} {selectedLine.unit}{" "}
-                  · Disponível: {selectedLine.availableQuantity} {selectedLine.unit}
+                  Falta entregar: {selectedLine.pendingQuantity} {selectedLine.unit}{" "}
+                  · Pode retirar agora: {selectedLine.deliverableQuantity}{" "}
+                  {selectedLine.unit}
+                  {selectedLine.shortageQuantity > 0
+                    ? ` · Aguardando compra: ${selectedLine.shortageQuantity} ${selectedLine.unit}`
+                    : ""}
                 </p>
               </div>
               <div className="space-y-2">
@@ -873,10 +993,7 @@ export default function InventoryPage() {
                   aria-label="Quantidade entregue"
                   type="number"
                   min="0.01"
-                  max={Math.min(
-                    selectedLine.reservedQuantity,
-                    selectedLine.availableQuantity
-                  )}
+                  max={selectedLine.deliverableQuantity}
                   step="0.01"
                   value={deliveryForm.quantity}
                   onChange={e =>
@@ -928,8 +1045,9 @@ export default function InventoryPage() {
                 />
               </div>
               <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
-                Esta operação consome a reserva, reduz o estoque físico e mantém
-                o restante do item como pendente de entrega.
+                {selectedLine.productId
+                  ? "Esta operação consome a reserva, reduz o estoque físico e mantém o restante do item como pendente."
+                  : "Item avulso: a retirada fica registrada, sem movimentar o estoque."}
               </p>
             </div>
           ) : null}
@@ -943,11 +1061,7 @@ export default function InventoryPage() {
               disabled={
                 !selectedLine ||
                 !deliveryForm.quantity ||
-                deliveryForm.quantity >
-                  Math.min(
-                    selectedLine.reservedQuantity,
-                    selectedLine.availableQuantity
-                  )
+                deliveryForm.quantity > selectedLine.deliverableQuantity
               }
               onClick={() =>
                 selectedLine &&

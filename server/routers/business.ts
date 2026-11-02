@@ -26,7 +26,8 @@ import {
   saveQuote,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, deliverQuoteItem, inventoryOverview, recordStockMovement } from "../stockDb";
+import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, recordStockMovement } from "../stockDb";
+import { isCentQuantity } from "../../shared/stock";
 import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, getReceivableSummary, recordFinancePayment } from "../financeDb";
 import { changedFields, formatActivityMoney as brl, listActivity, recordActivity, type ActivityEntity, type ActivityEntry } from "../activityLog";
 import { messageForQuote, messageForReceivable, pendingMessages } from "../messagesDb";
@@ -71,6 +72,15 @@ const clientInput = z.object({
   address: nullableText,
 });
 
+const deliveryQuantity = z.coerce.number().positive().max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade");
+const deliveryMeta = { responsible: nullableText, notes: nullableText, deliveredAt: z.coerce.date() };
+
+async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, results: Array<{ quoteItemId: number }>, responsible?: string | null) {
+  const [quote, lines] = await Promise.all([getQuote(quoteId), fulfillmentLines([quoteId])]);
+  const complete = lines.every((line) => line.pendingQuantity <= 0);
+  await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: quoteId, summary: `Registrou retirada de ${plural(results.length, "item", "itens")} do orçamento #${quote?.quoteNumber ?? quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}${complete ? " — pedido totalmente entregue" : ""}`, details: { responsavel: responsible ?? null } });
+}
+
 const productInput = z.object({
   id: z.number().int().positive().optional(),
   code: z.string().trim().max(64).optional(),
@@ -94,7 +104,7 @@ const quoteItemInput = z
     shortDescription: z.string().trim().min(1, "Informe a descrição do item").max(512),
     imageUrl: itemImageLocation.nullable().optional().or(z.literal("")),
     unit: z.string().trim().min(1).max(16).default("UN"),
-    quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999),
+    quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade"),
     unitPrice: money,
   })
   // quantity e unitPrice já têm limites individuais acima, mas o PRODUTO
@@ -363,7 +373,7 @@ export const businessRouter = router({
     move: protectedProcedure.input(z.object({
       productId: z.number().int().positive(),
       type: z.enum(["entry", "adjustment", "return"]),
-      quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999, "Informe uma quantidade válida"),
+      quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais"),
       responsible: nullableText,
       notes: nullableText,
       occurredAt: z.coerce.date(),
@@ -377,15 +387,27 @@ export const businessRouter = router({
     deliver: protectedProcedure.input(z.object({
       quoteId: z.number().int().positive(),
       quoteItemId: z.number().int().positive(),
-      quantity: z.coerce.number().positive().max(99_999),
-      responsible: nullableText,
-      notes: nullableText,
-      deliveredAt: z.coerce.date(),
+      quantity: deliveryQuantity,
+      ...deliveryMeta,
     })).mutation(async ({ ctx, input }) => {
       const result = await deliverQuoteItem(input);
-      const quote = await getQuote(input.quoteId);
-      await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: input.quoteItemId, summary: `Registrou entrega de ${plural(input.quantity, "item", "itens")} do orçamento #${quote?.quoteNumber ?? input.quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}`, details: { responsavel: input.responsible ?? null } });
+      await logDelivery(ctx, input.quoteId, [result], input.responsible);
       return result;
+    }),
+    // Vários itens de uma vez (conferência por código de barras).
+    deliverMany: protectedProcedure.input(z.object({
+      quoteId: z.number().int().positive(),
+      lines: z.array(z.object({ quoteItemId: z.number().int().positive(), quantity: deliveryQuantity })).min(1).max(500),
+      ...deliveryMeta,
+    })).mutation(async ({ ctx, input }) => {
+      const results = await deliverQuoteItems(input);
+      await logDelivery(ctx, input.quoteId, results, input.responsible);
+      return results;
+    }),
+    deliverAll: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), ...deliveryMeta })).mutation(async ({ ctx, input }) => {
+      const results = await deliverAllAvailable(input);
+      await logDelivery(ctx, input.quoteId, results, input.responsible);
+      return results;
     }),
   }),
   settings: router({

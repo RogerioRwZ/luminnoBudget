@@ -76,6 +76,9 @@ export const quotes = mysqlTable("quotes", {
   pixDiscountValue: decimal("pixDiscountValue", { precision: 12, scale: 2 }).notNull().default("0"),
   installments: int("installments").notNull().default(8),
   notes: text("notes"),
+  // Ordem de chegada dos aprovados: o estoque que entra atende primeiro quem
+  // foi aprovado antes.
+  approvedAt: timestamp("approvedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -170,7 +173,9 @@ export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   id: int("id").autoincrement().primaryKey(),
   quoteId: int("quoteId").notNull(),
   quoteItemId: int("quoteItemId").notNull(),
-  productId: int("productId").notNull(),
+  // Nulo para itens avulsos (sem produto de estoque): a retirada é
+  // registrada, mas não movimenta estoque.
+  productId: int("productId"),
   clientName: varchar("clientName", { length: 240 }),
   deliveredQuantity: decimal("deliveredQuantity", { precision: 12, scale: 2 }).notNull(),
   deliveredAt: timestamp("deliveredAt").notNull().defaultNow(),
@@ -241,6 +246,25 @@ export const storeSettings = mysqlTable("storeSettings", {
   defaultTerms: text("defaultTerms"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// Agenda de entregas, visitas técnicas e instalações.
+export const appointments = mysqlTable("appointments", {
+  id: int("id").autoincrement().primaryKey(),
+  type: mysqlEnum("type", ["delivery", "technical_visit", "installation"]).notNull(),
+  status: mysqlEnum("status", ["scheduled", "done", "cancelled"]).notNull().default("scheduled"),
+  quoteId: int("quoteId"),
+  clientId: int("clientId"),
+  clientName: varchar("clientName", { length: 240 }).notNull(),
+  phone: varchar("phone", { length: 40 }),
+  address: text("address"),
+  scheduledAt: timestamp("scheduledAt").notNull(),
+  durationMinutes: int("durationMinutes").notNull().default(60),
+  responsible: varchar("responsible", { length: 240 }),
+  notes: text("notes"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("appointments_scheduledAt_idx").on(table.scheduledAt)]);
 
 // Registro de atividades: quem fez o quê e quando. O nome do usuário é
 // copiado no momento da ação para o histórico continuar legível mesmo se o

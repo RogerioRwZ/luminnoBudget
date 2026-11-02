@@ -1,9 +1,9 @@
-import type { PickingItem } from "./picking";
+import { totalsByUnit, type PickingItem } from "./picking";
 import { plural } from "./plural";
 
 type PickingDocument = {
   quote: { quoteNumber: number; clientName: string; professional: string };
-  items: PickingItem[];
+  items: Array<Pick<PickingItem, "key" | "code" | "shortDescription" | "fullDescription" | "unit" | "quantity" | "rooms"> & Partial<Pick<PickingItem, "deliveredQuantity" | "orderedQuantity">>>;
   issuedAt: string;
   brand?: { tradingName?: string | null; companyName?: string | null; phone?: string | null } | null;
 };
@@ -46,19 +46,27 @@ tr{break-inside:avoid;page-break-inside:avoid}
 .sign div{border-top:1px solid #9e9a93;padding-top:4px;font-size:9px;color:#706c65}
 footer{margin-top:16px;border-top:1px solid #e5e2db;padding-top:6px;display:flex;justify-content:space-between;color:#9e9a93;font-size:9px}
 .empty{padding:18px;text-align:center;color:#706c65}
+.done{color:#706c65;font-size:10px;text-align:right;white-space:nowrap}
+.note{margin:10px 0 0;padding:8px 11px;border-radius:8px;background:#fff8d6;font-size:10px;color:#5c4b00}
 `;
 
 export function buildPickingPrintDocument(data: PickingDocument) {
   const tradingName = data.brand?.tradingName || "Luminno";
   const companyName = data.brand?.companyName || "";
-  const totalUnits = data.items.reduce((sum, item) => sum + item.quantity, 0);
-  const rows = data.items.map((item, index) => `<tr><td class="n">${index + 1}</td><td class="product"><b>${escape(item.shortDescription)}</b><small>Cód. ${escape(item.code)}</small>${item.fullDescription && item.fullDescription !== item.shortDescription ? `<span>${escape(item.fullDescription)}</span>` : ""}</td><td class="rooms">${escape(item.rooms.join(", "))}</td><td class="qty">${escape(`${quantity(item.quantity)} ${item.unit}`)}</td><td class="check"><i></i></td></tr>`).join("");
+  // Só o que falta separar; o que já foi retirado aparece numa coluna à parte.
+  const toPick = data.items.filter((item) => item.quantity > 0);
+  const deliveredCount = data.items.filter((item) => (item.deliveredQuantity ?? 0) > 0).length;
+  const fullyDelivered = data.items.length - toPick.length;
+  const partial = deliveredCount > 0;
+  const rows = toPick.map((item, index) => `<tr><td class="n">${index + 1}</td><td class="product"><b>${escape(item.shortDescription)}</b><small>Cód. ${escape(item.code)}</small>${item.fullDescription && item.fullDescription !== item.shortDescription ? `<span>${escape(item.fullDescription)}</span>` : ""}</td><td class="rooms">${escape(item.rooms.join(", "))}</td>${partial ? `<td class="done">${item.deliveredQuantity ? escape(`${quantity(item.deliveredQuantity)} de ${quantity(item.orderedQuantity ?? item.quantity + item.deliveredQuantity)}`) : "—"}</td>` : ""}<td class="qty">${escape(`${quantity(item.quantity)} ${item.unit}`)}</td><td class="check"><i></i></td></tr>`).join("");
+  const title = partial ? "Separação parcial" : "Lista de separação";
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Separação — Orçamento #${escape(data.quote.quoteNumber)}</title><style>${STYLE}</style></head><body><div class="sheet">`
-    + `<header><div class="brand"><b>${escape(tradingName)}</b><span>${escape(companyName)}${data.brand?.phone ? ` · ${escape(data.brand.phone)}` : ""}</span></div><div class="doc"><div class="eyebrow">Lista de separação</div><strong>Orçamento #${escape(data.quote.quoteNumber)}</strong></div></header>`
+    + `<header><div class="brand"><b>${escape(tradingName)}</b><span>${escape(companyName)}${data.brand?.phone ? ` · ${escape(data.brand.phone)}` : ""}</span></div><div class="doc"><div class="eyebrow">${title}</div><strong>Orçamento #${escape(data.quote.quoteNumber)}</strong></div></header>`
     + `<section class="cards"><div class="card"><div class="eyebrow">Cliente</div><p>${escape(data.quote.clientName || "Não informado")}</p></div><div class="card"><div class="eyebrow">Profissional</div><p>${escape(data.quote.professional || "Não informado")}</p></div><div class="card"><div class="eyebrow">Emitido em</div><p>${escape(data.issuedAt)}</p></div></section>`
-    + `<table><thead><tr><th>#</th><th>Produto</th><th>Ambientes</th><th style="text-align:right">Separar</th><th style="text-align:center">OK</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="empty">Nenhum item para separar.</td></tr>`}</tbody></table>`
+    + (partial ? `<p class="note">Parte deste pedido já foi retirada. A lista mostra apenas o que falta separar${fullyDelivered ? `; ${escape(plural(fullyDelivered, "produto já entregue por completo não aparece", "produtos já entregues por completo não aparecem"))}` : ""}.</p>` : "")
+    + `<table><thead><tr><th>#</th><th>Produto</th><th>Ambientes</th>${partial ? `<th style="text-align:right">Já entregue</th>` : ""}<th style="text-align:right">Separar</th><th style="text-align:center">OK</th></tr></thead><tbody>${rows || `<tr><td colspan="${partial ? 6 : 5}" class="empty">${partial ? "Tudo já foi entregue." : "Nenhum item para separar."}</td></tr>`}</tbody></table>`
     + `<section class="sign"><div>Separado por</div><div>Conferido por</div><div>Data</div></section>`
-    + `<footer><span>${escape(plural(data.items.length, "produto", "produtos"))} · ${escape(quantity(totalUnits))} ${totalUnits === 1 ? "unidade" : "unidades"} no total, consolidadas por produto.</span><span>Documento operacional — não é comprovante fiscal.</span></footer>`
+    + `<footer><span>${escape(plural(toPick.length, "produto", "produtos"))}${toPick.length ? ` · ${escape(totalsByUnit(toPick))}` : ""}, consolidados por produto.</span><span>Documento operacional — não é comprovante fiscal.</span></footer>`
     + `</div><script>window.onload=()=>window.print()<\/script></body></html>`;
 }
 

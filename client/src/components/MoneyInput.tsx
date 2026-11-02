@@ -3,7 +3,7 @@ import { useState, type ComponentProps } from "react";
 
 const formatters = {
   money: new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-  quantity: new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3, useGrouping: false }),
+  quantity: new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2, useGrouping: false }),
 };
 
 // Aceita "1.234,56", "1234,56" e "1234.56".

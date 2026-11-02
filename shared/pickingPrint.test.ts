@@ -23,3 +23,18 @@ describe("buildPickingPrintDocument", () => {
     expect(openPickingPrintDocument(data, () => null)).toBe(false);
   });
 });
+
+describe("separação parcial", () => {
+  it("lista só o que falta, mostra o já entregue e não soma unidades diferentes", () => {
+    const html = buildPickingPrintDocument({ quote: { quoteNumber: 9, clientName: "Cliente", professional: "" }, issuedAt: "01/11/2026", items: [
+      { key: "product-1", code: "1", shortDescription: "SPOT", fullDescription: "SPOT", unit: "UN", quantity: 6, orderedQuantity: 10, deliveredQuantity: 4, rooms: ["SALA"] },
+      { key: "product-2", code: "2", shortDescription: "PERFIL", fullDescription: "PERFIL", unit: "M", quantity: 2.5, orderedQuantity: 2.5, deliveredQuantity: 0, rooms: ["SALA"] },
+      { key: "product-3", code: "3", shortDescription: "DRIVER", fullDescription: "DRIVER", unit: "UN", quantity: 0, orderedQuantity: 2, deliveredQuantity: 2, rooms: ["SALA"] },
+    ] });
+    expect(html).toContain("Separação parcial");
+    expect(html).toContain("4 de 10");
+    expect(html).not.toContain("DRIVER");
+    expect(html).toContain("1 produto já entregue por completo não aparece");
+    expect(html).toContain("6 UN · 2,5 M");
+  });
+});
