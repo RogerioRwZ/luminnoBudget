@@ -27,12 +27,25 @@ import {
   Boxes,
   Hash,
   ImagePlus,
+  Layers,
+  Palette,
+  Plus,
   PackagePlus,
   Search,
   Truck,
   X,
 } from "lucide-react";
 import { ChangeEvent, useMemo, useState } from "react";
+import { VariantGenerator } from "@/components/VariantGenerator";
+import { plural } from "@shared/plural";
+import {
+  cleanAttributes,
+  composeVariantName,
+  parseAttributes,
+  VARIANT_FIELDS,
+  variantLabel,
+  type VariantKey,
+} from "@shared/variants";
 import { toast } from "sonner";
 
 type ProductForm = {
@@ -48,7 +61,11 @@ type ProductForm = {
   unitPrice: number;
   reorderPoint: number;
   active: boolean;
+  parentId: number | null;
+  modelName: string;
+  attributes: Record<VariantKey, string>;
 };
+const emptyAttributes = Object.fromEntries(VARIANT_FIELDS.map(field => [field.key, ""])) as Record<VariantKey, string>;
 const emptyProduct: ProductForm = {
   code: "",
   shortDescription: "",
@@ -61,7 +78,29 @@ const emptyProduct: ProductForm = {
   unitPrice: 0,
   reorderPoint: 0,
   active: true,
+  parentId: null,
+  modelName: "",
+  attributes: emptyAttributes,
 };
+type Product = {
+  id: number;
+  code: string;
+  shortDescription: string;
+  fullDescription: string | null;
+  imageUrl: string | null;
+  imageKey: string | null;
+  barcode: string | null;
+  unit: string;
+  supplierName: string | null;
+  unitPrice: string | number;
+  stockQuantity: string | number;
+  reorderPoint: string | number;
+  active: boolean;
+  parentId: number | null;
+  modelName: string | null;
+  attributes: string | null;
+};
+const toFormAttributes = (text: string | null) => ({ ...emptyAttributes, ...parseAttributes(text) });
 
 export default function ProductsPage() {
   const utils = trpc.useUtils();
@@ -109,16 +148,63 @@ export default function ProductsPage() {
   const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
     enabled: open,
   });
-  const filtered = useMemo(
-    () =>
-      data.filter(product =>
-        `${product.code} ${product.shortDescription} ${product.supplierName ?? ""}`
-          .toLocaleLowerCase("pt-BR")
-          .includes(search.toLocaleLowerCase("pt-BR"))
-      ),
-    [data, search]
-  );
-  const edit = (product: (typeof data)[number]) => {
+  // Modelos com variações aparecem agrupados; o resto, como antes.
+  const { families, standalone } = useMemo(() => {
+    const needle = search.toLocaleLowerCase("pt-BR");
+    const matches = (product: Product) =>
+      `${product.code} ${product.shortDescription} ${product.supplierName ?? ""} ${product.barcode ?? ""}`
+        .toLocaleLowerCase("pt-BR")
+        .includes(needle);
+    const childrenOf = new Map<number, Product[]>();
+    data.forEach(product => {
+      if (product.parentId) childrenOf.set(product.parentId, [...(childrenOf.get(product.parentId) ?? []), product]);
+    });
+    const families: Array<{ root: Product; members: Product[] }> = [];
+    const standalone: Product[] = [];
+    data.forEach(product => {
+      if (product.parentId) return;
+      const children = childrenOf.get(product.id) ?? [];
+      if (!children.length) {
+        if (matches(product)) standalone.push(product);
+        return;
+      }
+      const members = [product, ...children.sort((first, second) => first.shortDescription.localeCompare(second.shortDescription, "pt-BR", { numeric: true }))];
+      const visible = members.some(matches) ? (matches(product) ? members : members.filter(matches)) : [];
+      if (visible.length) families.push({ root: product, members: visible });
+    });
+    return { families, standalone };
+  }, [data, search]);
+  const filteredCount = families.length + standalone.length;
+  const [generatorFor, setGeneratorFor] = useState<Product | null>(null);
+  const familyMembers = (rootId: number) => data.filter(product => product.id === rootId || product.parentId === rootId);
+  const hasChildren = form.id ? data.some(product => product.parentId === form.id) : false;
+  const familyMode = Boolean(form.parentId) || hasChildren || Boolean(variantLabel(form.attributes));
+  const previewName = composeVariantName(form.modelName || form.shortDescription, cleanAttributes(form.attributes));
+  const newVariant = (root: Product) => {
+    setForm({
+      ...emptyProduct,
+      parentId: root.id,
+      modelName: root.modelName || root.shortDescription,
+      shortDescription: root.modelName || root.shortDescription,
+      fullDescription: root.fullDescription ?? "",
+      imageUrl: root.imageUrl ?? "",
+      imageKey: root.imageKey ?? "",
+      unit: root.unit,
+      supplierName: root.supplierName ?? "",
+      unitPrice: Number(root.unitPrice),
+      reorderPoint: Number(root.reorderPoint),
+    });
+    setOpen(true);
+  };
+  const submit = () =>
+    save.mutate({
+      ...form,
+      shortDescription: familyMode ? previewName : form.shortDescription,
+      modelName: familyMode ? form.modelName || form.shortDescription : null,
+      attributes: form.attributes,
+      parentId: form.parentId,
+    });
+  const edit = (product: Product) => {
     setForm({
       id: product.id,
       code: product.code,
@@ -132,6 +218,9 @@ export default function ProductsPage() {
       unitPrice: Number(product.unitPrice),
       reorderPoint: Number(product.reorderPoint),
       active: product.active,
+      parentId: product.parentId,
+      modelName: product.modelName ?? "",
+      attributes: toFormAttributes(product.attributes),
     });
     setOpen(true);
   };
@@ -181,7 +270,7 @@ export default function ProductsPage() {
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                {form.id ? `Editar produto #${form.code}` : "Novo produto"}
+                {form.id ? `Editar produto #${form.code}` : form.parentId ? "Nova variação" : "Novo produto"}
                 <DraftAutosaveStatus status={productDraft.status} />
               </DialogTitle>
               <DialogDescription className="sr-only">
@@ -208,7 +297,8 @@ export default function ProductsPage() {
                     size="sm"
                     onClick={() => {
                       const restored = productDraft.restore();
-                      if (restored) setForm(restored);
+                      // Rascunhos antigos não têm os campos de variação.
+                      if (restored) setForm({ ...emptyProduct, ...restored, attributes: { ...emptyAttributes, ...restored.attributes } });
                     }}
                   >
                     Recuperar
@@ -269,20 +359,86 @@ export default function ProductsPage() {
                   placeholder="Ex.: Distribuidora Luminare"
                 />
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>
-                  Descrição curta{" "}
-                  <span className="text-muted-foreground">
-                    (vai para o orçamento)
-                  </span>
-                </Label>
-                <Input
-                  aria-label="Descrição curta (vai para o orçamento)"
-                  value={form.shortDescription}
-                  onChange={e =>
-                    setForm({ ...form, shortDescription: e.target.value })
-                  }
-                />
+              {familyMode ? (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="product-model-name">
+                    Nome do modelo{" "}
+                    <span className="text-muted-foreground">
+                      (comum a todas as variações)
+                    </span>
+                  </Label>
+                  <Input
+                    id="product-model-name"
+                    value={form.modelName || form.shortDescription}
+                    readOnly={Boolean(form.parentId)}
+                    onChange={e => setForm({ ...form, modelName: e.target.value })}
+                  />
+                  {form.parentId ? (
+                    <p className="text-xs text-muted-foreground">
+                      Para renomear o modelo, edite o produto principal.
+                    </p>
+                  ) : hasChildren ? (
+                    <p className="text-xs text-muted-foreground">
+                      Mudar o nome do modelo renomeia todas as variações.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>
+                    Descrição curta{" "}
+                    <span className="text-muted-foreground">
+                      (vai para o orçamento)
+                    </span>
+                  </Label>
+                  <Input
+                    aria-label="Descrição curta (vai para o orçamento)"
+                    value={form.shortDescription}
+                    onChange={e =>
+                      setForm({ ...form, shortDescription: e.target.value })
+                    }
+                  />
+                </div>
+              )}
+              <div className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold">
+                    Variação {familyMode ? "" : "(opcional)"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {VARIANT_FIELDS.map(field => (
+                    <div key={field.key} className="space-y-1.5">
+                      <Label htmlFor={`product-variant-${field.key}`} className="text-xs">
+                        {field.label}
+                      </Label>
+                      <Input
+                        id={`product-variant-${field.key}`}
+                        value={form.attributes[field.key]}
+                        placeholder={field.placeholder}
+                        onChange={e =>
+                          setForm({
+                            ...form,
+                            modelName: form.modelName || form.shortDescription,
+                            attributes: { ...form.attributes, [field.key]: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+                {familyMode ? (
+                  <p className="text-xs text-muted-foreground">
+                    Vai aparecer no orçamento como <b className="text-foreground">{previewName}</b>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Preencha se este produto for uma variação (cor, temperatura
+                    de luz, potência). Depois de salvo, use "Criar variações"
+                    para cadastrar as outras de uma vez.
+                  </p>
+                )}
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>
@@ -402,7 +558,7 @@ export default function ProductsPage() {
                 loadingLabel={
                   upload.isPending ? "Aguardando imagem…" : "Salvando produto…"
                 }
-                onClick={() => save.mutate(form)}
+                onClick={submit}
               >
                 Salvar produto
               </AsyncButton>
@@ -436,9 +592,79 @@ export default function ProductsPage() {
                 Tentar novamente
               </Button>
             </div>
-          ) : filtered.length ? (
+          ) : filteredCount ? (
+            <div>
+            {families.map(({ root, members }) => (
+              <div key={root.id} className="border-b border-border p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl border bg-muted">
+                    {root.imageUrl ? (
+                      <img src={root.imageUrl} className="h-full w-full object-contain" />
+                    ) : (
+                      <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold">{root.modelName || root.shortDescription}</p>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Layers className="h-3 w-3" />
+                        {plural(familyMembers(root.id).length, "variação", "variações")}
+                      </span>
+                      {root.supplierName ? (
+                        <span className="flex items-center gap-1">
+                          <Truck className="h-3 w-3" />
+                          {root.supplierName}
+                        </span>
+                      ) : null}
+                      <span>
+                        Estoque total:{" "}
+                        {familyMembers(root.id).reduce((sum, member) => sum + Number(member.stockQuantity), 0)}{" "}
+                        {root.unit}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => newVariant(root)}>
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                      Uma variação
+                    </Button>
+                    <Button size="sm" onClick={() => setGeneratorFor(root)}>
+                      <Layers className="mr-1.5 h-3.5 w-3.5" />
+                      Criar várias
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-3 overflow-hidden rounded-xl border border-border">
+                  {members.map(member => {
+                    const stock = Number(member.stockQuantity);
+                    const point = Number(member.reorderPoint);
+                    const label = variantLabel(parseAttributes(member.attributes));
+                    return (
+                      <div key={member.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-3 py-2 text-xs last:border-0">
+                        <span className="min-w-40 flex-1 font-semibold">
+                          {label || <span className="text-amber-700 dark:text-amber-300">Principal sem variação definida</span>}
+                          {member.id === root.id ? <Badge variant="outline" className="ml-2 text-[10px]">principal</Badge> : null}
+                        </span>
+                        <span className="font-mono text-muted-foreground">#{member.code}</span>
+                        <span className="font-mono text-muted-foreground">{member.barcode ? `EAN ${member.barcode}` : "sem EAN"}</span>
+                        <span className="font-semibold">{money(member.unitPrice)}</span>
+                        <Badge variant="secondary" className={point > 0 && stock <= point ? "bg-red-500/10 text-red-700" : "bg-emerald-500/10 text-emerald-700"}>
+                          {stock} {member.unit}
+                        </Badge>
+                        {!member.active ? <span className="text-[10px] font-bold uppercase text-muted-foreground">Arquivado</span> : null}
+                        <button onClick={() => edit(member)} className="font-semibold text-primary hover:underline">
+                          Editar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {standalone.length ? (
             <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
-              {filtered.map(product => {
+              {standalone.map(product => {
                 const stock = Number(product.stockQuantity);
                 const point = Number(product.reorderPoint);
                 const low = point > 0 && stock <= point;
@@ -501,10 +727,19 @@ export default function ProductsPage() {
                           {stock} {product.unit}
                         </Badge>
                       </div>
+                      <button
+                        onClick={() => setGeneratorFor(product)}
+                        className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-primary"
+                      >
+                        <Layers className="h-3 w-3" />
+                        Criar variações (cor, temperatura, potência)
+                      </button>
                     </div>
                   </div>
                 );
               })}
+            </div>
+            ) : null}
             </div>
           ) : (
             <div className="p-12 text-center">
@@ -514,6 +749,12 @@ export default function ProductsPage() {
           )}
         </CardContent>
       </Card>
+      <VariantGenerator
+        open={generatorFor !== null}
+        onOpenChange={value => !value && setGeneratorFor(null)}
+        root={generatorFor}
+        members={generatorFor ? familyMembers(generatorFor.id) : []}
+      />
     </div>
   );
 }

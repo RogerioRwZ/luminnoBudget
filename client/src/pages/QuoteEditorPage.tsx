@@ -15,6 +15,7 @@ import { QuotePdfHistoryPanel } from "@/components/QuotePdfHistoryPanel";
 import { QuoteFinancePanel } from "@/components/QuoteFinancePanel";
 import { usePermissions } from "@/hooks/usePermissions";
 import { LOST_REASONS, LOST_REASON_LABELS, type LostReason } from "@shared/followUp";
+import { parseAttributes, variantLabel } from "@shared/variants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -388,6 +389,22 @@ export default function QuoteEditorPage() {
     () => products.filter(product => product.active),
     [products]
   );
+  // Variações do mesmo modelo aparecem juntas na busca.
+  const familyMembers = useMemo(() => {
+    const families = new Map<number, typeof activeProducts>();
+    activeProducts.forEach(product => {
+      const rootId = product.parentId ?? product.id;
+      families.set(rootId, [...(families.get(rootId) ?? []), product]);
+    });
+    families.forEach(members =>
+      members.sort((first, second) =>
+        Number(Boolean(first.parentId)) - Number(Boolean(second.parentId)) ||
+        first.shortDescription.localeCompare(second.shortDescription, "pt-BR", { numeric: true })
+      )
+    );
+    return families;
+  }, [activeProducts]);
+  const [openFamily, setOpenFamily] = useState<string | null>(null);
   // Deslocamento (offset) do item global de cada ambiente, para numerar os
   // campos de item de forma contínua entre ambientes (item 1, 2, 3...),
   // independentemente de quantos ambientes existam.
@@ -1086,13 +1103,20 @@ export default function QuoteEditorPage() {
             {draft.rooms.map((room, roomIndex) => {
               const query = searches[roomIndex] ?? "";
               const matches = query.trim()
-                ? activeProducts
-                    .filter(product =>
-                      `${product.code} ${product.shortDescription}`
-                        .toLocaleLowerCase("pt-BR")
-                        .includes(query.toLocaleLowerCase("pt-BR"))
+                ? Array.from(
+                    new Set(
+                      activeProducts
+                        .filter(product =>
+                          `${product.code} ${product.shortDescription} ${product.barcode ?? ""}`
+                            .toLocaleLowerCase("pt-BR")
+                            .includes(query.toLocaleLowerCase("pt-BR"))
+                        )
+                        .map(product => product.parentId ?? product.id)
                     )
+                  )
                     .slice(0, 6)
+                    .map(rootId => familyMembers.get(rootId) ?? [])
+                    .filter(members => members.length)
                 : [];
               return (
                 <Card
@@ -1170,33 +1194,75 @@ export default function QuoteEditorPage() {
                       </div>
                       {matches.length ? (
                         <div className="mt-2 overflow-hidden rounded-xl border border-border bg-card">
-                          {matches.map(product => (
-                            <button
-                              key={product.id}
-                              onClick={() => addProduct(roomIndex, product.id)}
-                              className="flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left last:border-0 hover:bg-muted"
-                            >
-                              <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-muted">
-                                {product.imageUrl ? (
-                                  <img
-                                    className="h-full w-full object-contain"
-                                    src={product.imageUrl}
-                                  />
-                                ) : (
-                                  <PackagePlus className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <b className="block truncate text-xs">
-                                  {product.shortDescription}
-                                </b>
-                                <small className="font-mono text-[10px] text-muted-foreground">
-                                  {product.code} · {money(product.unitPrice)}
-                                </small>
-                              </span>
-                              <Plus className="h-4 w-4 text-primary" />
-                            </button>
-                          ))}
+                          {matches.map(members => {
+                            const product = members[0]!;
+                            const familyKey = `${roomIndex}-${product.parentId ?? product.id}`;
+                            const isFamily = members.length > 1;
+                            const expanded = openFamily === familyKey;
+                            return (
+                              <div key={familyKey} className="border-b border-border last:border-0">
+                                <button
+                                  onClick={() =>
+                                    isFamily
+                                      ? setOpenFamily(expanded ? null : familyKey)
+                                      : addProduct(roomIndex, product.id)
+                                  }
+                                  aria-expanded={isFamily ? expanded : undefined}
+                                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted"
+                                >
+                                  <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-muted">
+                                    {product.imageUrl ? (
+                                      <img
+                                        className="h-full w-full object-contain"
+                                        src={product.imageUrl}
+                                      />
+                                    ) : (
+                                      <PackagePlus className="h-4 w-4 text-muted-foreground" />
+                                    )}
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <b className="block truncate text-xs">
+                                      {isFamily ? product.modelName || product.shortDescription : product.shortDescription}
+                                    </b>
+                                    <small className="font-mono text-[10px] text-muted-foreground">
+                                      {isFamily
+                                        ? `${members.length} variações · a partir de ${money(Math.min(...members.map(member => Number(member.unitPrice))))}`
+                                        : `${product.code} · ${money(product.unitPrice)}`}
+                                    </small>
+                                  </span>
+                                  {isFamily ? (
+                                    <ChevronDown className={`h-4 w-4 text-primary transition ${expanded ? "rotate-180" : ""}`} />
+                                  ) : (
+                                    <Plus className="h-4 w-4 text-primary" />
+                                  )}
+                                </button>
+                                {isFamily && expanded ? (
+                                  <div className="grid grid-cols-1 gap-1.5 bg-muted/40 p-2 sm:grid-cols-2">
+                                    {members.map(member => (
+                                      <button
+                                        key={member.id}
+                                        onClick={() => {
+                                          addProduct(roomIndex, member.id);
+                                          setOpenFamily(null);
+                                        }}
+                                        className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:border-primary"
+                                      >
+                                        <span className="min-w-0">
+                                          <b className="block truncate text-xs">
+                                            {variantLabel(parseAttributes(member.attributes)) || member.shortDescription}
+                                          </b>
+                                          <small className="font-mono text-[10px] text-muted-foreground">
+                                            {member.code} · {money(member.unitPrice)} · estoque {Number(member.stockQuantity)}
+                                          </small>
+                                        </span>
+                                        <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
                     </div>

@@ -52,9 +52,14 @@ export const products = mysqlTable("products", {
   stockQuantity: decimal("stockQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
   reorderPoint: decimal("reorderPoint", { precision: 12, scale: 2 }).notNull().default("0"),
   active: boolean("active").notNull().default(true),
+  // Variações (cor, temperatura de cor, potência...): cada variação é um
+  // produto completo ligado ao produto principal do modelo (parentId).
+  parentId: int("parentId"),
+  modelName: varchar("modelName", { length: 512 }),
+  attributes: text("attributes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [index("products_parentId_idx").on(table.parentId)]);
 
 export const quotes = mysqlTable("quotes", {
   id: int("id").autoincrement().primaryKey(),

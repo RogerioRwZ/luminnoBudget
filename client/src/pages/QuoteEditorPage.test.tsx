@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   toastWarning: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  products: [] as any[],
 }));
 
 vi.mock("sonner", () => ({
@@ -46,7 +47,7 @@ vi.mock("@/lib/trpc", () => {
         },
         delete: { useMutation: mutation },
       },
-      product: { list: { useQuery: () => ({ data: [] }) } },
+      product: { list: { useQuery: () => ({ data: mocks.products }) } },
       customers: { list: { useQuery: () => ({ data: [] }) } },
       settings: { get: { useQuery: () => ({ data: undefined }) } },
       inventory: { picking: { useQuery: () => ({ isFetching: false, refetch: vi.fn() }) } },
@@ -210,5 +211,21 @@ describe("QuoteEditorPage", () => {
     const reordered = searchInputs();
     expect(reordered[0]!.value).toBe("");
     expect(reordered[1]!.value).toBe("led");
+  });
+
+  it("mostra as variações de um modelo na busca e adiciona a escolhida", () => {
+    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: null, reorderPoint: "0", active: true, modelName: "Spot GU10", barcode: null };
+    mocks.products = [
+      { ...base, id: 21, code: "21", shortDescription: "Spot GU10 — Preto · 3000K", unitPrice: "60", stockQuantity: "4", parentId: null, attributes: '{"color":"Preto","colorTemperature":"3000K"}' },
+      { ...base, id: 22, code: "22", shortDescription: "Spot GU10 — Branco · 3000K", unitPrice: "65", stockQuantity: "0", parentId: 21, attributes: '{"color":"Branco","colorTemperature":"3000K"}' },
+    ];
+    render(<QuoteEditorPage />);
+    fireEvent.change(screen.getByLabelText("Buscar produto no ambiente 1"), { target: { value: "spot" } });
+    const family = screen.getByRole("button", { name: /Spot GU10.*2 variações/ });
+    fireEvent.click(family);
+    expect(family.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /Branco · 3000K/ }));
+    expect(screen.getByDisplayValue("Spot GU10 — Branco · 3000K")).toBeTruthy();
+    mocks.products = [];
   });
 });

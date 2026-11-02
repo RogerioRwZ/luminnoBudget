@@ -24,11 +24,13 @@ import {
   listQuotesPaged,
   saveClient,
   saveProduct,
+  createProductVariants,
   saveQuote,
   saveSettings,
 } from "../quoteDb";
 import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
+import { VARIANT_FIELDS, type VariantKey } from "../../shared/variants";
 import { canAccess, USER_ROLES } from "../../shared/permissions";
 import { LOST_REASONS, LOST_REASON_LABELS } from "../../shared/followUp";
 import { deleteAppointment, findConflicts, listAppointments, saveAppointment, setAppointmentStatus, upcomingAppointments } from "../agendaDb";
@@ -100,6 +102,8 @@ const appointmentInput = z.object({
   notes: nullableText,
 });
 
+const variantAttributes = z.object(Object.fromEntries(VARIANT_FIELDS.map((field) => [field.key, z.string().trim().max(80).optional()])) as Record<VariantKey, z.ZodOptional<z.ZodString>>);
+
 const productInput = z.object({
   id: z.number().int().positive().optional(),
   code: z.string().trim().max(64).optional(),
@@ -113,6 +117,9 @@ const productInput = z.object({
   unitPrice: money,
   reorderPoint: money,
   active: z.boolean().default(true),
+  parentId: z.number().int().positive().nullable().optional(),
+  modelName: z.string().trim().max(400).nullable().optional(),
+  attributes: variantAttributes.nullable().optional(),
 });
 
 const quoteItemInput = z
@@ -192,16 +199,23 @@ export const businessRouter = router({
     save: areaProcedure("catalog").input(productInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getProduct(input.id) : null;
       const id = await saveProduct({ ...input, imageUrl: input.imageUrl || null });
+      const saved = (await getProduct(id))!;
       if (!before) {
-        await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${input.shortDescription} (${brl(input.unitPrice)})` });
+        await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})` });
       } else {
-        const changes = changedFields(before as Record<string, unknown>, input as Record<string, unknown>, ["shortDescription", "unitPrice", "reorderPoint", "supplierName", "unit", "active"]);
+        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["shortDescription", "unitPrice", "reorderPoint", "supplierName", "unit", "active"]);
         if (Object.keys(changes).length) {
           const price = changes.unitPrice ? `: preço ${brl(Number(changes.unitPrice.de))} → ${brl(Number(changes.unitPrice.para))}` : "";
           await log(ctx, { action: changes.unitPrice ? "product.price" : "product.update", entityType: "product", entityId: id, summary: `Alterou o produto #${before.code} ${input.shortDescription}${price}`, details: changes });
         }
       }
       return id;
+    }),
+    createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), combinations: z.array(variantAttributes).min(1).max(100) })).mutation(async ({ ctx, input }) => {
+      const result = await createProductVariants(input.productId, input.combinations);
+      const root = await getProduct(result.rootId);
+      if (result.created.length) await log(ctx, { action: "product.variants", entityType: "product", entityId: result.rootId, summary: `Criou ${plural(result.created.length, "variação", "variações")} do modelo ${root?.modelName ?? root?.shortDescription ?? `#${result.rootId}`}` });
+      return result;
     }),
     setBarcode: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
       try {

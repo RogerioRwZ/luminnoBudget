@@ -18,6 +18,7 @@ vi.mock("@/lib/trpc", () => ({
       list: { useQuery: () => ({ ...mocks.list, refetch: mocks.refetch }) },
       save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       uploadImage: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      createVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
   },
 }));
@@ -57,5 +58,25 @@ describe("ProductsPage", () => {
     expect(screen.getByRole("alert").textContent).toContain("Não foi possível carregar o catálogo.");
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("agrupa as variações sob o modelo e monta o nome ao preencher a variação", () => {
+    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: "Lumi", unitPrice: "64.50", reorderPoint: "0", active: true, modelName: "Spot GU10" };
+    mocks.list.data = [
+      { ...base, id: 1, code: "1", shortDescription: "Spot GU10 — Preto · 3000K", barcode: null, stockQuantity: "4", parentId: null, attributes: '{"color":"Preto","colorTemperature":"3000K"}' },
+      { ...base, id: 2, code: "2", shortDescription: "Spot GU10 — Branco · 3000K", barcode: "789", stockQuantity: "6", parentId: 1, attributes: '{"color":"Branco","colorTemperature":"3000K"}' },
+      { ...base, id: 3, code: "3", shortDescription: "Fita LED", modelName: null, barcode: null, stockQuantity: "1", parentId: null, attributes: null },
+    ];
+    render(<ProductsPage />);
+    expect(screen.getByText("Spot GU10")).toBeTruthy();
+    expect(screen.getByText("2 variações")).toBeTruthy();
+    expect(screen.getByText(/Estoque total: 10/)).toBeTruthy();
+    expect(screen.getByText("Branco · 3000K")).toBeTruthy();
+    expect(screen.getByText("Fita LED")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Uma variação/ }));
+    fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Dourado" } });
+    fireEvent.change(screen.getByLabelText("Temperatura de cor"), { target: { value: "2700" } });
+    expect(screen.getByText("Spot GU10 — Dourado · 2700K")).toBeTruthy();
   });
 });
