@@ -47,7 +47,7 @@ vi.mock("@/lib/trpc", () => {
         },
         delete: { useMutation: mutation },
       },
-      product: { list: { useQuery: () => ({ data: mocks.products }) } },
+      product: { list: { useQuery: () => ({ data: mocks.products }) }, availability: { useQuery: () => ({ data: [] }) } },
       customers: { list: { useQuery: () => ({ data: [] }) } },
       settings: { get: { useQuery: () => ({ data: undefined }) } },
       inventory: { picking: { useQuery: () => ({ isFetching: false, refetch: vi.fn() }) } },

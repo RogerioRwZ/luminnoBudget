@@ -13,6 +13,8 @@ import {
   quotes,
   stockMovements,
   storeSettings,
+  professionals,
+  commissionPayments,
 } from "../drizzle/schema";
 import { calculateQuote, toNumber } from "../shared/quote";
 import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate } from "../shared/dashboardMetrics";
@@ -22,7 +24,9 @@ import { buildPickingList } from "../shared/picking";
 import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, variantLabel, type VariantAttributes } from "../shared/variants";
 import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
 import { nextProductCode } from "../shared/productCodes";
+import { professionalKey } from "../shared/commission";
 import { getDb } from "./db";
+import { commissionRateFor } from "./reportsDb";
 import { createReceivablesFromQuote, financeOverview } from "./financeDb";
 import { allocatePendingReservations, fulfillmentLines } from "./stockDb";
 
@@ -49,6 +53,7 @@ export type QuoteDraft = {
   followUpAt?: Date | null;
   lostReason?: LostReason | null;
   lostNotes?: string | null;
+  sellerUserId?: number | null;
   rooms: Array<{
     id?: number;
     name: string;
@@ -82,6 +87,9 @@ const DEFAULT_SETTINGS = {
   defaultInstallments: 8,
   alertThresholdDays: 7,
   followUpDays: 3,
+  maxDiscountPercent: "0",
+  minMarginPercent: "0",
+  defaultCommissionPercent: "0",
   defaultTerms: "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
 
@@ -120,6 +128,9 @@ export async function saveSettings(input: {
   defaultInstallments: number;
   alertThresholdDays: number;
   followUpDays: number;
+  maxDiscountPercent: string;
+  minMarginPercent: string;
+  defaultCommissionPercent: string;
   defaultTerms: string | null;
 }) {
   const db = await database();
@@ -189,6 +200,8 @@ export async function saveProduct(input: {
   unit: string;
   supplierName?: string | null;
   unitPrice: number;
+  // undefined mantém o custo gravado (o perfil Vendas não envia custo).
+  costPrice?: number | null;
   reorderPoint?: number;
   active: boolean;
   parentId?: number | null;
@@ -230,6 +243,7 @@ export async function saveProduct(input: {
     unit: input.unit || "UN",
     supplierName: input.supplierName || null,
     unitPrice: money(input.unitPrice),
+    ...(input.costPrice !== undefined ? { costPrice: input.costPrice === null ? null : money(input.costPrice) } : {}),
     reorderPoint: money(input.reorderPoint ?? 0),
     active: input.active,
     // O campo do catálogo existia, mas o valor era descartado aqui.
@@ -279,7 +293,7 @@ export async function createProductVariants(productId: number, combinations: Var
   const skipped: string[] = [];
   for (const combination of combinations) {
     try {
-      created.push(await saveProduct({ shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), reorderPoint: 0, active: true }));
+      created.push(await saveProduct({ shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), reorderPoint: 0, active: true }));
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("já existe neste modelo")) throw error;
       skipped.push(variantLabel(cleanAttributes(combination)));
@@ -499,7 +513,7 @@ export function isDuplicateQuoteNumberError(error: unknown) {
   return isDuplicateEntry && (!mysqlError.message || mysqlError.message.includes("quoteNumber"));
 }
 
-export async function createQuote() {
+export async function createQuote(sellerUserId: number | null = null) {
   const settings = await getSettings();
   const db = await database();
   const maxAttempts = 8;
@@ -527,6 +541,7 @@ export async function createQuote() {
       pixDiscountValue: toNumber(settings.defaultPixDiscountValue),
       installments: settings.defaultInstallments,
       notes: settings.defaultTerms,
+      sellerUserId,
       rooms: [{ name: "GERAL", items: [] }],
     };
     try {
@@ -570,6 +585,14 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
     lostReason: lost ? input.lostReason ?? before?.lostReason ?? null : null,
     lostNotes: lost ? (input.lostNotes !== undefined ? input.lostNotes : before?.lostNotes ?? null) || null : null,
   };
+  // A comissão do profissional fica fixada na aprovação: mudar o percentual
+  // depois não altera vendas já fechadas.
+  let commissionPercent: string | null = null;
+  if (input.status === "approved") {
+    const keep = before?.status === "approved" && before.commissionPercent !== null && professionalKey(before.professional) === professionalKey(input.professional);
+    const rate = keep ? null : await commissionRateFor(input.professional);
+    commissionPercent = keep ? before!.commissionPercent : rate === null ? null : rate.toFixed(2);
+  }
   return db.transaction(async (tx) => {
     let quoteId = input.id;
     const quoteValues = {
@@ -592,6 +615,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       installments: Math.max(1, Math.floor(input.installments)),
       notes: input.notes || null,
       ...outcome,
+      commissionPercent,
     };
     const releasedProducts: number[] = [];
     if (quoteId) {
@@ -631,10 +655,12 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       await tx.delete(quoteRooms).where(eq(quoteRooms.quoteId, quoteId));
       await tx.update(quotes).set({ ...quoteValues, approvedAt: input.status === "approved" ? new Date() : null }).where(eq(quotes.id, quoteId));
     } else {
-      const inserted = await tx.insert(quotes).values({ ...quoteValues, approvedAt: input.status === "approved" ? new Date() : null }).$returningId();
+      const inserted = await tx.insert(quotes).values({ ...quoteValues, sellerUserId: input.sellerUserId ?? null, approvedAt: input.status === "approved" ? new Date() : null }).$returningId();
       quoteId = inserted[0]!.id;
     }
     const approvedProducts: number[] = [];
+    const itemProductIds = Array.from(new Set(input.rooms.flatMap((room) => room.items.map((item) => item.productId)).filter((id): id is number => Boolean(id))));
+    const costs = new Map((itemProductIds.length ? await tx.select({ id: products.id, costPrice: products.costPrice }).from(products).where(inArray(products.id, itemProductIds)) : []).map((row) => [row.id, row.costPrice]));
     for (let roomIndex = 0; roomIndex < input.rooms.length; roomIndex += 1) {
       const room = input.rooms[roomIndex]!;
       const insertedRoom = await tx.insert(quoteRooms).values({ quoteId, name: room.name || "AMBIENTE", sortOrder: roomIndex }).$returningId();
@@ -650,6 +676,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
           unit: item.unit || "UN",
           quantity: money(item.quantity),
           unitPrice: money(item.unitPrice),
+          unitCost: item.productId ? costs.get(item.productId) ?? null : null,
           sortOrder: itemIndex,
         });
         if (input.status === "approved" && item.productId) approvedProducts.push(item.productId);
@@ -770,7 +797,7 @@ export async function registerFollowUp(id: number, days: number) {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -784,12 +811,14 @@ export async function exportBackup() {
     db.select().from(stockMovements),
     db.select().from(storeSettings),
     db.select().from(appointments),
+    db.select().from(professionals),
+    db.select().from(commissionPayments),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows },
   };
 }
 
@@ -825,6 +854,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
     storeSettings?: Array<typeof storeSettings.$inferInsert>;
     appointments?: Array<typeof appointments.$inferInsert>;
+    professionals?: Array<typeof professionals.$inferInsert>;
+    commissionPayments?: Array<typeof commissionPayments.$inferInsert>;
   };
   await db.transaction(async (tx) => {
     if (input.replace) {
@@ -841,6 +872,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(clients);
       await tx.delete(storeSettings);
       await tx.delete(appointments);
+      await tx.delete(professionals);
+      await tx.delete(commissionPayments);
     }
     if (data.clients?.length) await tx.insert(clients).values(data.clients).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, professional: sql`values(professional)` } });
     if (data.products?.length) await tx.insert(products).values(data.products).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
@@ -854,6 +887,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.quoteItemDeliveries?.length) await tx.insert(quoteItemDeliveries).values(data.quoteItemDeliveries).onDuplicateKeyUpdate({ set: { deliveredQuantity: sql`values(deliveredQuantity)`, deliveredAt: sql`values(deliveredAt)`, responsible: sql`values(responsible)` } });
     if (data.stockMovements?.length) await tx.insert(stockMovements).values(data.stockMovements).onDuplicateKeyUpdate({ set: { quantity: sql`values(quantity)`, afterQuantity: sql`values(afterQuantity)`, occurredAt: sql`values(occurredAt)` } });
     if (data.appointments?.length) await tx.insert(appointments).values(data.appointments).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, scheduledAt: sql`values(scheduledAt)`, notes: sql`values(notes)` } });
+    if (data.professionals?.length) await tx.insert(professionals).values(data.professionals).onDuplicateKeyUpdate({ set: { commissionPercent: sql`values(commissionPercent)`, phone: sql`values(phone)` } });
+    if (data.commissionPayments?.length) await tx.insert(commissionPayments).values(data.commissionPayments).onDuplicateKeyUpdate({ set: { amount: sql`values(amount)`, paidAt: sql`values(paidAt)`, notes: sql`values(notes)` } });
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };

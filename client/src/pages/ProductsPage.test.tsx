@@ -20,6 +20,7 @@ vi.mock("@/lib/trpc", () => ({
       uploadImage: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       createVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
+    auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
   },
 }));
 

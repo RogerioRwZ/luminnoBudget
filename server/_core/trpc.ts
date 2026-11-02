@@ -1,5 +1,5 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
-import { canAccess, type Area } from "@shared/permissions";
+import { canAccess, canSeeCost, type Area } from "@shared/permissions";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -26,7 +26,24 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+// Custo e margem nunca saem do servidor para quem não pode vê-los: os campos
+// são retirados de qualquer resposta (produto, orçamento, listas...).
+const COST_FIELDS = new Set(["costPrice", "unitCost"]);
+export function stripCostFields<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((entry) => stripCostFields(entry)) as T;
+  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).filter(([key]) => !COST_FIELDS.has(key)).map(([key, entry]) => [key, stripCostFields(entry)])) as T;
+  }
+  return value;
+}
+
+const hideCost = t.middleware(async ({ ctx, next }) => {
+  const result = await next();
+  if (result.ok && !canSeeCost(ctx.user?.role)) return { ...result, data: stripCostFields(result.data) };
+  return result;
+});
+
+export const protectedProcedure = t.procedure.use(requireUser).use(hideCost);
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {

@@ -16,6 +16,8 @@ import { setDraftOwner } from "./hooks/useDraftAutosave";
 // juntas no bundle inicial que todo mundo baixa só para abrir o sistema.
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const AgendaPage = lazy(() => import("@/pages/AgendaPage"));
+const CommissionsPage = lazy(() => import("@/pages/CommissionsPage"));
+const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const FinancePage = lazy(() => import("@/pages/FinancePage"));
@@ -68,6 +70,8 @@ export function Router() {
           <Route path="/orcamentos/:id" component={QuoteEditorPage} />
           <Route path="/historico-pdfs" component={PdfHistoryPage} />
           <Route path="/financeiro" component={FinancePage} />
+          <Route path="/comissoes" component={CommissionsPage} />
+          <Route path="/relatorios" component={ReportsPage} />
           <Route path="/catalogo" component={ProductsPage} />
           <Route path="/estoque" component={InventoryPage} />
           <Route path="/estoque/conferencia/:id" component={PickingCheckPage} />
