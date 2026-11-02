@@ -76,7 +76,7 @@ export default function CustomersPage() {
     onError: error => {
       const message = getFormErrorMessage(
         error,
-        "Não foi possível salvar o cliente. Confira nome e profissional e tente novamente."
+        "Não foi possível salvar o cliente. Confira o nome e tente novamente."
       );
       setFormError(message);
       toast.error(message);
@@ -131,8 +131,8 @@ export default function CustomersPage() {
           <p className="eyebrow">Relacionamento</p>
           <h2 className="page-title">Clientes</h2>
           <p className="page-description">
-            O cadastro começa apenas com nome e profissional responsável; os
-            demais dados são opcionais.
+            O cadastro começa apenas com o nome do cliente; os demais dados,
+            como o profissional responsável, são opcionais.
           </p>
         </div>
         <Dialog open={open} onOpenChange={close}>
@@ -190,9 +190,9 @@ export default function CustomersPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Profissional responsável *</Label>
+                <Label>Profissional responsável</Label>
                 <Input
-                  aria-label="Profissional responsável *"
+                  aria-label="Profissional responsável"
                   value={form.professional}
                   onChange={e =>
                     setForm({ ...form, professional: e.target.value })
@@ -288,8 +288,12 @@ export default function CustomersPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold">{customer.name}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Profissional: {customer.professional}
-                      {customer.phone ? ` · ${customer.phone}` : ""}
+                      {[
+                        customer.professional && `Profissional: ${customer.professional}`,
+                        customer.phone,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Sem profissional ou telefone"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

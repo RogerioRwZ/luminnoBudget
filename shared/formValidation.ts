@@ -33,7 +33,6 @@ export type QuoteValidationInput = {
 
 export function validateQuoteDraft(input: QuoteValidationInput): string | null {
   if (!input.clientName.trim()) return "Informe o nome do cliente.";
-  if (!input.professional.trim()) return "Informe o profissional responsável.";
   if (Number.isNaN(input.issueDate.getTime())) return "Informe uma data de emissão válida.";
   if (input.validUntil && Number.isNaN(input.validUntil.getTime())) return "Informe uma validade válida.";
   if (!isValidMoneyAmount(input.discountValue)) return "Informe um desconto válido.";

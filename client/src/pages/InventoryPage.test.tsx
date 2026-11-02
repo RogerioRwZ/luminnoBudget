@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
 
 const emptyOverview = { products: [], lowStock: [], movements: [], suppliers: [], stockValue: 0 };
 
+vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a> }));
+
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({ inventory: { invalidate: mocks.invalidate }, product: { list: { invalidate: mocks.invalidate } } }),
@@ -23,6 +25,7 @@ vi.mock("@/lib/trpc", () => ({
       fulfillments: { useQuery: () => ({ ...mocks.fulfillments, refetch: mocks.refetchFulfillments }) },
       move: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       deliver: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      deliverAll: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
   },
 }));
@@ -54,12 +57,12 @@ describe("InventoryPage", () => {
     mocks.fulfillments.isLoading = true;
     const { rerender } = render(<InventoryPage />);
     expect(screen.getByText("Carregando estoque…")).toBeTruthy();
-    expect(screen.getByText("Carregando entregas…")).toBeTruthy();
+    expect(screen.getByText("Carregando retiradas…")).toBeTruthy();
     mocks.overview = { data: emptyOverview, isLoading: false, error: null };
     mocks.fulfillments = { data: [], isLoading: false, error: null };
     rerender(<InventoryPage />);
     expect(screen.getByText("Nenhum produto corresponde aos filtros.")).toBeTruthy();
-    expect(screen.getByText("Não há itens pendentes de entrega.")).toBeTruthy();
+    expect(screen.getByText("Não há itens pendentes de retirada.")).toBeTruthy();
   });
 
   it("informa falha de estoque e permite nova tentativa", () => {
@@ -70,42 +73,41 @@ describe("InventoryPage", () => {
     expect(mocks.refetchOverview).toHaveBeenCalledOnce();
   });
 
-  it("usa o estoque disponível (não o físico total) ao sugerir e limitar a quantidade de entrega", () => {
+  it("deixa retirar o que está reservado para o próprio item, mesmo sem estoque livre", () => {
     mocks.overview.data = emptyOverview;
-    // Produto com 10un físicas, mas com 6un já reservadas por outro
-    // orçamento aprovado: para este item, sobram apenas 4un disponíveis,
-    // mesmo ele próprio tendo reservado (para si) até 6un.
+    // 10 un. físicas, todas reservadas para este item: o estoque livre é 0,
+    // mas a reserva é dele, então as 10 podem ser retiradas.
     mocks.fulfillments.data = [
       {
-        quoteId: 1,
-        quoteNumber: 55,
-        clientName: "Cliente Teste",
-        phone: null,
-        quoteItemId: 900,
-        roomName: "SALA",
-        productId: 10,
-        code: "1",
-        shortDescription: "Perfil de LED",
-        unit: "UN",
-        orderedQuantity: 6,
-        deliveredQuantity: 0,
-        pendingQuantity: 6,
-        reservedQuantity: 6,
-        stockQuantity: 10,
-        availableQuantity: 4,
-        deliveries: [],
+        quoteId: 1, quoteNumber: 55, clientName: "Cliente Teste", phone: null, approved: true,
+        quoteItemId: 900, roomName: "SALA", productId: 10, barcode: null, code: "1", shortDescription: "Perfil de LED", fullDescription: null, unit: "UN", supplierName: null,
+        orderedQuantity: 10, deliveredQuantity: 0, pendingQuantity: 10, reservedQuantity: 10, deliverableQuantity: 10, shortageQuantity: 0,
+        stockQuantity: 10, availableQuantity: 0, deliveries: [],
       },
     ];
     render(<InventoryPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Registrar entrega" }));
-
-    const quantityInput = screen.getByLabelText(
-      "Quantidade entregue"
-    ) as HTMLInputElement;
-    // Pré-preenchido com o disponível (4), não com o físico total (10) nem
-    // com o reservado deste item (6).
-    expect(quantityInput.value).toBe("4");
-    expect(quantityInput.max).toBe("4");
+    fireEvent.click(screen.getByRole("button", { name: "Registrar retirada" }));
+    const quantityInput = screen.getByLabelText("Quantidade entregue") as HTMLInputElement;
+    expect(quantityInput.value).toBe("10");
+    expect(quantityInput.max).toBe("10");
   });
+
+  it("agrupa por orçamento e mostra o que falta comprar", () => {
+    mocks.overview.data = emptyOverview;
+    mocks.fulfillments.data = [
+      {
+        quoteId: 2, quoteNumber: 70, clientName: "Marina", phone: null, approved: true,
+        quoteItemId: 901, roomName: "SALA", productId: 11, barcode: null, code: "2", shortDescription: "Spot", fullDescription: null, unit: "UN", supplierName: "Fornecedor",
+        orderedQuantity: 6, deliveredQuantity: 0, pendingQuantity: 6, reservedQuantity: 0, deliverableQuantity: 0, shortageQuantity: 6,
+        stockQuantity: 0, availableQuantity: 0, deliveries: [],
+      },
+    ];
+    render(<InventoryPage />);
+    expect(screen.getByText("Orçamento #70 · Marina")).toBeTruthy();
+    expect(screen.getByText(/Falta comprar: 6/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Retirar tudo" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("link", { name: /Conferir com leitor/ }).getAttribute("href")).toBe("/estoque/conferencia/2");
+  });
+
 });

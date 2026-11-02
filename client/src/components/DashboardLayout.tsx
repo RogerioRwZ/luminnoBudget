@@ -2,6 +2,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import {
   ArchiveRestore,
+  CalendarDays,
+  ShoppingCart,
   FileText,
   Files,
   Landmark,
@@ -34,10 +36,12 @@ import {
 const menuItems = [
   { icon: LayoutDashboard, label: "Visão geral", path: "/" },
   { icon: FileText, label: "Orçamentos", path: "/orcamentos" },
+  { icon: CalendarDays, label: "Agenda", path: "/agenda" },
   { icon: Files, label: "Histórico de PDFs", path: "/historico-pdfs" },
   { icon: Landmark, label: "Financeiro", path: "/financeiro" },
   { icon: PackageSearch, label: "Catálogo", path: "/catalogo" },
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
+  { icon: ShoppingCart, label: "Compras", path: "/compras" },
   { icon: UsersRound, label: "Clientes", path: "/clientes" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
   { icon: ScanLine, label: "Operação", path: "/operacao" },

@@ -26,13 +26,17 @@ import {
   saveQuote,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, deliverQuoteItem, inventoryOverview, recordStockMovement } from "../stockDb";
+import { approvedFulfillments, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
+import { isCentQuantity } from "../../shared/stock";
+import { deleteAppointment, findConflicts, listAppointments, saveAppointment, setAppointmentStatus, upcomingAppointments } from "../agendaDb";
+import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_TYPE_LABELS } from "../../shared/agenda";
 import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, getReceivableSummary, recordFinancePayment } from "../financeDb";
 import { changedFields, formatActivityMoney as brl, listActivity, recordActivity, type ActivityEntity, type ActivityEntry } from "../activityLog";
 import { messageForQuote, messageForReceivable, pendingMessages } from "../messagesDb";
 import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { plural } from "../../shared/plural";
+import { quotePdfFileName } from "../../shared/quoteFileName";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
 
@@ -62,12 +66,35 @@ const itemImageLocation = z.string().trim().max(2000).refine(
 const clientInput = z.object({
   id: z.number().int().positive().optional(),
   name: z.string().trim().min(1, "Informe o nome do cliente").max(240),
-  professional: z.string().trim().min(1, "Informe o profissional responsável").max(240),
+  professional: z.string().trim().max(240).default(""),
   document: nullableText,
   stateRegistration: nullableText,
   phone: nullableText,
   email: z.string().email("Informe um e-mail válido").nullable().optional().or(z.literal("")),
   address: nullableText,
+});
+
+const deliveryQuantity = z.coerce.number().positive().max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade");
+const deliveryMeta = { responsible: nullableText, notes: nullableText, deliveredAt: z.coerce.date() };
+
+async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, results: Array<{ quoteItemId: number }>, responsible?: string | null) {
+  const [quote, lines] = await Promise.all([getQuote(quoteId), fulfillmentLines([quoteId])]);
+  const complete = lines.every((line) => line.pendingQuantity <= 0);
+  await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: quoteId, summary: `Registrou retirada de ${plural(results.length, "item", "itens")} do orçamento #${quote?.quoteNumber ?? quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}${complete ? " — pedido totalmente entregue" : ""}`, details: { responsavel: responsible ?? null } });
+}
+
+const appointmentInput = z.object({
+  id: z.number().int().positive().optional(),
+  type: z.enum(["delivery", "technical_visit", "installation"]),
+  quoteId: z.number().int().positive().nullable().optional(),
+  clientId: z.number().int().positive().nullable().optional(),
+  clientName: z.string().trim().min(1, "Informe o cliente").max(240),
+  phone: nullableText,
+  address: nullableText,
+  scheduledAt: z.coerce.date(),
+  durationMinutes: z.number().int().min(15, "Duração mínima de 15 minutos").max(24 * 60),
+  responsible: nullableText,
+  notes: nullableText,
 });
 
 const productInput = z.object({
@@ -93,7 +120,7 @@ const quoteItemInput = z
     shortDescription: z.string().trim().min(1, "Informe a descrição do item").max(512),
     imageUrl: itemImageLocation.nullable().optional().or(z.literal("")),
     unit: z.string().trim().min(1).max(16).default("UN"),
-    quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999),
+    quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade"),
     unitPrice: money,
   })
   // quantity e unitPrice já têm limites individuais acima, mas o PRODUTO
@@ -287,6 +314,10 @@ export const businessRouter = router({
     savePdf: protectedProcedure.input(z.object({
       quoteId: z.number().int().positive(),
       dataUrl: z.string().min(32).max(12_000_000),
+      // Valores da tela no momento da geração: o salvamento automático pode
+      // ainda não ter gravado uma edição recente do nome.
+      clientName: z.string().max(240).optional(),
+      professional: z.string().max(240).optional(),
     })).mutation(async ({ ctx, input }) => {
       const separator = input.dataUrl.indexOf(",");
       if (!input.dataUrl.startsWith("data:application/pdf") || separator === -1) {
@@ -296,8 +327,7 @@ export const businessRouter = router({
       if (bytes.length > 8 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "O PDF deve ter no máximo 8 MB." });
       const quote = await getQuote(input.quoteId);
       if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
-      const generatedAt = new Date();
-      const fileName = `orcamento-${String(quote.quoteNumber).padStart(4, "0")}-${generatedAt.toISOString().replace(/[:.]/g, "-")}.pdf`;
+      const fileName = quotePdfFileName({ quoteNumber: quote.quoteNumber, clientName: input.clientName ?? quote.clientName, professional: input.professional ?? quote.professional });
       try {
         const stored = await saveLocalPdf(fileName, bytes);
         return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, storageKey: stored.key, fileSize: stored.fileSize });
@@ -355,11 +385,12 @@ export const businessRouter = router({
   inventory: router({
     overview: protectedProcedure.query(inventoryOverview),
     fulfillments: protectedProcedure.query(approvedFulfillments),
+    purchases: protectedProcedure.query(purchaseSuggestions),
     picking: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => getPickingList(input.quoteId)),
     move: protectedProcedure.input(z.object({
       productId: z.number().int().positive(),
       type: z.enum(["entry", "adjustment", "return"]),
-      quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999, "Informe uma quantidade válida"),
+      quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais"),
       responsible: nullableText,
       notes: nullableText,
       occurredAt: z.coerce.date(),
@@ -373,15 +404,47 @@ export const businessRouter = router({
     deliver: protectedProcedure.input(z.object({
       quoteId: z.number().int().positive(),
       quoteItemId: z.number().int().positive(),
-      quantity: z.coerce.number().positive().max(99_999),
-      responsible: nullableText,
-      notes: nullableText,
-      deliveredAt: z.coerce.date(),
+      quantity: deliveryQuantity,
+      ...deliveryMeta,
     })).mutation(async ({ ctx, input }) => {
       const result = await deliverQuoteItem(input);
-      const quote = await getQuote(input.quoteId);
-      await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: input.quoteItemId, summary: `Registrou entrega de ${plural(input.quantity, "item", "itens")} do orçamento #${quote?.quoteNumber ?? input.quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}`, details: { responsavel: input.responsible ?? null } });
+      await logDelivery(ctx, input.quoteId, [result], input.responsible);
       return result;
+    }),
+    // Vários itens de uma vez (conferência por código de barras).
+    deliverMany: protectedProcedure.input(z.object({
+      quoteId: z.number().int().positive(),
+      lines: z.array(z.object({ quoteItemId: z.number().int().positive(), quantity: deliveryQuantity })).min(1).max(500),
+      ...deliveryMeta,
+    })).mutation(async ({ ctx, input }) => {
+      const results = await deliverQuoteItems(input);
+      await logDelivery(ctx, input.quoteId, results, input.responsible);
+      return results;
+    }),
+    deliverAll: protectedProcedure.input(z.object({ quoteId: z.number().int().positive(), ...deliveryMeta })).mutation(async ({ ctx, input }) => {
+      const results = await deliverAllAvailable(input);
+      await logDelivery(ctx, input.quoteId, results, input.responsible);
+      return results;
+    }),
+  }),
+  agenda: router({
+    list: protectedProcedure.input(z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((range) => range.to > range.from && range.to.getTime() - range.from.getTime() <= 62 * 24 * 60 * 60_000, "Período inválido")).query(({ input }) => listAppointments(input)),
+    upcoming: protectedProcedure.query(() => upcomingAppointments(6)),
+    conflicts: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), responsible: z.string().max(240).nullable().optional(), scheduledAt: z.coerce.date(), durationMinutes: z.number().int().min(15).max(24 * 60) })).query(({ input }) => findConflicts(input)),
+    save: protectedProcedure.input(appointmentInput).mutation(async ({ ctx, input }) => {
+      const saved = await saveAppointment(input, ctx.user.id);
+      const when = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(saved.scheduledAt);
+      await log(ctx, { action: input.id ? "appointment.update" : "appointment.create", entityType: "appointment", entityId: saved.id, summary: `${input.id ? "Alterou" : "Agendou"} ${APPOINTMENT_TYPE_LABELS[saved.type].toLowerCase()} de ${saved.clientName} para ${when}` });
+      return saved;
+    }),
+    setStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["scheduled", "done", "cancelled"]) })).mutation(async ({ ctx, input }) => {
+      const saved = await setAppointmentStatus(input.id, input.status);
+      await log(ctx, { action: `appointment.${input.status}`, entityType: "appointment", entityId: saved.id, summary: `Marcou ${APPOINTMENT_TYPE_LABELS[saved.type].toLowerCase()} de ${saved.clientName} como ${APPOINTMENT_STATUS_LABELS[input.status].toLowerCase()}` });
+      return saved;
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const removed = await deleteAppointment(input.id);
+      await log(ctx, { action: "appointment.delete", entityType: "appointment", entityId: removed.id, summary: `Excluiu ${APPOINTMENT_TYPE_LABELS[removed.type].toLowerCase()} de ${removed.clientName}` });
     }),
   }),
   settings: router({

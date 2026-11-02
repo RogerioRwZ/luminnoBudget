@@ -582,7 +582,7 @@ export default function FinancePage() {
                 <option value="">Selecionar depois</option>
                 {clients.map(client => (
                   <option key={client.id} value={client.id}>
-                    {client.name} · {client.professional}
+                    {client.professional ? `${client.name} · ${client.professional}` : client.name}
                   </option>
                 ))}
               </select>

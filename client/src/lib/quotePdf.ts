@@ -1,4 +1,5 @@
 import { buildPixPayload } from "@shared/pix";
+import { quotePdfFileName } from "@shared/quoteFileName";
 import { pixQrDataUrl } from "./pixQr";
 import { jsPDF } from "jspdf";
 
@@ -210,7 +211,7 @@ async function buildQuotePdf(input: QuotePdfInput) {
   const clientLabel = input.clientName || "Cliente não informado";
   const pdf = new jsPDF({ format: "a4", unit: "mm", compress: true });
   pdf.setProperties({
-    title: `Orçamento nº ${input.quoteNumber} — ${clientLabel}`,
+    title: quotePdfFileName(input).replace(/\.pdf$/, ""),
     subject: `Proposta comercial emitida em ${date(input.issueDate)}`,
     author: brand,
     creator: "Luminno Orçamentos",

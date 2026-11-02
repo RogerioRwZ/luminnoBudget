@@ -58,7 +58,9 @@ import {
   PackagePlus,
   Plus,
   Printer,
+  ScanBarcode,
   ScanLine,
+  CalendarPlus,
   Save,
   Search,
   Trash2,
@@ -650,7 +652,7 @@ export default function QuoteEditorPage() {
             : `${failedImageCount} imagens (logotipo e/ou fotos de produto) não puderam ser incluídas no PDF. O documento foi gerado normalmente sem elas.`
         );
       }
-      savePdf.mutate({ quoteId: draft.id, dataUrl });
+      savePdf.mutate({ quoteId: draft.id, dataUrl, clientName: draft.clientName, professional: draft.professional });
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.");
     } finally {
@@ -723,6 +725,34 @@ export default function QuoteEditorPage() {
       ) : null}
       {editorError ? (
         <FormError className="no-print" message={editorError} />
+      ) : null}
+      {quoteQuery.data?.status === "approved" ? (
+        <div className="no-print flex flex-col gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm sm:flex-row sm:items-center">
+          <p className="min-w-0 flex-1 text-emerald-900 dark:text-emerald-100">
+            <span className="font-semibold">Orçamento aprovado.</span> Dados do
+            cliente, datas e observações podem ser editados; itens, valores e
+            condições ficam travados enquanto houver reserva de estoque. Para
+            alterá-los, mude o status para Em aberto.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setLocation(`/estoque/conferencia/${draft.id}`)}
+            >
+              <ScanBarcode className="mr-2 h-4 w-4" />
+              Conferir separação
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setLocation(`/agenda?orcamento=${draft.id}`)}
+            >
+              <CalendarPlus className="mr-2 h-4 w-4" />
+              Agendar
+            </Button>
+          </div>
+        </div>
       ) : null}
       {isPreparingPrint ? (
         <div
@@ -916,7 +946,7 @@ export default function QuoteEditorPage() {
                     <SelectItem value="manual">Preenchimento manual</SelectItem>
                     {customers.map(customer => (
                       <SelectItem key={customer.id} value={String(customer.id)}>
-                        {customer.name} — {customer.professional}
+                        {customer.professional ? `${customer.name} — ${customer.professional}` : customer.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -934,7 +964,7 @@ export default function QuoteEditorPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quote-professional">
-                  Profissional responsável
+                  Profissional responsável (opcional)
                 </Label>
                 <Input
                   id="quote-professional"

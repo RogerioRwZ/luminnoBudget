@@ -33,3 +33,21 @@ export function calculateRemainingReservation(reservedQuantity: number, delivere
   if (deliveredQuantity > reservedQuantity) throw new Error("A entrega excede a quantidade reservada");
   return round(reservedQuantity - deliveredQuantity);
 }
+
+// O banco guarda quantidades com 2 casas; 0,005 seria arredondado num lugar
+// e não no outro, deixando estoque e reservas descasados.
+export function isCentQuantity(value: number) {
+  return Number.isFinite(value) && Math.abs(Math.round(value * 100) - value * 100) < 1e-6;
+}
+
+// Situação de um item de orçamento aprovado. Itens avulsos (sem produto)
+// não têm estoque: tudo o que falta pode ser retirado.
+export function describeFulfillment(input: { ordered: number; delivered: number; reserved: number; stock: number | null }) {
+  const pending = Math.max(0, round(input.ordered - input.delivered));
+  if (input.stock === null) return { pending, deliverable: pending, shortage: 0 };
+  return {
+    pending,
+    deliverable: Math.max(0, round(Math.min(pending, input.reserved, input.stock))),
+    shortage: Math.max(0, round(pending - input.reserved)),
+  };
+}

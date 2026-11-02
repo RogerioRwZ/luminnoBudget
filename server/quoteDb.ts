@@ -1,5 +1,6 @@
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
+  appointments,
   clients,
   financePayments,
   financeReceivables,
@@ -19,9 +20,9 @@ import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuick
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
 import { nextProductCode } from "../shared/productCodes";
-import { assertReservableQuantity } from "../shared/stock";
 import { getDb } from "./db";
 import { createReceivablesFromQuote, financeOverview } from "./financeDb";
+import { allocatePendingReservations, fulfillmentLines } from "./stockDb";
 
 export type QuoteDraft = {
   id?: number;
@@ -177,6 +178,7 @@ export async function saveProduct(input: {
   fullDescription?: string | null;
   imageUrl?: string | null;
   imageKey?: string | null;
+  barcode?: string | null;
   unit: string;
   supplierName?: string | null;
   unitPrice: number;
@@ -194,17 +196,32 @@ export async function saveProduct(input: {
     unitPrice: money(input.unitPrice),
     reorderPoint: money(input.reorderPoint ?? 0),
     active: input.active,
+    // O campo do catálogo existia, mas o valor era descartado aqui.
+    ...(input.barcode !== undefined ? { barcode: input.barcode?.trim() || null } : {}),
   };
+  if (input.barcode) {
+    const owner = (await db.select({ id: products.id, shortDescription: products.shortDescription }).from(products).where(eq(products.barcode, input.barcode.trim())).limit(1))[0];
+    if (owner && owner.id !== input.id) throw new Error(`Este código de barras já está no produto "${owner.shortDescription}".`);
+  }
   if (input.id) {
     await db.update(products).set(values).where(eq(products.id, input.id));
     return input.id;
   }
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT id FROM ${products} FOR UPDATE`);
-    const existingCodes = await tx.select({ code: products.code }).from(products);
-    const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
-    return inserted[0]!.id;
-  });
+  // Dois cadastros ao mesmo tempo disputam a mesma trava e o MySQL derruba
+  // um deles por deadlock; nesse caso basta tentar de novo.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT id FROM ${products} FOR UPDATE`);
+        const existingCodes = await tx.select({ code: products.code }).from(products);
+        const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
+        return inserted[0]!.id;
+      });
+    } catch (error) {
+      const code = (error as { cause?: { code?: string }; code?: string }).cause?.code ?? (error as { code?: string }).code;
+      if (code !== "ER_LOCK_DEADLOCK" || attempt >= 3) throw error;
+    }
+  }
 }
 
 export async function getProduct(id: number) {
@@ -401,13 +418,10 @@ export async function customerStatement(clientId: number) {
 export async function getPickingList(quoteId: number) {
   const quote = await getQuote(quoteId);
   if (!quote) throw new Error("Orçamento não encontrado");
-  const productIds = quote.rooms.flatMap((room) => room.items.map((item) => item.productId).filter((productId): productId is number => Boolean(productId)));
-  const db = await database();
-  const productRows = productIds.length ? await db.select().from(products).where(inArray(products.id, productIds)) : [];
-  const productMap = new Map(productRows.map((product) => [product.id, product]));
+  const lines = await fulfillmentLines([quoteId]);
   return {
     quote: { id: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, professional: quote.professional, status: quote.status, issueDate: quote.issueDate, validUntil: quote.validUntil },
-    items: buildPickingList(quote.rooms.flatMap((room) => room.items.map((item) => ({ productId: item.productId, code: item.code, shortDescription: item.shortDescription, fullDescription: item.productId ? productMap.get(item.productId)?.fullDescription : null, unit: item.unit, quantity: toNumber(item.quantity), roomName: room.name })))),
+    items: buildPickingList(lines.map((line) => ({ quoteItemId: line.quoteItemId, productId: line.productId, barcode: line.barcode, code: line.code, shortDescription: line.shortDescription, fullDescription: line.fullDescription, unit: line.unit, quantity: line.pendingQuantity, orderedQuantity: line.orderedQuantity, deliveredQuantity: line.deliveredQuantity, deliverableQuantity: line.deliverableQuantity, roomName: line.roomName }))),
   };
 }
 
@@ -424,7 +438,7 @@ export function isDuplicateQuoteNumberError(error: unknown) {
 export async function createQuote() {
   const settings = await getSettings();
   const db = await database();
-  const maxAttempts = 5;
+  const maxAttempts = 8;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     // O próximo número é "maior nº existente + 1", calculado fora de um
     // lock: duas criações quase simultâneas podem calcular o mesmo valor.
@@ -454,37 +468,34 @@ export async function createQuote() {
     try {
       return await saveQuote(draft);
     } catch (error) {
-      if (isDuplicateQuoteNumberError(error) && attempt < maxAttempts) continue;
+      if (isDuplicateQuoteNumberError(error) && attempt < maxAttempts) {
+        // Espera curta e aleatória para as criações simultâneas não
+        // colidirem de novo no mesmo número.
+        await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 80));
+        continue;
+      }
       throw error;
     }
   }
   throw new Error("Não foi possível gerar um novo número de orçamento. Tente novamente.");
 }
 
+// Itens, valores e condições de pagamento: o que não pode mudar enquanto o
+// orçamento está aprovado (há reserva de estoque e parcelas geradas).
+type Amount = number | string;
+function commercialTerms(quote: { discountMode: string; discountValue: Amount; shipping: Amount; pixDiscountMode: string; pixDiscountValue: Amount; installments: number; rooms: Array<{ name: string; items: Array<{ productId?: number | null; code: string; shortDescription: string; unit: string; quantity: Amount; unitPrice: Amount }> }> }) {
+  const n = (value: Amount) => Math.round(Number(value) * 100) / 100;
+  return JSON.stringify({
+    discountMode: quote.discountMode, discountValue: n(quote.discountValue), shipping: n(quote.shipping),
+    pixDiscountMode: quote.pixDiscountMode, pixDiscountValue: n(quote.pixDiscountValue), installments: Math.floor(quote.installments),
+    rooms: quote.rooms.map((room) => ({ name: room.name || "AMBIENTE", items: room.items.map((item) => ({ productId: item.productId || null, code: item.code, shortDescription: item.shortDescription, unit: item.unit || "UN", quantity: n(item.quantity), unitPrice: n(item.unitPrice) })) })),
+  });
+}
+
 export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
   const db = await database();
+  const before = input.id ? await getQuote(input.id) : null;
   return db.transaction(async (tx) => {
-    if (input.status === "approved") {
-      const requestedByProduct = new Map<number, number>();
-      input.rooms.forEach((room) => room.items.forEach((item) => {
-        if (item.productId) requestedByProduct.set(item.productId, (requestedByProduct.get(item.productId) ?? 0) + item.quantity);
-      }));
-      const productIds = Array.from(requestedByProduct.keys());
-      if (productIds.length) {
-        await tx.execute(sql`SELECT id FROM ${products} WHERE ${inArray(products.id, productIds)} FOR UPDATE`);
-        const [stockProducts, activeReservations] = await Promise.all([
-          tx.select().from(products).where(inArray(products.id, productIds)),
-          tx.select().from(quoteItemReservations).where(inArray(quoteItemReservations.productId, productIds)),
-        ]);
-        const reservedByProduct = new Map<number, number>();
-        activeReservations.forEach((reservation) => reservedByProduct.set(reservation.productId, (reservedByProduct.get(reservation.productId) ?? 0) + toNumber(reservation.reservedQuantity)));
-        productIds.forEach((productId) => {
-          const product = stockProducts.find((candidate) => candidate.id === productId);
-          if (!product) throw new Error("Produto de estoque não encontrado");
-          assertReservableQuantity(toNumber(product.stockQuantity), reservedByProduct.get(productId) ?? 0, requestedByProduct.get(productId)!);
-        });
-      }
-    }
     let quoteId = input.id;
     const quoteValues = {
       quoteNumber: input.quoteNumber ?? 1,
@@ -506,39 +517,55 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       installments: Math.max(1, Math.floor(input.installments)),
       notes: input.notes || null,
     };
+    const releasedProducts: number[] = [];
     if (quoteId) {
-      const existingQuote = await tx.select({ id: quotes.id, quoteNumber: quotes.quoteNumber }).from(quotes).where(eq(quotes.id, quoteId)).limit(1);
-      if (!existingQuote[0]) throw new Error("Orçamento não encontrado. Ele pode ter sido excluído por outra pessoa.");
+      await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, quoteId)} FOR UPDATE`);
+      const existingQuote = (await tx.select({ id: quotes.id, quoteNumber: quotes.quoteNumber, status: quotes.status, approvedAt: quotes.approvedAt }).from(quotes).where(eq(quotes.id, quoteId)).limit(1))[0];
+      if (!existingQuote) throw new Error("Orçamento não encontrado. Ele pode ter sido excluído por outra pessoa.");
       // O número do orçamento é atribuído na criação e nunca muda depois.
-      quoteValues.quoteNumber = existingQuote[0].quoteNumber;
+      quoteValues.quoteNumber = existingQuote.quoteNumber;
       const existingRooms = await tx.select({ id: quoteRooms.id }).from(quoteRooms).where(eq(quoteRooms.quoteId, quoteId));
       const existingRoomIds = existingRooms.map((room) => room.id);
-      if (existingRoomIds.length) {
-        const existingItems = await tx.select({ id: quoteItems.id }).from(quoteItems).where(inArray(quoteItems.quoteRoomId, existingRoomIds));
-        const existingItemIds = existingItems.map((item) => item.id);
-        if (existingItemIds.length) {
-          const reservations = await tx.select({ id: quoteItemReservations.id }).from(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds));
-          if (reservations.length && input.status === "approved") throw new Error("Este orçamento possui estoque reservado. Para alterar os itens, mude o status para pendente e salve para liberar a reserva.");
-          if (reservations.length) await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds));
-          const deliveries = await tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, existingItemIds)).limit(1);
-          if (deliveries.length) throw new Error("Este orçamento já possui entregas registradas. Para preservar o histórico, não altere seus itens.");
-          await tx.delete(quoteItems).where(inArray(quoteItems.quoteRoomId, existingRoomIds));
+      const existingItems = existingRoomIds.length ? await tx.select({ id: quoteItems.id }).from(quoteItems).where(inArray(quoteItems.quoteRoomId, existingRoomIds)) : [];
+      const existingItemIds = existingItems.map((item) => item.id);
+      const [reservations, deliveries] = existingItemIds.length
+        ? await Promise.all([
+          tx.select().from(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds)),
+          tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, existingItemIds)).limit(1),
+        ])
+        : [[], []];
+
+      if (existingQuote.status === "approved" && input.status === "approved") {
+        // Continua aprovado: só os dados do cliente, datas e observações mudam.
+        if (before && commercialTerms(before) !== commercialTerms(input)) {
+          throw new Error(deliveries.length
+            ? "Este orçamento já tem retiradas registradas: itens, valores e condições não podem mais ser alterados."
+            : "Orçamento aprovado: para alterar itens, valores ou condições, mude o status para Em aberto (a reserva de estoque será liberada).");
         }
+        const { discountMode, discountValue, shipping, pixDiscountMode, pixDiscountValue, installments, status, ...header } = quoteValues;
+        await tx.update(quotes).set(header).where(eq(quotes.id, quoteId));
+        return quoteId;
       }
+      if (deliveries.length) throw new Error("Este orçamento já tem retiradas registradas e não pode sair do status Aprovado.");
+      if (reservations.length) {
+        await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds));
+        releasedProducts.push(...reservations.map((row) => row.productId));
+      }
+      if (existingItemIds.length) await tx.delete(quoteItems).where(inArray(quoteItems.quoteRoomId, existingRoomIds));
       await tx.delete(quoteRooms).where(eq(quoteRooms.quoteId, quoteId));
-      await tx.update(quotes).set(quoteValues).where(eq(quotes.id, quoteId));
+      await tx.update(quotes).set({ ...quoteValues, approvedAt: input.status === "approved" ? new Date() : null }).where(eq(quotes.id, quoteId));
     } else {
-      const inserted = await tx.insert(quotes).values(quoteValues).$returningId();
+      const inserted = await tx.insert(quotes).values({ ...quoteValues, approvedAt: input.status === "approved" ? new Date() : null }).$returningId();
       quoteId = inserted[0]!.id;
     }
+    const approvedProducts: number[] = [];
     for (let roomIndex = 0; roomIndex < input.rooms.length; roomIndex += 1) {
       const room = input.rooms[roomIndex]!;
       const insertedRoom = await tx.insert(quoteRooms).values({ quoteId, name: room.name || "AMBIENTE", sortOrder: roomIndex }).$returningId();
       const quoteRoomId = insertedRoom[0]!.id;
-      if (room.items.length) {
-        for (let itemIndex = 0; itemIndex < room.items.length; itemIndex += 1) {
-          const item = room.items[itemIndex]!;
-          const insertedItem = await tx.insert(quoteItems).values({
+      for (let itemIndex = 0; itemIndex < room.items.length; itemIndex += 1) {
+        const item = room.items[itemIndex]!;
+        await tx.insert(quoteItems).values({
           quoteRoomId,
           productId: item.productId || null,
           code: item.code,
@@ -548,11 +575,13 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
           quantity: money(item.quantity),
           unitPrice: money(item.unitPrice),
           sortOrder: itemIndex,
-          }).$returningId();
-          if (input.status === "approved" && item.productId) await tx.insert(quoteItemReservations).values({ quoteId, quoteItemId: insertedItem[0]!.id, productId: item.productId, reservedQuantity: money(item.quantity) });
-        }
+        });
+        if (input.status === "approved" && item.productId) approvedProducts.push(item.productId);
       }
     }
+    // Aprovar não depende de ter tudo em estoque: reserva o que houver e o
+    // restante aparece em Compras. Reserva liberada vai para quem esperava.
+    await allocatePendingReservations(tx, [...approvedProducts, ...releasedProducts]);
     return quoteId!;
   }).then(async (quoteId) => {
     const saved = await getQuote(quoteId);
@@ -579,8 +608,13 @@ export async function deleteQuote(id: number) {
       if (itemIds.length) {
         const deliveries = await tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, itemIds)).limit(1);
         if (deliveries.length) throw new Error("Este orçamento possui entregas registradas e não pode ser excluído.");
+        const released = await tx.select({ productId: quoteItemReservations.productId }).from(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds));
         await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds));
         await tx.delete(quoteItems).where(inArray(quoteItems.quoteRoomId, roomIds));
+        await tx.delete(quoteRooms).where(eq(quoteRooms.quoteId, id));
+        await tx.delete(quotes).where(eq(quotes.id, id));
+        await allocatePendingReservations(tx, released.map((row) => row.productId));
+        return;
       }
     }
     await tx.delete(quoteRooms).where(eq(quoteRooms.quoteId, id));
@@ -632,7 +666,7 @@ export async function dashboardMetrics() {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -645,12 +679,13 @@ export async function exportBackup() {
     db.select().from(quoteItemDeliveries),
     db.select().from(stockMovements),
     db.select().from(storeSettings),
+    db.select().from(appointments),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows },
   };
 }
 
@@ -685,6 +720,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     quoteItemDeliveries?: Array<typeof quoteItemDeliveries.$inferInsert>;
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
     storeSettings?: Array<typeof storeSettings.$inferInsert>;
+    appointments?: Array<typeof appointments.$inferInsert>;
   };
   await db.transaction(async (tx) => {
     if (input.replace) {
@@ -700,6 +736,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(products);
       await tx.delete(clients);
       await tx.delete(storeSettings);
+      await tx.delete(appointments);
     }
     if (data.clients?.length) await tx.insert(clients).values(data.clients).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, professional: sql`values(professional)` } });
     if (data.products?.length) await tx.insert(products).values(data.products).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
@@ -712,6 +749,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.quoteItemReservations?.length) await tx.insert(quoteItemReservations).values(data.quoteItemReservations).onDuplicateKeyUpdate({ set: { reservedQuantity: sql`values(reservedQuantity)`, reservedAt: sql`values(reservedAt)` } });
     if (data.quoteItemDeliveries?.length) await tx.insert(quoteItemDeliveries).values(data.quoteItemDeliveries).onDuplicateKeyUpdate({ set: { deliveredQuantity: sql`values(deliveredQuantity)`, deliveredAt: sql`values(deliveredAt)`, responsible: sql`values(responsible)` } });
     if (data.stockMovements?.length) await tx.insert(stockMovements).values(data.stockMovements).onDuplicateKeyUpdate({ set: { quantity: sql`values(quantity)`, afterQuantity: sql`values(afterQuantity)`, occurredAt: sql`values(occurredAt)` } });
+    if (data.appointments?.length) await tx.insert(appointments).values(data.appointments).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, scheduledAt: sql`values(scheduledAt)`, notes: sql`values(notes)` } });
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };

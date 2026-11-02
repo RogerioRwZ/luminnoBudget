@@ -13,6 +13,7 @@ import { setDraftOwner } from "./hooks/useDraftAutosave";
 // navegar até ela — em vez de todas (e suas dependências, como jsPDF) irem
 // juntas no bundle inicial que todo mundo baixa só para abrir o sistema.
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
+const AgendaPage = lazy(() => import("@/pages/AgendaPage"));
 const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const FinancePage = lazy(() => import("@/pages/FinancePage"));
@@ -20,7 +21,9 @@ const InventoryPage = lazy(() => import("@/pages/InventoryPage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const OperationsPage = lazy(() => import("@/pages/OperationsPage"));
 const PdfHistoryPage = lazy(() => import("@/pages/PdfHistoryPage"));
+const PickingCheckPage = lazy(() => import("@/pages/PickingCheckPage"));
 const ProductsPage = lazy(() => import("@/pages/ProductsPage"));
+const PurchasesPage = lazy(() => import("@/pages/PurchasesPage"));
 const QuoteEditorPage = lazy(() => import("@/pages/QuoteEditorPage"));
 const QuotesPage = lazy(() => import("@/pages/QuotesPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
@@ -49,6 +52,9 @@ export function Router() {
           <Route path="/financeiro" component={FinancePage} />
           <Route path="/catalogo" component={ProductsPage} />
           <Route path="/estoque" component={InventoryPage} />
+          <Route path="/estoque/conferencia/:id" component={PickingCheckPage} />
+          <Route path="/compras" component={PurchasesPage} />
+          <Route path="/agenda" component={AgendaPage} />
           <Route path="/clientes" component={CustomersPage} />
           <Route path="/configuracoes" component={SettingsPage} />
           <Route path="/operacao" component={OperationsPage} />
