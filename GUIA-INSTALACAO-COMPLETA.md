@@ -2,6 +2,8 @@
 
 Este guia leva uma VPS **Ubuntu Server 24.04 LTS** recém-criada até o Luminno funcionando em produção, com domínio próprio, HTTPS, banco MySQL, serviço supervisionado e backup automático. Ele foi conferido contra o código atual (branch `main`, após o PR #8) e substitui o `guia-implantacao-vps-ubuntu.md`.
 
+> **Atalho:** o script [`deploy/install-ubuntu.sh`](deploy/install-ubuntu.sh) faz automaticamente os passos 2.4 a 10 deste guia (exceto o endurecimento do SSH do passo 2.3, que fica com você). Depois de apontar o DNS (passo 1), rode `sudo bash install-ubuntu.sh --domain SEU_DOMINIO` e vá direto ao passo 9. Este guia continua útil para entender cada etapa e diagnosticar problemas.
+
 > **Convenções:**
 > - Comandos com `sudo` são executados pelo seu usuário administrativo.
 > - Troque sempre `orcamentos.seudominio.com.br` pelo seu domínio real.
