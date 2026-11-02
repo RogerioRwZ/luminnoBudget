@@ -28,6 +28,16 @@ describe("autenticação local", () => {
     const token = await signLocalSession({ id: 7, username: "comercial.luminno", role: "admin", isActive: true } as any);
     await expect(verifyLocalSession(token)).resolves.toMatchObject({ userId: 7, username: "comercial.luminno", role: "admin" });
   });
+
+  it("aceita a sessão de todos os perfis e recusa perfil desconhecido", async () => {
+    process.env.JWT_SECRET = "a".repeat(64);
+    for (const role of ["user", "sales", "stock", "finance"] as const) {
+      const token = await signLocalSession({ id: 8, username: "equipe.luminno", role, isActive: true } as any);
+      await expect(verifyLocalSession(token)).resolves.toMatchObject({ role });
+    }
+    const forged = await signLocalSession({ id: 8, username: "equipe.luminno", role: "root", isActive: true } as any);
+    await expect(verifyLocalSession(forged)).resolves.toBeNull();
+  });
 });
 
 describe("armazenamento local de imagens", () => {

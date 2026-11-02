@@ -1,3 +1,4 @@
+import type { UserRole } from "../shared/permissions";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomUUID } from "node:crypto";
@@ -60,7 +61,7 @@ type CreateLocalUserInput = {
   name: string;
   email?: string | null;
   password: string;
-  role: "user" | "admin";
+  role: UserRole;
 };
 
 export async function createLocalUser(input: CreateLocalUserInput): Promise<SafeUser> {
@@ -168,7 +169,7 @@ export async function markLocalUserSignedIn(id: number) {
 
 export async function updateLocalUser(
   id: number,
-  input: { name: string; email?: string | null; role: "user" | "admin"; isActive: boolean },
+  input: { name: string; email?: string | null; role: UserRole; isActive: boolean },
 ) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");

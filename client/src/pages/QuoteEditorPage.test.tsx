@@ -51,6 +51,7 @@ vi.mock("@/lib/trpc", () => {
       settings: { get: { useQuery: () => ({ data: undefined }) } },
       inventory: { picking: { useQuery: () => ({ isFetching: false, refetch: vi.fn() }) } },
       finance: { byQuote: { useQuery: () => ({ data: [], isLoading: false }) } },
+      auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
     },
   };
 });

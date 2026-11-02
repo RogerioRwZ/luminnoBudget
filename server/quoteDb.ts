@@ -19,6 +19,7 @@ import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate
 import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
+import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
 import { nextProductCode } from "../shared/productCodes";
 import { getDb } from "./db";
 import { createReceivablesFromQuote, financeOverview } from "./financeDb";
@@ -44,6 +45,9 @@ export type QuoteDraft = {
   pixDiscountValue: number;
   installments: number;
   notes?: string | null;
+  followUpAt?: Date | null;
+  lostReason?: LostReason | null;
+  lostNotes?: string | null;
   rooms: Array<{
     id?: number;
     name: string;
@@ -76,6 +80,7 @@ const DEFAULT_SETTINGS = {
   defaultPixDiscountValue: "0",
   defaultInstallments: 8,
   alertThresholdDays: 7,
+  followUpDays: 3,
   defaultTerms: "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
 
@@ -113,6 +118,7 @@ export async function saveSettings(input: {
   defaultPixDiscountValue: string;
   defaultInstallments: number;
   alertThresholdDays: number;
+  followUpDays: number;
   defaultTerms: string | null;
 }) {
   const db = await database();
@@ -495,6 +501,17 @@ function commercialTerms(quote: { discountMode: string; discountValue: Amount; s
 export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
   const db = await database();
   const before = input.id ? await getQuote(input.id) : null;
+  // Retorno: só para propostas em negociação. Ao enviar (Em aberto), se não
+  // houver data, agenda conforme o prazo das Configurações.
+  const negotiating = input.status === "open" || input.status === "draft";
+  let followUpAt = negotiating ? (input.followUpAt !== undefined ? input.followUpAt : before?.followUpAt ?? null) : null;
+  if (input.status === "open" && before?.status !== "open" && !followUpAt) followUpAt = addDays(new Date(), (await getSettings()).followUpDays);
+  const lost = input.status === "lost";
+  const outcome = {
+    followUpAt,
+    lostReason: lost ? input.lostReason ?? before?.lostReason ?? null : null,
+    lostNotes: lost ? (input.lostNotes !== undefined ? input.lostNotes : before?.lostNotes ?? null) || null : null,
+  };
   return db.transaction(async (tx) => {
     let quoteId = input.id;
     const quoteValues = {
@@ -516,6 +533,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       pixDiscountValue: money(input.pixDiscountValue),
       installments: Math.max(1, Math.floor(input.installments)),
       notes: input.notes || null,
+      ...outcome,
     };
     const releasedProducts: number[] = [];
     if (quoteId) {
@@ -656,12 +674,40 @@ export async function dashboardMetrics() {
     expirationAlerts,
     alertBrand: settings.tradingName,
     alertThresholdDays: settings.alertThresholdDays,
+    followUpDays: settings.followUpDays,
     averageTicket: amountBase.length ? amountBase.reduce((sum, quote) => sum + quote.summary.total, 0) / amountBase.length : 0,
     ranking: Array.from(productStats.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5),
     finance: finance.totals,
     conversionRate: conversionRate(allQuotes),
     monthly: aggregateMonthlyPerformance(allQuotes, finance.receivables.flatMap((receivable) => receivable.payments)),
+    followUps: open
+      .filter((quote) => isFollowUpDue(quote.followUpAt))
+      .sort((first, second) => new Date(first.followUpAt!).getTime() - new Date(second.followUpAt!).getTime())
+      .slice(0, 8)
+      .map((quote) => ({ id: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, phone: quote.phone, followUpAt: quote.followUpAt!, total: quote.summary.total })),
+    lossReasons: lossReasonSummary(allQuotes),
   };
+}
+
+// Motivos de não aprovação dos últimos 6 meses (pela data de emissão).
+function lossReasonSummary(allQuotes: Array<{ status: string; issueDate: Date; lostReason: LostReason | null; summary: { total: number } }>, now = new Date()) {
+  const since = addDays(now, -183);
+  const lost = allQuotes.filter((quote) => quote.status === "lost" && new Date(quote.issueDate) >= since);
+  const reasons = LOST_REASONS.map((reason) => {
+    const matching = lost.filter((quote) => quote.lostReason === reason);
+    return { reason, count: matching.length, value: matching.reduce((sum, quote) => sum + quote.summary.total, 0) };
+  }).filter((entry) => entry.count > 0).sort((first, second) => second.count - first.count || second.value - first.value);
+  return { reasons, withoutReason: lost.filter((quote) => !quote.lostReason).length, total: lost.length };
+}
+
+export async function registerFollowUp(id: number, days: number) {
+  const db = await database();
+  const quote = (await db.select({ id: quotes.id, quoteNumber: quotes.quoteNumber, clientName: quotes.clientName, status: quotes.status }).from(quotes).where(eq(quotes.id, id)).limit(1))[0];
+  if (!quote) throw new Error("Orçamento não encontrado.");
+  if (quote.status !== "open" && quote.status !== "draft") throw new Error("Só propostas em negociação têm retorno agendado.");
+  const followUpAt = addDays(new Date(), days);
+  await db.update(quotes).set({ followUpAt }).where(eq(quotes.id, id));
+  return { ...quote, followUpAt };
 }
 
 export async function exportBackup() {

@@ -52,6 +52,7 @@ type SettingsForm = {
   defaultPixDiscountValue: number;
   defaultInstallments: number;
   alertThresholdDays: number;
+  followUpDays: number;
   defaultTerms: string;
 };
 
@@ -70,6 +71,7 @@ const emptySettings: SettingsForm = {
   defaultPixDiscountValue: 0,
   defaultInstallments: 8,
   alertThresholdDays: 7,
+  followUpDays: 3,
   defaultTerms:
     "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
@@ -90,6 +92,7 @@ function formFromSettings(data: inferRouterOutputs<AppRouter>["settings"]["get"]
     defaultPixDiscountValue: Number(data.defaultPixDiscountValue),
     defaultInstallments: data.defaultInstallments,
     alertThresholdDays: data.alertThresholdDays,
+    followUpDays: data.followUpDays,
     defaultTerms: data.defaultTerms ?? "",
   };
 }
@@ -571,6 +574,30 @@ export default function SettingsPage() {
                     </span>
                   </div>
                 </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+              <Label htmlFor="follow-up-days">Retorno ao cliente</Label>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Ao enviar uma proposta (status Em aberto), agenda o retorno
+                para depois deste prazo. Cada retorno feito agenda o próximo.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <Input
+                  id="follow-up-days"
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={form.followUpDays}
+                  onChange={event =>
+                    setForm({
+                      ...form,
+                      followUpDays: Math.min(30, Math.max(1, parseFiniteNumber(event.target.value) || 1)),
+                    })
+                  }
+                  className="w-20 bg-background"
+                />
+                <span className="text-sm font-medium">dias</span>
               </div>
             </div>
           </CardContent>
