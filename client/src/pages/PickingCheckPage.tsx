@@ -274,8 +274,8 @@ export default function PickingCheckPage() {
                           {item.shortDescription}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Cód. {item.code}
-                          {item.reference ? ` · Ref. ${item.reference}` : ""}{item.barcode ? ` · Cód. barras ${item.barcode}` : " · sem código de barras, use os botões"}
+                          Ref. {item.reference || item.code}
+                          {item.barcode ? ` · Cód. barras ${item.barcode}` : " · sem código de barras, use os botões"}
                           {" · "}
                           {item.rooms.join(", ")}
                         </p>

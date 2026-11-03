@@ -37,7 +37,6 @@ import {
 } from "react";
 import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { toast } from "sonner";
-import { EMPTY_CARD_FEES, parseCardFees, type CardFees } from "@shared/paymentPlan";
 import { DocumentInput, EmailInput, PhoneInput } from "@/components/ContactInputs";
 import { documentProblem, emailProblem, phoneProblem } from "@shared/contact";
 
@@ -61,7 +60,6 @@ type SettingsForm = {
   minMarginPercent: number;
   defaultCommissionPercent: number;
   defaultWarrantyMonths: number;
-  cardFees: CardFees;
   defaultTerms: string;
 };
 
@@ -85,7 +83,6 @@ const emptySettings: SettingsForm = {
   minMarginPercent: 0,
   defaultCommissionPercent: 0,
   defaultWarrantyMonths: 12,
-  cardFees: EMPTY_CARD_FEES,
   defaultTerms:
     "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
@@ -111,7 +108,6 @@ function formFromSettings(data: inferRouterOutputs<AppRouter>["settings"]["get"]
     minMarginPercent: Number(data.minMarginPercent ?? 0),
     defaultCommissionPercent: Number(data.defaultCommissionPercent ?? 0),
     defaultWarrantyMonths: data.defaultWarrantyMonths ?? 12,
-    cardFees: parseCardFees(data.cardFees),
     defaultTerms: data.defaultTerms ?? "",
   };
 }
@@ -671,42 +667,6 @@ export default function SettingsPage() {
                   className="w-24 bg-background"
                 />
                 <span className="text-sm font-medium">meses</span>
-              </div>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <Label>Taxas da maquininha</Label>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Percentual que a operadora desconta em cada venda no cartão. O
-                Financeiro mostra a taxa de cada recebimento e o valor líquido
-                do mês. Acima de 12x vale a taxa de 12x.
-              </p>
-              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-7">
-                {[{ key: "debit", label: "Débito", value: form.cardFees.debit }, ...form.cardFees.credit.map((value, index) => ({ key: String(index), label: `Crédito ${index + 1}x`, value }))].map(field => (
-                  <div key={field.key} className="space-y-1">
-                    <Label htmlFor={`card-fee-${field.key}`} className="text-[11px]">{field.label}</Label>
-                    <div className="flex items-center gap-1">
-                      <Input
-                        id={`card-fee-${field.key}`}
-                        type="number"
-                        min="0"
-                        max="30"
-                        step="0.01"
-                        value={field.value}
-                        onChange={event => {
-                          const value = Math.min(30, Math.max(0, parseFiniteNumber(event.target.value) || 0));
-                          setForm({
-                            ...form,
-                            cardFees: field.key === "debit"
-                              ? { ...form.cardFees, debit: value }
-                              : { ...form.cardFees, credit: form.cardFees.credit.map((entry, index) => (String(index) === field.key ? value : entry)) },
-                          });
-                        }}
-                        className="h-8 bg-background px-2 text-sm"
-                      />
-                      <span className="text-xs">%</span>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </CardContent>

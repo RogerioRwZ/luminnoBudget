@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { financePayments, financeReceivables, quoteItemReservations, quoteItems, quoteRooms, quotes, storeSettings } from "../drizzle/schema";
+import { financePayments, financeReceivables, quoteItemReservations, quoteItems, quoteRooms, quotes } from "../drizzle/schema";
 import { getDb } from "./db";
 import { appRouter } from "./routers";
-import { getSettings } from "./quoteDb";
 import { addDaysInput } from "../shared/paymentPlan";
 
 const caller = () => appRouter.createCaller({ user: { id: 999_006, role: "user", name: "Teste", username: "teste" } as any, req: { headers: {}, ip: "127.0.0.1" } as any, res: {} as any });
 
-const created = { quoteIds: [] as number[], cardFees: undefined as string | null | undefined };
+const created = { quoteIds: [] as number[] };
 afterEach(async () => {
   const db = await getDb();
   if (!db) return;
@@ -22,8 +21,7 @@ afterEach(async () => {
     await db.delete(quoteRooms).where(inArray(quoteRooms.quoteId, created.quoteIds));
     await db.delete(quotes).where(inArray(quotes.id, created.quoteIds));
   }
-  if (created.cardFees !== undefined) await db.update(storeSettings).set({ cardFees: created.cardFees }).where(eq(storeSettings.id, 1));
-  Object.assign(created, { quoteIds: [], cardFees: undefined });
+  created.quoteIds = [];
 });
 
 // Orçamento de R$ 1.000,00 (sem frete), PIX com 10% de desconto: R$ 900,00 à vista.
@@ -46,13 +44,8 @@ const receivablesOf = async (quoteId: number) => {
 };
 
 describe("forma de pagamento na aprovação", () => {
-  it("cartão de crédito: um recebimento na hora, com a taxa da maquininha, sem parcelas mensais", async () => {
+  it("cartão de crédito: um recebimento na hora, sem taxa e sem parcelas mensais", async () => {
     const db = (await getDb())!;
-    // Num banco novo (como o do CI) a linha das Configurações só nasce na
-    // primeira leitura; sem ela, o UPDATE abaixo não grava as taxas.
-    await getSettings();
-    created.cardFees = (await db.select({ cardFees: storeSettings.cardFees }).from(storeSettings).where(eq(storeSettings.id, 1)))[0]?.cardFees ?? null;
-    await db.update(storeSettings).set({ cardFees: JSON.stringify({ debit: 1, credit: [3, 4, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8] }) }).where(eq(storeSettings.id, 1));
 
     const { admin, draft, quote } = await newQuote("Cliente cartão");
     const saved = await admin.quote.save({ ...draft, status: "approved", paymentPlan: { parts: [{ method: "credit_card", amount: 1000, installments: 3 }] } });
@@ -61,9 +54,7 @@ describe("forma de pagamento na aprovação", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "paid", paymentMethod: "credit_card", installmentCount: 1, originalAmount: "1000.00" });
     const payment = (await db.select().from(financePayments).where(eq(financePayments.receivableId, rows[0]!.id)))[0]!;
-    expect(payment).toMatchObject({ type: "receipt", amount: "1000.00", paymentMethod: "credit_card", feeAmount: "50.00", notes: "3x na maquininha" });
-    const overview = await admin.finance.overview();
-    expect(overview.totals.cardFeesThisMonth).toBeGreaterThanOrEqual(50);
+    expect(payment).toMatchObject({ type: "receipt", amount: "1000.00", paymentMethod: "credit_card", feeAmount: null, notes: "3x na maquininha" });
 
     // Depois de aprovado, a forma de pagamento fica travada como os valores.
     await expect(admin.quote.save({ ...draft, status: "approved", paymentPlan: { parts: [{ method: "pix", amount: 900, installments: 1 }] } })).rejects.toThrow(/Em aberto/);

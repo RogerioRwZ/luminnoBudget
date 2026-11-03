@@ -39,35 +39,13 @@ export function barcodeProblem(value: string | null | undefined): string | null 
 // Sem acento e em minúsculas: "Luminária" acha "luminaria".
 export const foldText = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR");
 
-const slug = (value: string) => foldText(value).toUpperCase().replace(/[^A-Z0-9.,/+#]+/g, "");
-
-// Referência sugerida para uma variação: "LM100" + Preto, 3000K → "LM100-PRETO-3000K".
-export function suggestVariantReference(rootReference: string, values: Array<string | null | undefined>) {
-  const parts = values.map((value) => slug(value ?? "")).filter(Boolean);
-  return [normalizeReference(rootReference), ...parts].join("-").slice(0, REFERENCE_MAX);
-}
-
-// Garante uma referência que ainda não existe: "X", "X-2", "X-3"...
-export function uniqueReference(wanted: string, taken: Iterable<string | null | undefined>) {
-  const used = new Set(Array.from(taken, (value) => foldText(value ?? "")));
-  if (!used.has(foldText(wanted))) return wanted;
-  for (let suffix = 2; ; suffix += 1) {
-    const tail = `-${suffix}`;
-    const candidate = wanted.slice(0, REFERENCE_MAX - tail.length) + tail;
-    if (!used.has(foldText(candidate))) return candidate;
-  }
-}
-
-// Referência que vale na venda: a da variação escolhida ou, em produto sem
-// variação, a do próprio produto (cada variação é um produto com referência
-// própria). O código interno só aparece se faltar referência.
+// Referência do produto; o código interno só aparece se faltar referência.
 export const saleReference = (product: { reference?: string | null; code: string }) => product.reference || product.code;
 
 export type SearchableProduct = {
   code: string;
   reference?: string | null;
   shortDescription: string;
-  modelName?: string | null;
   supplierName?: string | null;
   barcode?: string | null;
 };
@@ -78,7 +56,7 @@ export type SearchableProduct = {
 export function matchesProductSearch(product: SearchableProduct, query: string) {
   const words = foldText(query).split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const text = foldText([product.reference, product.code, `#${product.code}`, product.shortDescription, product.modelName, product.supplierName, product.barcode].filter(Boolean).join(" "));
+  const text = foldText([product.reference, product.code, `#${product.code}`, product.shortDescription, product.supplierName, product.barcode].filter(Boolean).join(" "));
   return words.every((word) => text.includes(word));
 }
 

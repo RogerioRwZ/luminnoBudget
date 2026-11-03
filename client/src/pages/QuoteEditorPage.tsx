@@ -21,7 +21,6 @@ import { LOST_REASONS, LOST_REASON_LABELS, type LostReason } from "@shared/follo
 import { DEFAULT_ENTRY_OFFER, describeEntryOffer, describePart, parseEntryOffer, parsePaymentPlan, type EntryOffer, type PaymentPlan } from "@shared/paymentPlan";
 import { PaymentPlanDialog } from "@/components/PaymentPlanDialog";
 import { Switch } from "@/components/ui/switch";
-import { parseAttributes, variantLabel } from "@shared/variants";
 import { findProductByScan, matchesProductSearch, saleReference } from "@shared/productCodes";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { useUnknownCode } from "@/hooks/useUnknownCode";
@@ -414,30 +413,6 @@ export default function QuoteEditorPage() {
     () => products.filter(product => product.active),
     [products]
   );
-  // Variações do mesmo modelo aparecem juntas na busca.
-  const familyMembers = useMemo(() => {
-    const families = new Map<number, typeof activeProducts>();
-    activeProducts.forEach(product => {
-      const rootId = product.parentId ?? product.id;
-      families.set(rootId, [...(families.get(rootId) ?? []), product]);
-    });
-    // Modelo com variações: o principal sem cor/temperatura/potência é só o
-    // modelo; na venda valem as variações, cada uma com sua referência.
-    families.forEach((members, rootId) => {
-      if (members.length > 1) {
-        const root = members.find(member => member.id === rootId);
-        if (root && !variantLabel(parseAttributes(root.attributes))) families.set(rootId, members.filter(member => member !== root));
-      }
-    });
-    families.forEach(members =>
-      members.sort((first, second) =>
-        Number(Boolean(first.parentId)) - Number(Boolean(second.parentId)) ||
-        first.shortDescription.localeCompare(second.shortDescription, "pt-BR", { numeric: true })
-      )
-    );
-    return families;
-  }, [activeProducts]);
-  const [openFamily, setOpenFamily] = useState<string | null>(null);
   const productById = useMemo(() => new Map(products.map(product => [product.id, product])), [products]);
   // Falta de estoque só interessa enquanto a proposta está em negociação:
   // aprovada, ela já tem reserva (e o restante aparece em Compras).
@@ -1153,18 +1128,7 @@ export default function QuoteEditorPage() {
           <div className="space-y-5">
             {draft.rooms.map((room, roomIndex) => {
               const query = searches[roomIndex] ?? "";
-              const matches = query.trim()
-                ? Array.from(
-                    new Set(
-                      activeProducts
-                        .filter(product => matchesProductSearch(product, query))
-                        .map(product => product.parentId ?? product.id)
-                    )
-                  )
-                    .slice(0, 6)
-                    .map(rootId => familyMembers.get(rootId) ?? [])
-                    .filter(members => members.length)
-                : [];
+              const matches = query.trim() ? activeProducts.filter(product => matchesProductSearch(product, query)).slice(0, 6) : [];
               return (
                 <Card
                   key={roomIndex}
@@ -1261,75 +1225,28 @@ export default function QuoteEditorPage() {
                       </div>
                       {matches.length ? (
                         <div className="mt-2 overflow-hidden rounded-xl border border-border bg-card">
-                          {matches.map(members => {
-                            const product = members[0]!;
-                            const familyKey = `${roomIndex}-${product.parentId ?? product.id}`;
-                            const isFamily = members.length > 1;
-                            const expanded = openFamily === familyKey;
-                            return (
-                              <div key={familyKey} className="border-b border-border last:border-0">
-                                <button
-                                  onClick={() =>
-                                    isFamily
-                                      ? setOpenFamily(expanded ? null : familyKey)
-                                      : addProduct(roomIndex, product.id)
-                                  }
-                                  aria-expanded={isFamily ? expanded : undefined}
-                                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted"
-                                >
-                                  <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-muted">
-                                    {product.imageUrl ? (
-                                      <img
-                                        className="h-full w-full object-contain"
-                                        src={product.imageUrl}
-                                      />
-                                    ) : (
-                                      <PackagePlus className="h-4 w-4 text-muted-foreground" />
-                                    )}
-                                  </span>
-                                  <span className="min-w-0 flex-1">
-                                    <b className="block truncate text-xs">
-                                      {isFamily ? product.modelName || product.shortDescription : product.shortDescription}
-                                    </b>
-                                    <small className="font-mono text-[10px] text-muted-foreground">
-                                      {isFamily
-                                        ? `${members.length} variações · a partir de ${money(Math.min(...members.map(member => Number(member.unitPrice))))}`
-                                        : `Ref. ${product.reference ?? product.code} · ${money(product.unitPrice)}`}
-                                    </small>
-                                  </span>
-                                  {isFamily ? (
-                                    <ChevronDown className={`h-4 w-4 text-primary transition ${expanded ? "rotate-180" : ""}`} />
-                                  ) : (
-                                    <Plus className="h-4 w-4 text-primary" />
-                                  )}
-                                </button>
-                                {isFamily && expanded ? (
-                                  <div className="grid grid-cols-1 gap-1.5 bg-muted/40 p-2 sm:grid-cols-2">
-                                    {members.map(member => (
-                                      <button
-                                        key={member.id}
-                                        onClick={() => {
-                                          addProduct(roomIndex, member.id);
-                                          setOpenFamily(null);
-                                        }}
-                                        className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:border-primary"
-                                      >
-                                        <span className="min-w-0">
-                                          <b className="block truncate text-xs">
-                                            {variantLabel(parseAttributes(member.attributes)) || member.shortDescription}
-                                          </b>
-                                          <small className="font-mono text-[10px] text-muted-foreground">
-                                            Ref. {member.reference ?? member.code} · {money(member.unitPrice)} · estoque {Number(member.stockQuantity)}
-                                          </small>
-                                        </span>
-                                        <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          })}
+                          {matches.map(product => (
+                            <button
+                              key={product.id}
+                              onClick={() => addProduct(roomIndex, product.id)}
+                              className="flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left last:border-0 hover:bg-muted"
+                            >
+                              <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-md bg-muted">
+                                {product.imageUrl ? (
+                                  <img className="h-full w-full object-contain" src={product.imageUrl} />
+                                ) : (
+                                  <PackagePlus className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <b className="block truncate text-xs">{product.shortDescription}</b>
+                                <small className="font-mono text-[10px] text-muted-foreground">
+                                  Ref. {product.reference ?? product.code} · {money(product.unitPrice)} · estoque {Number(product.stockQuantity)}
+                                </small>
+                              </span>
+                              <Plus className="h-4 w-4 text-primary" />
+                            </button>
+                          ))}
                         </div>
                       ) : null}
                     </div>
@@ -1453,22 +1370,9 @@ export default function QuoteEditorPage() {
                         {short && catalogProduct ? (
                           <StockShortageHint
                             productId={catalogProduct.id}
-                            attributes={catalogProduct.attributes}
                             unit={item.unit}
                             needed={needed}
                             availability={availability}
-                            family={familyMembers.get(catalogProduct.parentId ?? catalogProduct.id) ?? []}
-                            onSwap={member => {
-                              updateItem(roomIndex, itemIndex, {
-                                productId: member.id,
-                                code: saleReference(member),
-                                shortDescription: member.shortDescription,
-                                imageUrl: member.imageUrl,
-                                unit: member.unit,
-                                unitPrice: Number(member.unitPrice),
-                              });
-                              toast.success(`Trocado por ${member.shortDescription}.`);
-                            }}
                           />
                         ) : null}
                         </Fragment>

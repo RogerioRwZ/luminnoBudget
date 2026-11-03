@@ -4,7 +4,6 @@ import { products, quoteItemDeliveries, quoteItemReservations, quoteItems, quote
 import { calculateAvailableStock, calculatePendingDelivery, calculateRemainingReservation, calculateStockAfter, describeFulfillment, getStockDelta, isCentQuantity, StockMovementType } from "../shared/stock";
 import { toNumber } from "../shared/quote";
 import { getDb } from "./db";
-import { modelProductIds } from "../shared/variants";
 
 const money = (value: number) => value.toFixed(2);
 
@@ -28,12 +27,11 @@ export async function inventoryOverview() {
   const reservedByProduct = new Map<number, number>();
   reservationRows.forEach((reservation) => reservedByProduct.set(reservation.productId, (reservedByProduct.get(reservation.productId) ?? 0) + toNumber(reservation.reservedQuantity)));
   const productMap = new Map(allProductRows.map((product) => [product.id, product]));
-  // O modelo de um produto com variações não tem estoque próprio: fica fora
-  // do saldo, da reposição e da movimentação.
-  const models = modelProductIds(allProductRows);
-  const productRows = allProductRows.filter((product) => !models.has(product.id));
+  // Arquivado sem saldo não tem o que controlar: fica fora do saldo, da
+  // reposição e da movimentação.
+  const productRows = allProductRows.filter((product) => product.active || toNumber(product.stockQuantity) !== 0);
   const stockValue = productRows.reduce((sum, product) => sum + toNumber(product.stockQuantity) * toNumber(product.unitPrice), 0);
-  const lowStock = productRows.filter((product) => toNumber(product.reorderPoint) > 0 && toNumber(product.stockQuantity) <= toNumber(product.reorderPoint));
+  const lowStock = productRows.filter((product) => product.active && toNumber(product.reorderPoint) > 0 && toNumber(product.stockQuantity) <= toNumber(product.reorderPoint));
   return {
     products: productRows.map((product) => { const stockQuantity = toNumber(product.stockQuantity); const reservedQuantity = reservedByProduct.get(product.id) ?? 0; return { ...product, stockQuantity, reservedQuantity, availableQuantity: calculateAvailableStock(stockQuantity, reservedQuantity), loanedQuantity: loaned.get(product.id) ?? 0, reorderPoint: toNumber(product.reorderPoint), unitPrice: toNumber(product.unitPrice), lowStock: toNumber(product.reorderPoint) > 0 && stockQuantity <= toNumber(product.reorderPoint) }; }),
     lowStock: lowStock.map((product) => ({ ...product, stockQuantity: toNumber(product.stockQuantity), reorderPoint: toNumber(product.reorderPoint) })),
@@ -272,10 +270,7 @@ export async function purchaseSuggestions() {
     waiting.set(line.productId!, list);
   });
   const suppliers = new Map<string, PurchaseLine[]>();
-  // Compra-se a variação, nunca o modelo.
-  const models = modelProductIds(productRows);
   for (const product of productRows) {
-    if (models.has(product.id)) continue;
     const stockQuantity = toNumber(product.stockQuantity);
     const reservedQuantity = reservedByProduct.get(product.id) ?? 0;
     const freeQuantity = Math.max(0, calculateAvailableStock(stockQuantity, reservedQuantity));
@@ -295,7 +290,7 @@ export async function purchaseSuggestions() {
 }
 
 // Saldo livre (estoque menos reservas) de cada produto ativo: usado pelo
-// orçamento para avisar falta e sugerir outra variação do mesmo modelo.
+// orçamento para avisar falta.
 export async function productAvailability() {
   const db = await database();
   const [productRows, reservations] = await Promise.all([

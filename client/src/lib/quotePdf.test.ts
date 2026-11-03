@@ -1,3 +1,4 @@
+import { inflateSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQuotePdfBlob, createQuotePdfDataUrl } from "./quotePdf";
 
@@ -55,6 +56,28 @@ describe("geração de PDF de orçamento", () => {
     expect(dataUrl).toMatch(/^data:application\/pdf/);
     expect(dataUrl.length).toBeGreaterThan(500);
     expect(failedImageCount).toBe(0);
+  });
+
+  it("não mostra a referência dos itens ao cliente", async () => {
+    const { dataUrl } = await createQuotePdfDataUrl({ ...baseInput, rooms: [{ name: "SALA", items: [{ code: "REF-SECRETA-77", shortDescription: "Spot LED", unit: "UN", quantity: 1, unitPrice: 300 }] }] });
+    // O conteúdo das páginas do PDF é comprimido: abre cada bloco para ler o texto.
+    const raw = Buffer.from(dataUrl.split(",")[1]!, "base64");
+    let content = raw.toString("latin1");
+    let start = content.indexOf("stream\n");
+    const pages: string[] = [];
+    while (start >= 0) {
+      const end = content.indexOf("endstream", start);
+      try {
+        pages.push(inflateSync(raw.subarray(start + 7, end)).toString("latin1"));
+      } catch {
+        // Bloco que não é comprimido (imagens, por exemplo).
+      }
+      start = content.indexOf("stream\n", end + 9);
+    }
+    content = pages.join("\n");
+    expect(content).toContain("Spot LED");
+    expect(content).not.toContain("REF-SECRETA-77");
+    expect(content).not.toContain("Ref.");
   });
 
   it("incorpora o logotipo da empresa e as fotos dos produtos quando disponíveis", async () => {

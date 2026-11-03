@@ -3,7 +3,7 @@ import { plural } from "./plural";
 
 type PickingDocument = {
   quote: { quoteNumber: number; clientName: string; professional: string };
-  items: Array<Pick<PickingItem, "key" | "code" | "shortDescription" | "fullDescription" | "unit" | "quantity" | "rooms"> & Partial<Pick<PickingItem, "deliveredQuantity" | "orderedQuantity">>>;
+  items: Array<Pick<PickingItem, "key" | "code" | "shortDescription" | "fullDescription" | "unit" | "quantity" | "rooms"> & Partial<Pick<PickingItem, "deliveredQuantity" | "orderedQuantity" | "reference">>>;
   issuedAt: string;
   brand?: { tradingName?: string | null; companyName?: string | null; phone?: string | null } | null;
 };
@@ -58,7 +58,7 @@ export function buildPickingPrintDocument(data: PickingDocument) {
   const deliveredCount = data.items.filter((item) => (item.deliveredQuantity ?? 0) > 0).length;
   const fullyDelivered = data.items.length - toPick.length;
   const partial = deliveredCount > 0;
-  const rows = toPick.map((item, index) => `<tr><td class="n">${index + 1}</td><td class="product"><b>${escape(item.shortDescription)}</b><small>Ref. ${escape(item.code)}</small>${item.fullDescription && item.fullDescription !== item.shortDescription ? `<span>${escape(item.fullDescription)}</span>` : ""}</td><td class="rooms">${escape(item.rooms.join(", "))}</td>${partial ? `<td class="done">${item.deliveredQuantity ? escape(`${quantity(item.deliveredQuantity)} de ${quantity(item.orderedQuantity ?? item.quantity + item.deliveredQuantity)}`) : "—"}</td>` : ""}<td class="qty">${escape(`${quantity(item.quantity)} ${item.unit}`)}</td><td class="check"><i></i></td></tr>`).join("");
+  const rows = toPick.map((item, index) => `<tr><td class="n">${index + 1}</td><td class="product"><b>${escape(item.shortDescription)}</b><small>Ref. ${escape(item.reference || item.code)}</small>${item.fullDescription && item.fullDescription !== item.shortDescription ? `<span>${escape(item.fullDescription)}</span>` : ""}</td><td class="rooms">${escape(item.rooms.join(", "))}</td>${partial ? `<td class="done">${item.deliveredQuantity ? escape(`${quantity(item.deliveredQuantity)} de ${quantity(item.orderedQuantity ?? item.quantity + item.deliveredQuantity)}`) : "—"}</td>` : ""}<td class="qty">${escape(`${quantity(item.quantity)} ${item.unit}`)}</td><td class="check"><i></i></td></tr>`).join("");
   const title = partial ? "Separação parcial" : "Lista de separação";
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Separação — Orçamento #${escape(data.quote.quoteNumber)}</title><style>${STYLE}</style></head><body><div class="sheet">`
     + `<header><div class="brand"><b>${escape(tradingName)}</b><span>${escape(companyName)}${data.brand?.phone ? ` · ${escape(data.brand.phone)}` : ""}</span></div><div class="doc"><div class="eyebrow">${title}</div><strong>Orçamento #${escape(data.quote.quoteNumber)}</strong></div></header>`

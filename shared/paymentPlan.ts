@@ -96,31 +96,6 @@ export function addDaysInput(days: number, from = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-// Taxas da maquininha, em %: débito e crédito por número de vezes (1x a 12x;
-// acima de 12x vale a taxa de 12x).
-export type CardFees = { debit: number; credit: number[] };
-export const EMPTY_CARD_FEES: CardFees = { debit: 0, credit: Array.from({ length: 12 }, () => 0) };
-
-export function parseCardFees(text: string | null | undefined): CardFees {
-  if (!text) return EMPTY_CARD_FEES;
-  try {
-    const value = JSON.parse(text) as Partial<CardFees>;
-    const credit = Array.from({ length: 12 }, (_, index) => Number(value.credit?.[index]) || 0);
-    return { debit: Number(value.debit) || 0, credit };
-  } catch {
-    return EMPTY_CARD_FEES;
-  }
-}
-
-export function cardFeePercent(fees: CardFees, method: PlanMethod, installments: number) {
-  if (method === "debit_card") return fees.debit;
-  if (method === "credit_card") return fees.credit[Math.min(Math.max(installments, 1), 12) - 1] ?? 0;
-  return 0;
-}
-
-export const cardFeeAmount = (fees: CardFees, method: PlanMethod, installments: number, amount: number) =>
-  roundMoney((amount * cardFeePercent(fees, method, installments)) / 100);
-
 // Condição "entrada + crediário" oferecida na proposta: a entrada é um
 // percentual do total e o restante vai em parcelas mensais.
 export type EntryOffer = { entryPercent: number; installments: number };

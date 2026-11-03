@@ -25,15 +25,11 @@ import {
   listQuotesPaged,
   saveClient,
   saveProduct,
-  createProductVariants,
-  saveProductWithVariants,
-  saveProductFamily,
   saveQuote,
   saveSettings,
 } from "../quoteDb";
 import { approvedFulfillments, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
-import { VARIANT_FIELDS, type VariantKey } from "../../shared/variants";
 import { canAccess, canSeeCost, USER_ROLES } from "../../shared/permissions";
 import { abcReport, staleStockReport } from "../turnoverDb";
 import { commissionReport, dailySummary, deleteCommissionPayment, recordCommissionPayment, salesReport, saveProfessional } from "../reportsDb";
@@ -113,18 +109,6 @@ const appointmentInput = z.object({
   notes: nullableText,
 });
 
-const variantAttributes = z.object(Object.fromEntries(VARIANT_FIELDS.map((field) => [field.key, z.string().trim().max(80).optional()])) as Record<VariantKey, z.ZodOptional<z.ZodString>>);
-
-// Variação: só a referência é obrigatória; detalhes e código de barras, não.
-const variantList = z.array(z.object({
-  id: z.number().int().positive().optional(),
-  attributes: variantAttributes.nullable().optional(),
-  reference: z.string().trim().min(1, "Informe a referência de cada variação").max(64, "A referência pode ter no máximo 64 caracteres"),
-  barcode: z.string().trim().max(64).nullable().optional(),
-  reorderPoint: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
-  unitPrice: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
-})).min(1).max(100);
-
 const productInput = z.object({
   id: z.number().int().positive().optional(),
   code: z.string().trim().max(64).optional(),
@@ -141,9 +125,6 @@ const productInput = z.object({
   reorderPoint: money,
   warrantyMonths: z.coerce.number().int().min(0).max(120).nullable().optional(),
   active: z.boolean().default(true),
-  parentId: z.number().int().positive().nullable().optional(),
-  modelName: z.string().trim().max(400).nullable().optional(),
-  attributes: variantAttributes.nullable().optional(),
 });
 
 const quoteItemInput = z
@@ -251,30 +232,6 @@ export const businessRouter = router({
         }
       }
       return id;
-    }),
-    // Produto novo já com as variações (cada uma com referência própria).
-    saveWithVariants: areaProcedure("catalog").input(z.object({ product: productInput.extend({ reference: z.string().trim().max(64).optional() }), variants: variantList })).mutation(async ({ ctx, input }) => {
-      const result = await saveProductWithVariants({ ...input.product, costPrice: canSeeCost(ctx.user.role) ? input.product.costPrice : undefined, imageUrl: input.product.imageUrl || null }, input.variants).catch((error) => {
-        if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Uma referência ou código de barras acabou de ser usado em outro produto." });
-        throw error;
-      });
-      await log(ctx, { action: "product.create", entityType: "product", entityId: result.rootId, summary: `Cadastrou o produto ${input.product.shortDescription} com ${plural(result.created.length, "variação", "variações")}` });
-      return result;
-    }),
-    // Modelo e todas as variações (as já gravadas e as novas) salvos juntos.
-    saveFamily: areaProcedure("catalog").input(z.object({ model: productInput.extend({ id: z.number().int().positive() }), variants: variantList, applyToVariants: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
-      const result = await saveProductFamily({ ...input.model, costPrice: canSeeCost(ctx.user.role) ? input.model.costPrice : undefined, imageUrl: input.model.imageUrl || null }, input.variants, { applyToVariants: input.applyToVariants }).catch((error) => {
-        if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Uma referência ou código de barras acabou de ser usado em outro produto." });
-        throw error;
-      });
-      await log(ctx, { action: "product.update", entityType: "product", entityId: result.rootId, summary: `Alterou o modelo ${input.model.shortDescription} e ${plural(result.updated.length + result.created.length, "variação", "variações")}${result.created.length ? ` (${plural(result.created.length, "nova", "novas")})` : ""}` });
-      return result;
-    }),
-    createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), variants: variantList })).mutation(async ({ ctx, input }) => {
-      const result = await createProductVariants(input.productId, input.variants);
-      const root = await getProduct(result.rootId);
-      if (result.created.length) await log(ctx, { action: "product.variants", entityType: "product", entityId: result.rootId, summary: `Criou ${plural(result.created.length, "variação", "variações")} do modelo ${root?.modelName ?? root?.shortDescription ?? `#${result.rootId}`}` });
-      return result;
     }),
     setBarcode: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
       try {
@@ -596,7 +553,6 @@ export const businessRouter = router({
       minMarginPercent: z.coerce.number().min(0).max(100).default(0),
       defaultCommissionPercent: z.coerce.number().min(0).max(100).default(0),
       defaultWarrantyMonths: z.coerce.number().int().min(0).max(120).default(12),
-      cardFees: z.object({ debit: z.coerce.number().min(0).max(30), credit: z.array(z.coerce.number().min(0).max(30)).length(12) }).nullable().optional(),
       defaultTerms: nullableText,
     })).mutation(async ({ ctx, input }) => {
       const before = await getSettings();
@@ -615,7 +571,6 @@ export const businessRouter = router({
         maxDiscountPercent: input.maxDiscountPercent.toFixed(2),
         minMarginPercent: input.minMarginPercent.toFixed(2),
         defaultCommissionPercent: input.defaultCommissionPercent.toFixed(2),
-        cardFees: input.cardFees ? JSON.stringify(input.cardFees) : (before.cardFees ?? null),
       });
       const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "followUpDays", "maxDiscountPercent", "minMarginPercent", "defaultCommissionPercent", "defaultWarrantyMonths", "cardFees", "defaultTerms"]);
       if (Object.keys(changes).length) await log(ctx, { action: "settings.update", entityType: "settings", summary: `Alterou as configurações da loja: ${Object.keys(changes).join(", ")}`, details: changes });
