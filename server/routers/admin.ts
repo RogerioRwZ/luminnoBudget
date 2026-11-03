@@ -3,6 +3,7 @@ import { statfs } from "node:fs/promises";
 import { z } from "zod";
 import { adminProcedure, router } from "../_core/trpc";
 import { getUploadDirectory } from "../localStorage";
+import { readBackupStatus } from "../backupStatus";
 import { recordActivity } from "../activityLog";
 import { ROLE_LABELS, USER_ROLES } from "../../shared/permissions";
 import { countActiveLocalAdmins, countLocalUsers, createLocalUser, getLocalUserForAdmin, listLocalUsers, resetLocalUserPassword, updateLocalUser, verifyDatabaseConnection } from "../localUserDb";
@@ -28,6 +29,7 @@ export const adminRouter = router({
       localUserCount: await countLocalUsers(),
       uploadDirectory,
       storage,
+      backup: await readBackupStatus(),
       now: new Date(),
     };
   }),

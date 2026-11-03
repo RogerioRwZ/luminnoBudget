@@ -18,6 +18,7 @@ const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const AgendaPage = lazy(() => import("@/pages/AgendaPage"));
 const CommissionsPage = lazy(() => import("@/pages/CommissionsPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
+const AfterSalesPage = lazy(() => import("@/pages/AfterSalesPage"));
 const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const FinancePage = lazy(() => import("@/pages/FinancePage"));
@@ -72,6 +73,7 @@ export function Router() {
           <Route path="/financeiro" component={FinancePage} />
           <Route path="/comissoes" component={CommissionsPage} />
           <Route path="/relatorios" component={ReportsPage} />
+          <Route path="/pos-venda" component={AfterSalesPage} />
           <Route path="/catalogo" component={ProductsPage} />
           <Route path="/estoque" component={InventoryPage} />
           <Route path="/estoque/conferencia/:id" component={PickingCheckPage} />

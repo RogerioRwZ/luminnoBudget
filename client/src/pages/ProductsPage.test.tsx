@@ -21,6 +21,7 @@ vi.mock("@/lib/trpc", () => ({
       createVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
     auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
+    settings: { get: { useQuery: () => ({ data: { defaultWarrantyMonths: 12 } }) } },
   },
 }));
 

@@ -6,7 +6,8 @@ import { trpc } from "@/lib/trpc";
 import { APPOINTMENT_TYPE_LABELS } from "@shared/agenda";
 import { buildDailySummaryText, dailySummaryCount, type DailySummary } from "@shared/dailySummary";
 import { plural } from "@shared/plural";
-import { Bell, CalendarDays, Copy, MessageCircle, PackageCheck, PhoneCall, ShoppingCart, Timer, WalletCards } from "lucide-react";
+import { AFTER_SALES_TYPE_LABELS } from "@shared/afterSales";
+import { Bell, CalendarDays, Copy, DatabaseBackup, LifeBuoy, MessageCircle, PackageCheck, PhoneCall, ShoppingCart, Timer, WalletCards } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -96,6 +97,24 @@ function SummaryBody({ summary, go }: { summary: DailySummary; go: (path: string
           {summary.deliveries.items.map(item => (
             <p key={item.quoteId} className="truncate">#{item.quoteNumber} {item.clientName} · {plural(item.lines, "item", "itens")}</p>
           ))}
+        </Section>
+      ) : null}
+      {summary.afterSales ? (
+        <Section icon={LifeBuoy} title="Pós-venda com prazo até hoje" count={summary.afterSales.count} action="Abrir pós-venda" onAction={() => go("/pos-venda")}>
+          {summary.afterSales.items.map(item => (
+            <p key={item.id} className="truncate">
+              {AFTER_SALES_TYPE_LABELS[item.type]} #{item.id} — {item.clientName} · {item.productDescription}
+              {item.overdue ? <span className="font-semibold text-red-700 dark:text-red-300"> · atrasado</span> : null}
+            </p>
+          ))}
+        </Section>
+      ) : null}
+      {summary.backup ? (
+        <Section icon={DatabaseBackup} title={summary.backup.state === "failed" ? "O último backup falhou" : "Backup atrasado"} count={1} action="Ver status" onAction={() => go("/administracao")}>
+          <p className="text-red-700 dark:text-red-300">
+            {summary.backup.lastSuccessAt ? `Último backup completo em ${dateOnly(summary.backup.lastSuccessAt)} às ${time(summary.backup.lastSuccessAt)}.` : "Nenhum backup completo registrado."}
+            {summary.backup.error ? ` ${summary.backup.error}` : ""}
+          </p>
         </Section>
       ) : null}
       {summary.purchases ? (

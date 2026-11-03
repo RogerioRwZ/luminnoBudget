@@ -11,6 +11,9 @@ import { getDb } from "./db";
 import { financeOverview } from "./financeDb";
 import { getSettings, listQuotes } from "./quoteDb";
 import { approvedFulfillments, purchaseSuggestions } from "./stockDb";
+import { afterSalesDue } from "./afterSalesDb";
+import { readBackupStatus } from "./backupStatus";
+import { needsBackupAttention } from "../shared/backupStatus";
 
 async function database() {
   const db = await getDb();
@@ -201,12 +204,14 @@ export async function dailySummary(role: string, now = new Date()): Promise<Dail
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const can = (area: Parameters<typeof canAccess>[1]) => canAccess(role, area);
-  const [allQuotes, finance, purchases, fulfillments, appointmentRows] = await Promise.all([
+  const [allQuotes, finance, purchases, fulfillments, appointmentRows, afterSalesRows, backup] = await Promise.all([
     can("quotes") ? listQuotes() : Promise.resolve(null),
     can("finance") ? financeOverview() : Promise.resolve(null),
     can("purchases") ? purchaseSuggestions() : Promise.resolve(null),
     can("stock") ? approvedFulfillments() : Promise.resolve(null),
     can("agenda") ? listAppointments({ from: startOfDay, to: endOfDay }) : Promise.resolve(null),
+    can("aftersales") ? afterSalesDue(now) : Promise.resolve(null),
+    role === "admin" ? readBackupStatus(now) : Promise.resolve(null),
   ]);
 
   const negotiating = allQuotes?.filter((quote) => quote.status === "open" || quote.status === "draft") ?? [];
@@ -254,6 +259,8 @@ export async function dailySummary(role: string, now = new Date()): Promise<Dail
       count: scheduled.length,
       items: scheduled.slice(0, 8).map((row) => ({ id: row.id, type: row.type, clientName: row.clientName, scheduledAt: row.scheduledAt, responsible: row.responsible, quoteNumber: row.quoteNumber })),
     } : null,
+    afterSales: afterSalesRows ? { count: afterSalesRows.length, items: afterSalesRows.slice(0, 6) } : null,
+    backup: backup && needsBackupAttention(backup.state) ? { state: backup.state, lastSuccessAt: backup.lastSuccessAt, error: backup.error } : null,
   };
 }
 

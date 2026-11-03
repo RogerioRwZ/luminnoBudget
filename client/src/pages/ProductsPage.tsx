@@ -65,6 +65,8 @@ type ProductForm = {
   // Texto: vazio quer dizer "custo não informado", diferente de custo zero.
   costPrice: string;
   reorderPoint: number;
+  // Texto: vazio usa a garantia padrão das Configurações.
+  warrantyMonths: string;
   active: boolean;
   parentId: number | null;
   modelName: string;
@@ -83,6 +85,7 @@ const emptyProduct: ProductForm = {
   unitPrice: 0,
   costPrice: "",
   reorderPoint: 0,
+  warrantyMonths: "",
   active: true,
   parentId: null,
   modelName: "",
@@ -102,6 +105,7 @@ type Product = {
   costPrice?: string | number | null;
   stockQuantity: string | number;
   reorderPoint: string | number;
+  warrantyMonths?: number | null;
   active: boolean;
   parentId: number | null;
   modelName: string | null;
@@ -126,6 +130,7 @@ export default function ProductsPage() {
   const utils = trpc.useUtils();
   const { role } = usePermissions();
   const showCost = canSeeCost(role);
+  const { data: settings } = trpc.settings.get.useQuery(undefined, { staleTime: 5 * 60_000 });
   const { data = [], isLoading, error, refetch } = trpc.product.list.useQuery();
   const save = trpc.product.save.useMutation({
     onSuccess: () => {
@@ -216,6 +221,7 @@ export default function ProductsPage() {
       unitPrice: Number(root.unitPrice),
       costPrice: costText(root.costPrice),
       reorderPoint: Number(root.reorderPoint),
+      warrantyMonths: root.warrantyMonths == null ? "" : String(root.warrantyMonths),
     });
     setOpen(true);
   };
@@ -228,6 +234,7 @@ export default function ProductsPage() {
       parentId: form.parentId,
       // Quem não vê o custo não envia o campo, e o custo gravado é mantido.
       costPrice: showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined,
+      warrantyMonths: form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths),
     });
   const edit = (product: Product) => {
     setForm({
@@ -243,6 +250,7 @@ export default function ProductsPage() {
       unitPrice: Number(product.unitPrice),
       costPrice: costText(product.costPrice),
       reorderPoint: Number(product.reorderPoint),
+      warrantyMonths: product.warrantyMonths == null ? "" : String(product.warrantyMonths),
       active: product.active,
       parentId: product.parentId,
       modelName: product.modelName ?? "",
@@ -526,6 +534,20 @@ export default function ProductsPage() {
                     setForm({ ...form, reorderPoint: Number(e.target.value) })
                   }
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-warranty">Garantia (meses)</Label>
+                <Input
+                  id="product-warranty"
+                  type="number"
+                  min="0"
+                  max="120"
+                  step="1"
+                  placeholder={`Padrão da loja (${settings?.defaultWarrantyMonths ?? 12})`}
+                  value={form.warrantyMonths}
+                  onChange={e => setForm({ ...form, warrantyMonths: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">Contada da retirada. Usada no pós-venda.</p>
               </div>
               <div className="flex items-end gap-3 pb-2">
                 <Switch

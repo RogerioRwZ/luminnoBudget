@@ -121,6 +121,7 @@ const productInput = z.object({
   unitPrice: money,
   costPrice: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
   reorderPoint: money,
+  warrantyMonths: z.coerce.number().int().min(0).max(120).nullable().optional(),
   active: z.boolean().default(true),
   parentId: z.number().int().positive().nullable().optional(),
   modelName: z.string().trim().max(400).nullable().optional(),
@@ -209,7 +210,7 @@ export const businessRouter = router({
       if (!before) {
         await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})` });
       } else {
-        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["shortDescription", "unitPrice", "costPrice", "reorderPoint", "supplierName", "unit", "active"]);
+        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["shortDescription", "unitPrice", "costPrice", "reorderPoint", "warrantyMonths", "supplierName", "unit", "active"]);
         if (Object.keys(changes).length) {
           const price = changes.unitPrice ? `: preço ${brl(Number(changes.unitPrice.de))} → ${brl(Number(changes.unitPrice.para))}` : "";
           await log(ctx, { action: changes.unitPrice ? "product.price" : "product.update", entityType: "product", entityId: id, summary: `Alterou o produto #${before.code} ${input.shortDescription}${price}`, details: changes });
@@ -522,6 +523,7 @@ export const businessRouter = router({
       maxDiscountPercent: z.coerce.number().min(0).max(100).default(0),
       minMarginPercent: z.coerce.number().min(0).max(100).default(0),
       defaultCommissionPercent: z.coerce.number().min(0).max(100).default(0),
+      defaultWarrantyMonths: z.coerce.number().int().min(0).max(120).default(12),
       defaultTerms: nullableText,
     })).mutation(async ({ ctx, input }) => {
       const before = await getSettings();
@@ -541,7 +543,7 @@ export const businessRouter = router({
         minMarginPercent: input.minMarginPercent.toFixed(2),
         defaultCommissionPercent: input.defaultCommissionPercent.toFixed(2),
       });
-      const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "followUpDays", "maxDiscountPercent", "minMarginPercent", "defaultCommissionPercent", "defaultTerms"]);
+      const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "followUpDays", "maxDiscountPercent", "minMarginPercent", "defaultCommissionPercent", "defaultWarrantyMonths", "defaultTerms"]);
       if (Object.keys(changes).length) await log(ctx, { action: "settings.update", entityType: "settings", summary: `Alterou as configurações da loja: ${Object.keys(changes).join(", ")}`, details: changes });
       return saved;
     }),
@@ -609,7 +611,7 @@ export const businessRouter = router({
   }),
   activity: router({
     list: adminProcedure.input(z.object({
-      entityType: z.enum(["quote", "product", "finance", "stock", "settings", "user", "auth", "backup", "message", "customer"]).optional(),
+      entityType: z.enum(["quote", "product", "finance", "stock", "settings", "user", "auth", "backup", "message", "customer", "aftersales"]).optional(),
       userId: z.number().int().positive().optional(),
       from: z.coerce.date().optional(),
       to: z.coerce.date().optional(),
