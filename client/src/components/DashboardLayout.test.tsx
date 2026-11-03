@@ -36,6 +36,7 @@ function renderLayout(role: Role, health: { ok: boolean; database: string }, onL
 
 afterEach(() => {
   cleanup();
+  document.cookie = "sidebar_state=; max-age=0; path=/";
   vi.unstubAllGlobals();
 });
 
@@ -67,5 +68,30 @@ describe("DashboardLayout", () => {
     for (const label of ["Estoque", "Compras", "Agenda", "Catálogo"]) expect(screen.getByRole("button", { name: label })).toBeTruthy();
     for (const label of ["Orçamentos", "Financeiro", "Clientes"]) expect(screen.queryByRole("button", { name: label })).toBeNull();
     expect(screen.getByText(/Expedição e estoque/)).toBeTruthy();
+  });
+
+  it("recolhe a barra ao clicar no conteúdo e reabre pelo botão", async () => {
+    renderLayout("admin", { ok: true, database: "online" });
+    const sidebar = () => document.querySelector("[data-slot=sidebar]")?.getAttribute("data-state");
+    expect(sidebar()).toBe("expanded");
+
+    // Clique dentro da própria barra não recolhe.
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Orçamentos" }));
+    expect(sidebar()).toBe("expanded");
+
+    fireEvent.pointerDown(screen.getByText("Conteúdo"));
+    await waitFor(() => expect(sidebar()).toBe("collapsed"));
+    expect(document.cookie).toContain("sidebar_state=false");
+
+    const toggle = screen.getByRole("button", { name: "Abrir ou recolher o menu" });
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(sidebar()).toBe("expanded"));
+  });
+
+  it("abre recolhida quando foi recolhida antes", async () => {
+    document.cookie = "sidebar_state=false; path=/";
+    renderLayout("admin", { ok: true, database: "online" });
+    expect(document.querySelector("[data-slot=sidebar]")?.getAttribute("data-state")).toBe("collapsed");
   });
 });
