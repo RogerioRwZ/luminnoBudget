@@ -35,7 +35,9 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "./ui/sidebar";
+import { useEffect } from "react";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Visão geral", path: "/" },
@@ -68,7 +70,36 @@ function useSystemHealth() {
   });
 }
 
-type LocalUser = { id: number; username: string; name: string | null; role: UserRole };
+// O componente da barra grava "sidebar_state" ao abrir/recolher; lido aqui
+// para a escolha valer depois de recarregar a página.
+function sidebarStartsOpen() {
+  try {
+    return !document.cookie.split("; ").includes("sidebar_state=false");
+  } catch {
+    return true;
+  }
+}
+
+// No computador, clicar no conteúdo com a barra aberta recolhe para os ícones
+// (no celular ela já é uma gaveta que fecha ao tocar fora).
+function CollapseSidebarOnOutsideClick() {
+  const { isMobile, open, setOpen } = useSidebar();
+  useEffect(() => {
+    if (isMobile || !open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      // Só o conteúdo da página: diálogos e menus abrem fora dele, e o botão
+      // da barra cuida de si.
+      if (!target?.closest("[data-slot=sidebar-inset]") || target.closest("[data-sidebar=trigger]")) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [isMobile, open, setOpen]);
+  return null;
+}
+
+type LocalUser ={ id: number; username: string; name: string | null; role: UserRole };
 
 type DashboardLayoutProps = {
   children: React.ReactNode;
@@ -94,15 +125,16 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
   const healthState = health.isPending ? "checking" : health.data ? "online" : "offline";
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={sidebarStartsOpen()}>
+      <CollapseSidebarOnOutsideClick />
       <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-        <SidebarHeader className="h-[86px] justify-center px-3">
+        <SidebarHeader className="h-[86px] justify-center px-3 group-data-[collapsible=icon]:px-2">
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-3 rounded-xl px-2 py-2 text-left outline-none transition hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+            className="flex items-center gap-3 rounded-xl px-2 py-2 text-left outline-none group-data-[collapsible=icon]:p-0 transition hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             aria-label="Ir para o painel Luminno"
           >
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#f4d842] text-[11px] font-black tracking-tighter text-black shadow-sm">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#f4d842] text-[11px] group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:text-[9px] font-black tracking-tighter text-black shadow-sm">
               LUM
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
@@ -129,7 +161,7 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
             ))}
           </SidebarMenu>
         </SidebarContent>
-        <SidebarFooter className="gap-3 p-3">
+        <SidebarFooter className="gap-3 p-3 group-data-[collapsible=icon]:p-2">
           {isAdmin ? (
             <button
               onClick={() => setLocation("/configuracoes#backup")}
@@ -141,17 +173,17 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
           ) : null}
           <button
             onClick={toggleTheme}
-            className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-sidebar-foreground transition hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center"
+            className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-sidebar-foreground transition hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
             {theme === "dark" ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
             <span className="group-data-[collapsible=icon]:hidden">Tema {theme === "dark" ? "claro" : "escuro"}</span>
           </button>
-          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs group-data-[collapsible=icon]:hidden"><div className="min-w-0"><p className="truncate font-semibold">{currentUser?.name || user.name || user.username}</p><p className="truncate text-muted-foreground">@{user.username} · {ROLE_LABELS[user.role] ?? user.role}</p></div><button onClick={() => logout.mutate()} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground" aria-label="Sair do sistema"><LogOut className="h-4 w-4" /></button></div>
+          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"><div className="min-w-0 group-data-[collapsible=icon]:hidden"><p className="truncate font-semibold">{currentUser?.name || user.name || user.username}</p><p className="truncate text-muted-foreground">@{user.username} · {ROLE_LABELS[user.role] ?? user.role}</p></div><button onClick={() => logout.mutate()} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground" aria-label="Sair do sistema"><LogOut className="h-4 w-4" /></button></div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-h-screen min-w-0 bg-background">
         <header className="sticky top-0 z-30 flex h-[74px] items-center gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur-xl md:px-8">
-          <SidebarTrigger className="h-9 w-9 rounded-lg border border-border bg-card md:hidden" />
+          <SidebarTrigger className="h-9 w-9 rounded-lg border border-border bg-card" aria-label="Abrir ou recolher o menu" />
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Luminno Iluminação</p>
             <h1 className="truncate font-display text-lg font-bold tracking-tight">{activeItem?.label ?? "Página não encontrada"}</h1>
