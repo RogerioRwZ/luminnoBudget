@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/MoneyInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -453,7 +454,7 @@ export default function ProductsPage() {
                       // Rascunhos antigos não têm os campos de variação.
                       const { variantRows, ...restoredForm } = restored;
                       setForm({ ...emptyProduct, ...restoredForm, attributes: { ...emptyAttributes, ...restoredForm.attributes } });
-                      resetVariantList((variantRows ?? []).map(row => ({ ...row, reorderPoint: row.reorderPoint ?? "" })));
+                      resetVariantList((variantRows ?? []).map(row => ({ ...row, reorderPoint: row.reorderPoint ?? "", unitPrice: row.unitPrice ?? "" })));
                     }}
                   >
                     Recuperar
@@ -609,11 +610,16 @@ export default function ProductsPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Em cada variação só a <b className="text-foreground">referência</b> é obrigatória; cor,
-                    temperatura, potência e código de barras são opcionais. No orçamento
-                    entram as variações, cada uma com a sua referência. Preço, fornecedor
-                    e foto das novas vêm do modelo.
+                    temperatura, potência, preço e código de barras são opcionais. No orçamento
+                    entram as variações, cada uma com a sua referência e o seu preço (em branco,
+                    vale o preço do modelo). Fornecedor e foto das novas vêm do modelo.
                   </p>
-                  <VariantRowsFields state={variantList} modelName={form.modelName || form.shortDescription || "Produto"} />
+                  <VariantRowsFields
+                    state={variantList}
+                    modelName={form.modelName || form.shortDescription || "Produto"}
+                    modelPrice={Number(form.unitPrice) || 0}
+                    priceLocked={Boolean(form.id) && applyToVariants}
+                  />
                 </div>
               ) : null}
               {modelOnly ? null : (
@@ -679,15 +685,10 @@ export default function ProductsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Valor unitário</Label>
-                <Input
+                <MoneyInput
                   aria-label="Valor unitário"
-                  type="number"
-                  min="0"
-                  step="0.01"
                   value={form.unitPrice}
-                  onChange={e =>
-                    setForm({ ...form, unitPrice: Number(e.target.value) })
-                  }
+                  onValueChange={value => setForm(current => ({ ...current, unitPrice: Math.max(0, value) }))}
                 />
               </div>
               {showCost ? (

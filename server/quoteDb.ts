@@ -324,7 +324,9 @@ export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): P
 // os dados do produto principal; as que já existem são puladas. O ponto de
 // reposição começa zerado: senão cada variação nova, sem estoque, já iria
 // para Compras.
-type VariantInput = { id?: number; attributes?: VariantAttributes | null; reference?: string | null; barcode?: string | null; reorderPoint?: number | null };
+// Preço e ponto de reposição são opcionais: sem preço, a variação nova usa o
+// do modelo e a já gravada mantém o seu.
+type VariantInput = { id?: number; attributes?: VariantAttributes | null; reference?: string | null; barcode?: string | null; reorderPoint?: number | null; unitPrice?: number | null };
 
 // Confere a lista inteira antes de gravar qualquer coisa: um erro no meio
 // deixaria só parte das variações. Em cada variação só a referência é
@@ -419,6 +421,8 @@ export async function saveProductFamily(model: Parameters<typeof saveProduct>[0]
       barcode: variant.barcode ?? null,
       attributes: cleanAttributes(variant.attributes),
       ...(variant.reorderPoint != null ? { reorderPoint: variant.reorderPoint } : {}),
+      // "Aplicar às variações" leva o preço do modelo; senão vale o da linha.
+      ...(variant.unitPrice != null && !applyToVariants ? { unitPrice: variant.unitPrice } : {}),
     });
     updated.push(current.id);
   }
@@ -437,7 +441,7 @@ export async function createProductVariants(productId: number, variants: Variant
   const modelName = root.modelName || root.shortDescription;
   const created: number[] = [];
   for (const variant of variants) {
-    created.push(await saveProduct({ reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: cleanAttributes(variant.attributes), fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: variant.reorderPoint ?? 0, active: true }));
+    created.push(await saveProduct({ reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: cleanAttributes(variant.attributes), fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: variant.unitPrice ?? toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: variant.reorderPoint ?? 0, active: true }));
   }
   return { rootId: root.id, created };
 }

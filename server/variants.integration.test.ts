@@ -113,6 +113,28 @@ describe("variações de produto", () => {
     expect(await getProduct(created[0]!)).toMatchObject({ unitPrice: "75.00", costPrice: "30.00", supplierName: "Novo", imageUrl: "/uploads/products/trilho.webp", reference: `TR-PT-${t}` });
   });
 
+  it("cada variação pode ter o seu preço; sem preço, vale o do modelo", async () => {
+    const t = tag();
+    const { rootId, created } = await saveProductWithVariants({ shortDescription: `Spot ${t}`, unit: "UN", unitPrice: 100, active: true }, [
+      { attributes: { power: "7" }, reference: `SP7-${t}`, unitPrice: 89.9 },
+      { attributes: { power: "12" }, reference: `SP12-${t}` },
+    ]);
+    roots.push(rootId);
+    expect((await getProduct(created[0]!))!.unitPrice).toBe("89.90");
+    expect((await getProduct(created[1]!))!.unitPrice).toBe("100.00");
+
+    const root = (await getProduct(rootId))!;
+    const model = { id: rootId, reference: root.reference!, shortDescription: `Spot ${t}`, modelName: `Spot ${t}`, unit: "UN", unitPrice: 120, active: true };
+    // Editando: o preço da linha vale; sem preço, a variação mantém o seu.
+    await saveProductFamily(model, [{ id: created[0]!, attributes: { power: "7" }, reference: `SP7-${t}`, unitPrice: 79 }, { id: created[1]!, attributes: { power: "12" }, reference: `SP12-${t}` }]);
+    expect((await getProduct(created[0]!))!.unitPrice).toBe("79.00");
+    expect((await getProduct(created[1]!))!.unitPrice).toBe("100.00");
+    // "Aplicar às variações" leva o preço do modelo para todas.
+    await saveProductFamily(model, [{ id: created[0]!, attributes: { power: "7" }, reference: `SP7-${t}`, unitPrice: 79 }, { id: created[1]!, attributes: { power: "12" }, reference: `SP12-${t}` }], { applyToVariants: true });
+    expect((await getProduct(created[0]!))!.unitPrice).toBe("120.00");
+    expect((await getProduct(created[1]!))!.unitPrice).toBe("120.00");
+  });
+
   it("produto sem variação continua como antes e principal não vira variação de outro", async () => {
     const plain = await saveProduct({ reference: `T-${tag()}`, shortDescription: `Fita ${Date.now()}`, unit: "M", unitPrice: 10, active: true });
     roots.push(plain);

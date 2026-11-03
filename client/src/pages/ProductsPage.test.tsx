@@ -84,13 +84,15 @@ describe("ProductsPage", () => {
     fireEvent.change(screen.getByLabelText("Referência da variação 1"), { target: { value: "ARCO/PT" } });
     fireEvent.change(screen.getByLabelText("Referência da variação 2"), { target: { value: "ARCO-LISO" } });
     fireEvent.change(screen.getByLabelText("Código de barras da variação 2"), { target: { value: "789 100" } });
+    // Preço próprio na variação 2; a 1 fica com o do modelo (campo em branco).
+    fireEvent.change(screen.getByLabelText("Preço da variação 2"), { target: { value: "149,9" } });
     expect(screen.getByText("Pendente Arco — Ref. ARCO-LISO")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
       product: expect.objectContaining({ reference: undefined, shortDescription: "Pendente Arco", attributes: null, barcode: null }),
       variants: [
         { attributes: { color: "Preto" }, reference: "ARCO/PT", barcode: null },
-        { attributes: {}, reference: "ARCO-LISO", barcode: "789100" },
+        { attributes: {}, reference: "ARCO-LISO", barcode: "789100", unitPrice: 149.9 },
       ],
     }));
   });
@@ -130,15 +132,20 @@ describe("ProductsPage", () => {
     fireEvent.change(screen.getByLabelText("Referência da variação 1"), { target: { value: "AR/BR" } });
     fireEvent.change(screen.getByLabelText("Código de barras da variação 1"), { target: { value: "222" } });
     fireEvent.change(screen.getByLabelText("Ponto de reposição da variação 2"), { target: { value: "3" } });
+    // Cada variação mostra e altera o seu preço.
+    expect((screen.getByLabelText("Preço da variação 1") as HTMLInputElement).value).toBe("90,00");
+    fireEvent.change(screen.getByLabelText("Preço da variação 2"), { target: { value: "95" } });
     // O modelo não tem ponto de reposição próprio; dá para levar preço e foto às variações.
     expect(screen.queryByLabelText("Ponto de reposição")).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "Aplicar às variações" }));
+    // Ligado, o preço vem do modelo e o campo da variação fica travado.
+    expect((screen.getByLabelText("Preço da variação 2") as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
       model: expect.objectContaining({ id: 10, reference: "MOD-10" }),
       variants: [
-        { id: 12, attributes: { color: "Branco" }, reference: "AR/BR", barcode: "222", reorderPoint: 0 },
-        { id: 11, attributes: { color: "Preto" }, reference: "AR-PT", barcode: "111", reorderPoint: 3 },
+        { id: 12, attributes: { color: "Branco" }, reference: "AR/BR", barcode: "222", reorderPoint: 0, unitPrice: 90 },
+        { id: 11, attributes: { color: "Preto" }, reference: "AR-PT", barcode: "111", reorderPoint: 3, unitPrice: 95 },
       ],
       applyToVariants: true,
     }));
