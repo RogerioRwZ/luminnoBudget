@@ -83,7 +83,7 @@ describe("ProductsPage", () => {
   it("agrupa as variações sob o modelo e monta o nome ao preencher a variação", () => {
     const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: "Lumi", unitPrice: "64.50", reorderPoint: "0", active: true, modelName: "Spot GU10" };
     mocks.list.data = [
-      { ...base, id: 1, code: "1", shortDescription: "Spot GU10 — Preto · 3000K", barcode: null, stockQuantity: "4", parentId: null, attributes: '{"color":"Preto","colorTemperature":"3000K"}' },
+      { ...base, id: 1, code: "1", reference: "GU10", shortDescription: "Spot GU10 — Preto · 3000K", barcode: null, stockQuantity: "4", parentId: null, attributes: '{"color":"Preto","colorTemperature":"3000K"}' },
       { ...base, id: 2, code: "2", shortDescription: "Spot GU10 — Branco · 3000K", barcode: "789", stockQuantity: "6", parentId: 1, attributes: '{"color":"Branco","colorTemperature":"3000K"}' },
       { ...base, id: 3, code: "3", shortDescription: "Fita LED", modelName: null, barcode: null, stockQuantity: "1", parentId: null, attributes: null },
     ];
@@ -98,5 +98,11 @@ describe("ProductsPage", () => {
     fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Dourado" } });
     fireEvent.change(screen.getByLabelText("Temperatura de cor"), { target: { value: "2700" } });
     expect(screen.getByText("Spot GU10 — Dourado · 2700K")).toBeTruthy();
+    // A variação ganha referência própria a partir da do modelo.
+    expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("GU10-DOURADO-2700K");
+    // Digitada pela pessoa, a referência não muda mais sozinha.
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "GU10/DR" } });
+    fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Ouro" } });
+    expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("GU10/DR");
   });
 });

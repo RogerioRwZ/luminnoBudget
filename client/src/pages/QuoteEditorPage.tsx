@@ -22,7 +22,7 @@ import { DEFAULT_ENTRY_OFFER, describeEntryOffer, describePart, parseEntryOffer,
 import { PaymentPlanDialog } from "@/components/PaymentPlanDialog";
 import { Switch } from "@/components/ui/switch";
 import { parseAttributes, variantLabel } from "@shared/variants";
-import { findProductByScan, matchesProductSearch } from "@shared/productCodes";
+import { findProductByScan, matchesProductSearch, saleReference } from "@shared/productCodes";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { useUnknownCode } from "@/hooks/useUnknownCode";
 import { Input } from "@/components/ui/input";
@@ -419,6 +419,14 @@ export default function QuoteEditorPage() {
       const rootId = product.parentId ?? product.id;
       families.set(rootId, [...(families.get(rootId) ?? []), product]);
     });
+    // Modelo com variações: o principal sem cor/temperatura/potência é só o
+    // modelo; na venda valem as variações, cada uma com sua referência.
+    families.forEach((members, rootId) => {
+      if (members.length > 1) {
+        const root = members.find(member => member.id === rootId);
+        if (root && !variantLabel(parseAttributes(root.attributes))) families.set(rootId, members.filter(member => member !== root));
+      }
+    });
     families.forEach(members =>
       members.sort((first, second) =>
         Number(Boolean(first.parentId)) - Number(Boolean(second.parentId)) ||
@@ -560,7 +568,7 @@ export default function QuoteEditorPage() {
                       ...room.items,
                       {
                         productId: product.id,
-                        code: product.code,
+                        code: saleReference(product),
                         shortDescription: product.shortDescription,
                         imageUrl: product.imageUrl,
                         unit: product.unit,
@@ -1407,8 +1415,8 @@ export default function QuoteEditorPage() {
                                     code: e.target.value,
                                   })
                                 }
-                                aria-label={`Código do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
-                                className="h-6 max-w-20 border-0 bg-transparent px-0 font-mono text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
+                                aria-label={`Referência do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
+                                className="h-6 max-w-44 border-0 bg-transparent px-0 font-mono text-[10px] text-muted-foreground shadow-none focus-visible:ring-0"
                               />
                               <Input
                                 value={item.unit}
@@ -1468,7 +1476,7 @@ export default function QuoteEditorPage() {
                             onSwap={member => {
                               updateItem(roomIndex, itemIndex, {
                                 productId: member.id,
-                                code: member.code,
+                                code: saleReference(member),
                                 shortDescription: member.shortDescription,
                                 imageUrl: member.imageUrl,
                                 unit: member.unit,

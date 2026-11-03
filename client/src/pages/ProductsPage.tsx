@@ -42,7 +42,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { VariantGenerator } from "@/components/VariantGenerator";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
-import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX } from "@shared/productCodes";
+import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX, suggestVariantReference, uniqueReference } from "@shared/productCodes";
 import { plural } from "@shared/plural";
 import {
   cleanAttributes,
@@ -209,7 +209,15 @@ export default function ProductsPage() {
   const hasChildren = form.id ? data.some(product => product.parentId === form.id) : false;
   const familyMode = Boolean(form.parentId) || hasChildren || Boolean(variantLabel(form.attributes));
   const previewName = composeVariantName(form.modelName || form.shortDescription, cleanAttributes(form.attributes));
+  // Nova variação: a referência acompanha o que é digitado na variação
+  // ("REF-PRETO-3000K") até alguém digitar outra.
+  const [variantBase, setVariantBase] = useState<string | null>(null);
+  const suggestedReference = (attributes: Record<VariantKey, string>) =>
+    variantBase === null
+      ? null
+      : uniqueReference(suggestVariantReference(variantBase, VARIANT_FIELDS.map(field => cleanAttributes(attributes)[field.key])), data.map(product => product.reference));
   const newVariant = (root: Product) => {
+    setVariantBase(root.reference ?? root.code);
     setForm({
       ...emptyProduct,
       parentId: root.id,
@@ -257,6 +265,7 @@ export default function ProductsPage() {
     });
   };
   const edit = (product: Product) => {
+    setVariantBase(null);
     setForm({
       id: product.id,
       code: product.code,
@@ -300,6 +309,7 @@ export default function ProductsPage() {
     setSearch("");
     setFormError("");
     setTriedSave(false);
+    setVariantBase(null);
     setForm({ ...emptyProduct, barcode: normalizeBarcode(value) });
     setOpen(true);
     toast.message(`Código ${value} não cadastrado. Preencha o novo produto.`);
@@ -313,6 +323,7 @@ export default function ProductsPage() {
   }, []);
   const handleOpen = (value: boolean) => {
     setOpen(value);
+    setVariantBase(null);
     setFormError("");
     setTriedSave(false);
     if (!value) setForm(emptyProduct);
@@ -387,7 +398,10 @@ export default function ProductsPage() {
                   maxLength={REFERENCE_MAX}
                   autoCapitalize="characters"
                   value={form.reference}
-                  onChange={e => setForm({ ...form, reference: e.target.value })}
+                  onChange={e => {
+                    setVariantBase(null);
+                    setForm({ ...form, reference: e.target.value });
+                  }}
                   placeholder="Ex.: LM-100/PT"
                 />
                 {referenceError ? (
@@ -497,10 +511,15 @@ export default function ProductsPage() {
                         value={form.attributes[field.key]}
                         placeholder={field.placeholder}
                         onChange={e =>
-                          setForm({
-                            ...form,
-                            modelName: form.modelName || form.shortDescription,
-                            attributes: { ...form.attributes, [field.key]: e.target.value },
+                          setForm(current => {
+                            const attributes = { ...current.attributes, [field.key]: e.target.value };
+                            const suggestion = suggestedReference(attributes);
+                            return {
+                              ...current,
+                              modelName: current.modelName || current.shortDescription,
+                              attributes,
+                              ...(suggestion !== null ? { reference: suggestion } : {}),
+                            };
                           })
                         }
                       />

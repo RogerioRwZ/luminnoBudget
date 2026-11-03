@@ -465,7 +465,7 @@ async function buildQuotePdf(input: QuotePdfInput) {
       font(9, "bold");
       pdf.text(description, col.description, textTop);
       font(7.2, "normal", COLOR.subtle);
-      pdf.text(`Cód. ${item.code || "—"}`, col.description, textTop + description.length * lineHeight(9) + 0.6);
+      pdf.text(`Ref. ${item.code || "—"}`, col.description, textTop + description.length * lineHeight(9) + 0.6);
       font(8.6, "normal");
       pdf.text(`${quantity(item.quantity)} ${item.unit}`, col.quantity, textTop, { align: "right" });
       pdf.text(currency(item.unitPrice), col.unit, textTop, { align: "right" });
