@@ -18,7 +18,7 @@ import {
   type MessageEvent,
 } from "@shared/messages";
 import { normalizeWhatsAppPhone } from "@shared/whatsapp";
-import { Copy, Mail, MessageCircle, QrCode } from "lucide-react";
+import { Copy, Download, Mail, MessageCircle, QrCode, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/ContactInputs";
@@ -77,6 +77,31 @@ export function MessageDialog({
     };
   }, [message]);
 
+  // No celular, abre a tela de compartilhar do aparelho (WhatsApp incluído);
+  // no computador, baixa a imagem para anexar na conversa.
+  const canShareImage = typeof navigator !== "undefined" && typeof navigator.canShare === "function" && navigator.canShare({ files: [new File([], "pix.png", { type: "image/png" })] });
+  const shareQr = async () => {
+    if (!message?.pix) return;
+    try {
+      const fileName = `pix-${message.receivableId ? `parcela-${message.receivableId}` : "orcamento"}.png`;
+      const dataUrl = await pixQrDataUrl(message.pix, 640);
+      if (canShareImage) {
+        const bytes = Uint8Array.from(atob(dataUrl.split(",")[1]!), character => character.charCodeAt(0));
+        await navigator.share({ files: [new File([bytes], fileName, { type: "image/png" })], title: `PIX de ${money(message.amount)}` });
+      } else {
+        const link = document.createElement("a");
+        link.href = dataUrl;
+        link.download = fileName;
+        document.body.append(link);
+        link.click();
+        link.remove();
+      }
+      register("copy");
+    } catch (error) {
+      // Cancelar a tela de compartilhar não é erro.
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("Não foi possível preparar o QR Code.");
+    }
+  };
   const register = (channel: "whatsapp" | "email" | "copy") => {
     if (!message) return;
     logSent.mutate({
@@ -179,8 +204,19 @@ export function MessageDialog({
                     <Copy className="mr-1.5 h-3.5 w-3.5" />
                     Copiar PIX
                   </Button>
+                  <Button size="sm" variant="outline" className="ml-2" onClick={shareQr}>
+                    {canShareImage ? <Share2 className="mr-1.5 h-3.5 w-3.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                    {canShareImage ? "Enviar QR Code" : "Baixar QR Code"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    O WhatsApp recebe o texto com o PIX copia e cola. Para mandar o QR Code, {canShareImage ? "envie a imagem" : "baixe a imagem e anexe na conversa"}.
+                  </p>
                 </div>
               </div>
+            ) : message.event === "payment_due" || message.event === "payment_overdue" ? (
+              <p className="rounded-xl border border-amber-400/50 bg-amber-500/10 p-3 text-xs">
+                Esta cobrança vai sem PIX. Confira a chave, o favorecido e a cidade do PIX em Configurações.
+              </p>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => copy(body, "Texto", true)}>

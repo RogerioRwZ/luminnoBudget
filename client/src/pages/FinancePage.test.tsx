@@ -95,7 +95,7 @@ describe("FinancePage", () => {
     mocks.overview.data = loadedOverview;
     mocks.chargeMessage = { event: "payment_due", eventLabel: "Parcela a vencer", quoteId: 3, receivableId: 9, clientName: "Clínica Aurora", phone: "", email: "financeiro@aurora.com", subject: "Lembrete: parcela 1/2", body: "Olá, Clínica Aurora! Lembrete da parcela 1/2.", amount: 300, pix: "00020126PIXDETESTE6304ABCD" };
     render(<FinancePage />);
-    fireEvent.click(screen.getByRole("button", { name: "Cobrar cliente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cobrar com PIX" }));
     expect(screen.getByText("Parcela a vencer")).toBeTruthy();
     expect(screen.getByText("00020126PIXDETESTE6304ABCD")).toBeTruthy();
     expect((screen.getByRole("button", { name: /WhatsApp/ }) as HTMLButtonElement).disabled).toBe(true);
