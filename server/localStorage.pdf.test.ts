@@ -1,31 +1,14 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { getLocalPdfPath, saveLocalPdf } from "./localStorage";
+import { describe, expect, it } from "vitest";
+import { getLocalPdfPath } from "./localStorage";
 
-const originalDirectory = process.env.PDF_HISTORY_DIR;
-const temporaryDirectories: string[] = [];
-
-afterEach(async () => {
-  process.env.PDF_HISTORY_DIR = originalDirectory;
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
-});
-
-describe("armazenamento privado de PDFs", () => {
-  it("persiste um PDF válido fora do diretório público de uploads", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "luminno-pdf-"));
-    temporaryDirectories.push(directory);
-    process.env.PDF_HISTORY_DIR = directory;
-
-    const stored = await saveLocalPdf("orcamento-42", Buffer.from("%PDF-1.7\nconteudo"));
-    const bytes = await readFile(getLocalPdfPath(stored.key));
-
-    expect(stored.key).toMatch(/^orcamento-42-.+\.pdf$/);
-    expect(bytes.subarray(0, 5).toString("ascii")).toBe("%PDF-");
-  });
-
-  it("rejeita conteúdo que não seja um PDF", async () => {
-    await expect(saveLocalPdf("arquivo", Buffer.from("texto comum"))).rejects.toThrow("não corresponde a um PDF válido");
+// PDFs novos não são gravados em disco (o histórico guarda os dados); os
+// arquivos antigos continuam baixáveis por este caminho.
+describe("PDFs antigos do histórico", () => {
+  it("resolve só arquivos .pdf dentro da pasta do histórico", () => {
+    process.env.PDF_HISTORY_DIR = "/srv/luminno/pdf-history";
+    expect(getLocalPdfPath("orcamento-42-abc.pdf")).toBe(path.join("/srv/luminno/pdf-history", "orcamento-42-abc.pdf"));
+    expect(() => getLocalPdfPath("../segredo.pdf")).toThrow("Chave de PDF inválida");
+    expect(() => getLocalPdfPath("arquivo.txt")).toThrow("Chave de PDF inválida");
   });
 });

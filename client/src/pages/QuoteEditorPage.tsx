@@ -36,7 +36,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateInput, money } from "@/lib/format";
-import { createQuotePdfBlob, createQuotePdfDataUrl, type QuotePdfInput } from "@/lib/quotePdf";
+import { createQuotePdfBlob, toPdfSnapshot, type QuotePdfInput } from "@/lib/quotePdf";
+import { saveBlob } from "@/lib/pdfHistoryDownload";
+import { quotePdfFileName } from "@shared/quoteFileName";
 import { trpc } from "@/lib/trpc";
 import { calculateQuote } from "@shared/quote";
 import { QUOTE_STATUS_LABELS, type QuoteStatus } from "@shared/quoteStatus";
@@ -284,7 +286,7 @@ export default function QuoteEditorPage() {
       setEditorError("");
       utils.quote.pdfHistory.invalidate();
       utils.quote.pdfHistoryAll.invalidate();
-      toast.success("PDF gerado e salvo no histórico.");
+      toast.success("PDF baixado e registrado no histórico.");
     },
     onError: error => {
       const message = getFormErrorMessage(
@@ -731,7 +733,8 @@ export default function QuoteEditorPage() {
     if (validation) return toast.error(validation);
     setIsGeneratingPdf(true);
     try {
-      const { dataUrl, failedImageCount } = await createQuotePdfDataUrl(pdfInput());
+      const input = { ...pdfInput(), generatedAt: new Date() };
+      const { blob, failedImageCount } = await createQuotePdfBlob(input);
       if (failedImageCount > 0) {
         toast.warning(
           failedImageCount === 1
@@ -739,7 +742,9 @@ export default function QuoteEditorPage() {
             : `${failedImageCount} imagens (logotipo e/ou fotos de produto) não puderam ser incluídas no PDF. O documento foi gerado normalmente sem elas.`
         );
       }
-      savePdf.mutate({ quoteId: draft.id, dataUrl, clientName: draft.clientName, professional: draft.professional });
+      // O arquivo vai direto para quem gerou; o servidor guarda só os dados.
+      saveBlob(blob, quotePdfFileName(draft));
+      savePdf.mutate({ quoteId: draft.id, snapshot: JSON.stringify(toPdfSnapshot(input)), fileSize: blob.size, clientName: draft.clientName, professional: draft.professional });
     } catch {
       toast.error("Não foi possível gerar o PDF. Tente novamente.");
     } finally {
@@ -925,7 +930,7 @@ export default function QuoteEditorPage() {
             title="Gera o PDF e guarda uma cópia no histórico do orçamento"
           >
             <FileText className="mr-2 h-4 w-4" />
-            {savePdf.isPending || isGeneratingPdf ? "Gerando PDF…" : "Gerar e salvar PDF"}
+            {savePdf.isPending || isGeneratingPdf ? "Gerando PDF…" : "Gerar PDF"}
           </Button>
           <Button
             variant="outline"

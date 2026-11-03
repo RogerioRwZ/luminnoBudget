@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { MessageCircle, Send } from "lucide-react";
 import { CameraBarcodeScanner } from "@/components/CameraBarcodeScanner";
 import { useUnknownCode } from "@/hooks/useUnknownCode";
+import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { MessageDialog, type DialogMessage } from "@/components/MessageDialog";
 import { dateOnly } from "@/lib/format";
 import { MESSAGE_VARIABLES, type MessageEvent } from "@shared/messages";
@@ -410,6 +411,13 @@ export default function OperationsPage() {
       return;
     }
     setOperationError("");
+    // Imagens (fotos da obra, plantas) são reduzidas a 2400 px no aparelho;
+    // PDFs vão como estão.
+    if (isSupportedImage(file.type)) {
+      const image = await prepareImage(file, 2400);
+      uploadAttachment.mutate({ quoteId, fileName: renameForType(file.name, image.mimeType), mimeType: image.mimeType, dataUrl: image.dataUrl });
+      return;
+    }
     const reader = new FileReader();
     reader.onerror = () => {
       const message =

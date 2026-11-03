@@ -3,6 +3,7 @@ import {
   decimal,
   index,
   int,
+  mediumtext,
   mysqlEnum,
   mysqlTable,
   text,
@@ -136,7 +137,11 @@ export const quotePdfHistory = mysqlTable("quotePdfHistory", {
   quoteId: int("quoteId").notNull(),
   createdByUserId: int("createdByUserId").notNull(),
   fileName: varchar("fileName", { length: 180 }).notNull(),
-  storageKey: varchar("storageKey", { length: 255 }).notNull().unique(),
+  // Arquivo gravado no disco: só nos PDFs gerados antes desta versão.
+  storageKey: varchar("storageKey", { length: 255 }).unique(),
+  // Dados usados no PDF (JSON). O documento é montado de novo no navegador
+  // ao baixar, sem guardar o arquivo no servidor.
+  snapshot: mediumtext("snapshot"),
   fileSize: int("fileSize").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

@@ -5,7 +5,6 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_PDF_BYTES = 8 * 1024 * 1024;
 const supportedTypes = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -90,21 +89,6 @@ export async function saveLocalAttachment(fileName: string, mimeType: string, by
   const root = getUploadDirectory();
   if (!destination.startsWith(`${root}${path.sep}`)) throw new Error("Caminho de anexo inválido.");
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o750 });
-  const temporary = `${destination}.tmp-${randomUUID()}`;
-  await writeFile(temporary, bytes, { mode: 0o640 });
-  await rename(temporary, destination);
-  return { key, fileSize: bytes.length };
-}
-
-export async function saveLocalPdf(fileName: string, bytes: Buffer) {
-  if (bytes.length < 5 || bytes.length > MAX_PDF_BYTES) throw new Error("O PDF deve ter até 8 MB.");
-  if (bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("O conteúdo enviado não corresponde a um PDF válido.");
-  await ensurePdfHistoryDirectory();
-
-  const key = `${safeStem(fileName)}-${randomUUID()}.pdf`;
-  const destination = path.join(getPdfHistoryDirectory(), key);
-  const root = getPdfHistoryDirectory();
-  if (!destination.startsWith(`${root}${path.sep}`)) throw new Error("Caminho de PDF inválido.");
   const temporary = `${destination}.tmp-${randomUUID()}`;
   await writeFile(temporary, bytes, { mode: 0o640 });
   await rename(temporary, destination);

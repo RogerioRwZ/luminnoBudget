@@ -26,6 +26,8 @@ export type QuotePdfInput = {
   rooms: Array<{ name: string; items: Array<{ code: string; shortDescription: string; imageUrl?: string | null; unit: string; quantity: number; unitPrice: number }> }>;
   summary: { rooms: number[]; productsSubtotal: number; discountAmount: number; shipping: number; total: number; pixDiscountAmount: number; pixTotal: number; installmentValue?: number };
   settings?: { companyName: string; tradingName: string; logoUrl?: string | null; document: string | null; address: string | null; phone: string | null; email?: string | null; pixKey: string | null; pixRecipient: string | null; pixCity?: string | null };
+  // Momento em que o PDF foi gerado (o histórico remonta com a data original).
+  generatedAt?: Date;
 };
 
 // jsPDF não desenha o espaço não separável que o Intl usa em "R$ 1,00".
@@ -601,7 +603,7 @@ async function buildQuotePdf(input: QuotePdfInput) {
   pdf.text("Data", PAGE.margin + signatureWidth + 12, y + 4);
 
   // ── Rodapé em todas as páginas ───────────────────────────────────────
-  const generatedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date());
+  const generatedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(input.generatedAt ?? new Date());
   const footerContact = [company, settings?.phone, settings?.email].filter(Boolean).join("  ·  ");
   const pageCount = pdf.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
@@ -642,4 +644,32 @@ export async function createQuotePdfDataUrl(input: QuotePdfInput): Promise<Quote
 export async function createQuotePdfBlob(input: QuotePdfInput) {
   const { pdf, failedImageCount } = await buildQuotePdf(input);
   return { blob: pdf.output("blob"), failedImageCount };
+}
+
+// Histórico de PDFs: o servidor guarda só os dados usados no documento (alguns
+// KB) e o PDF é montado de novo no navegador ao baixar, igual ao original.
+export function toPdfSnapshot(input: QuotePdfInput) {
+  const pick = <T extends object, K extends keyof T>(source: T | undefined, keys: K[]) =>
+    source ? (Object.fromEntries(keys.map(key => [key, source[key]])) as Pick<T, K>) : undefined;
+  return {
+    quoteNumber: input.quoteNumber, status: input.status, clientName: input.clientName, professional: input.professional,
+    document: input.document, stateRegistration: input.stateRegistration, phone: input.phone, address: input.address,
+    issueDate: input.issueDate, validUntil: input.validUntil, discountMode: input.discountMode, discountValue: input.discountValue,
+    shipping: input.shipping, pixDiscountMode: input.pixDiscountMode, pixDiscountValue: input.pixDiscountValue,
+    installments: input.installments, entryOffer: input.entryOffer ?? null, notes: input.notes,
+    rooms: input.rooms.map(room => ({ name: room.name, items: room.items.map(item => pick(item, ["code", "shortDescription", "imageUrl", "unit", "quantity", "unitPrice"])!) })),
+    summary: input.summary,
+    settings: pick(input.settings, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity"]),
+    generatedAt: input.generatedAt ?? new Date(),
+  } satisfies QuotePdfInput;
+}
+
+export function fromPdfSnapshot(text: string): QuotePdfInput {
+  const value = JSON.parse(text) as QuotePdfInput & { issueDate: string; validUntil: string | null; generatedAt?: string };
+  return {
+    ...value,
+    issueDate: new Date(value.issueDate),
+    validUntil: value.validUntil ? new Date(value.validUntil) : null,
+    generatedAt: value.generatedAt ? new Date(value.generatedAt) : undefined,
+  };
 }

@@ -12,6 +12,7 @@ import { getAttachment } from "../advancedDb";
 import { verifyDatabaseConnection } from "../localUserDb";
 import { getQuotePdfHistoryEntry } from "../quoteDb";
 import { startPushScheduler } from "../pushDb";
+import { startStorageCleanup } from "../storageCleanup";
 
 function securityHeaders(_req: Request, res: Response, next: NextFunction) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -91,8 +92,10 @@ async function startServer() {
     if (!user) return res.status(401).send("Autenticação necessária.");
     if (!Number.isSafeInteger(historyId) || historyId < 1) return res.status(404).send("PDF não encontrado.");
     const entry = await getQuotePdfHistoryEntry(historyId);
-    if (!entry) return res.status(404).send("PDF não encontrado.");
-    sendPrivateFile(res, () => getLocalPdfPath(entry.storageKey), entry.fileName, "Arquivo PDF não encontrado.");
+    // PDFs novos não têm arquivo: são montados no navegador a partir dos dados.
+    if (!entry?.storageKey) return res.status(404).send("PDF não encontrado.");
+    const storageKey = entry.storageKey;
+    sendPrivateFile(res, () => getLocalPdfPath(storageKey), entry.fileName, "Arquivo PDF não encontrado.");
   });
   // tRPC API
   app.use(
@@ -121,6 +124,7 @@ async function startServer() {
   });
   // Avisos no celular (Resumo do dia de manhã e alerta de backup).
   if (process.env.PUSH_DISABLED !== "1") startPushScheduler();
+  if (process.env.STORAGE_CLEANUP_DISABLED !== "1") startStorageCleanup();
 }
 
 // Sai com código de erro se a inicialização falhar (ex.: pasta de uploads

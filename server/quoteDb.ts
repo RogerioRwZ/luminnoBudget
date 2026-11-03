@@ -9,6 +9,7 @@ import {
   quoteItems,
   quoteItemReservations,
   quotePdfHistory,
+  quoteAttachments,
   quoteRooms,
   quotes,
   stockMovements,
@@ -408,7 +409,9 @@ function toQuotePdfHistoryEntry(entry: typeof quotePdfHistory.$inferSelect) {
     fileName: entry.fileName,
     fileSize: entry.fileSize,
     createdAt: entry.createdAt,
-    downloadUrl: `/api/quote-pdfs/${entry.id}/download`,
+    // Com os dados, o navegador monta o PDF; sem eles, baixa o arquivo antigo.
+    rebuild: Boolean(entry.snapshot),
+    downloadUrl: entry.storageKey ? `/api/quote-pdfs/${entry.id}/download` : null,
   };
 }
 
@@ -431,7 +434,7 @@ export async function listAllQuotePdfHistory() {
   }));
 }
 
-export async function createQuotePdfHistory(input: { quoteId: number; createdByUserId: number; fileName: string; storageKey: string; fileSize: number }) {
+export async function createQuotePdfHistory(input: { quoteId: number; createdByUserId: number; fileName: string; snapshot: string; fileSize: number }) {
   const db = await database();
   const quote = await db.select({ id: quotes.id }).from(quotes).where(eq(quotes.id, input.quoteId)).limit(1);
   if (!quote[0]) throw new Error("Orçamento não encontrado.");
@@ -439,6 +442,12 @@ export async function createQuotePdfHistory(input: { quoteId: number; createdByU
   const entries = await db.select().from(quotePdfHistory).where(eq(quotePdfHistory.id, inserted[0]!.id)).limit(1);
   if (!entries[0]) throw new Error("Não foi possível registrar o histórico de PDF.");
   return toQuotePdfHistoryEntry(entries[0]);
+}
+
+export async function getQuotePdfSnapshot(id: number) {
+  const db = await database();
+  const entries = await db.select({ fileName: quotePdfHistory.fileName, snapshot: quotePdfHistory.snapshot }).from(quotePdfHistory).where(eq(quotePdfHistory.id, id)).limit(1);
+  return entries[0]?.snapshot ? { fileName: entries[0].fileName, snapshot: entries[0].snapshot } : null;
 }
 
 export async function getQuotePdfHistoryEntry(id: number) {
@@ -799,6 +808,9 @@ export async function deleteQuote(id: number) {
     await tx.delete(quoteRooms).where(eq(quoteRooms.quoteId, id));
     await tx.delete(quotes).where(eq(quotes.id, id));
   });
+  // Anexos de orçamento excluído não abrem mais em lugar nenhum: o registro
+  // sai agora e o arquivo, na limpeza diária.
+  await db.delete(quoteAttachments).where(eq(quoteAttachments.quoteId, id));
 }
 
 export async function dashboardMetrics() {
