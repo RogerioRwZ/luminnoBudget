@@ -225,21 +225,19 @@ describe("QuoteEditorPage", () => {
     expect(reordered[1]!.value).toBe("led");
   });
 
-  it("mostra as variações de um modelo na busca e adiciona a escolhida", () => {
-    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: null, reorderPoint: "0", active: true, modelName: "Spot GU10", barcode: null };
+  it("a busca lista cada produto e adiciona o escolhido com a sua referência", () => {
+    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: null, reorderPoint: "0", active: true, barcode: null };
     mocks.products = [
-      { ...base, id: 21, code: "21", shortDescription: "Spot GU10 — Preto · 3000K", unitPrice: "60", stockQuantity: "4", parentId: null, attributes: '{"color":"Preto","colorTemperature":"3000K"}' },
-      { ...base, id: 22, code: "22", reference: "GU10-BR-3000", shortDescription: "Spot GU10 — Branco · 3000K", unitPrice: "65", stockQuantity: "0", parentId: 21, attributes: '{"color":"Branco","colorTemperature":"3000K"}' },
+      { ...base, id: 21, code: "21", reference: "GU10-PT", shortDescription: "Spot GU10 — Preto", unitPrice: "60", stockQuantity: "4" },
+      { ...base, id: 22, code: "22", reference: "GU10-BR", shortDescription: "Spot GU10 — Branco", unitPrice: "65", stockQuantity: "0" },
+      { ...base, id: 23, code: "23", reference: "GU10-OLD", shortDescription: "Spot GU10 — Antigo", unitPrice: "65", stockQuantity: "0", active: false },
     ];
     render(<QuoteEditorPage />);
     fireEvent.change(screen.getByLabelText("Buscar produto no ambiente 1"), { target: { value: "spot" } });
-    const family = screen.getByRole("button", { name: /Spot GU10.*2 variações/ });
-    fireEvent.click(family);
-    expect(family.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /Branco · 3000K/ }));
-    expect(screen.getByDisplayValue("Spot GU10 — Branco · 3000K")).toBeTruthy();
-    // O item leva a referência da variação, não o código interno.
-    expect(screen.getByDisplayValue("GU10-BR-3000")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Antigo/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Spot GU10 — Branco/ }));
+    expect(screen.getByDisplayValue("Spot GU10 — Branco")).toBeTruthy();
+    expect(screen.getByDisplayValue("GU10-BR")).toBeTruthy();
     mocks.products = [];
   });
 
@@ -260,20 +258,5 @@ describe("QuoteEditorPage", () => {
     fireEvent.change(screen.getByLabelText("Telefone"), { target: { value: "2131234" } });
     expect((screen.getByLabelText("Telefone") as HTMLInputElement).value).toBe("(21) 3123-4");
     mocks.customers = [];
-  });
-
-  it("modelo com variações: o principal sem variação não é oferecido sozinho", () => {
-    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: null, reorderPoint: "0", active: true, modelName: "Pendente Arco", barcode: null, stockQuantity: "1", unitPrice: "100" };
-    mocks.products = [
-      { ...base, id: 31, code: "31", reference: "ARCO", shortDescription: "Pendente Arco", parentId: null, attributes: null },
-      { ...base, id: 32, code: "32", reference: "ARCO-PRETO", shortDescription: "Pendente Arco — Preto", parentId: 31, attributes: '{"color":"Preto"}' },
-    ];
-    render(<QuoteEditorPage />);
-    // Buscando pela referência do modelo, aparece direto a única variação.
-    fireEvent.change(screen.getByLabelText("Buscar produto no ambiente 1"), { target: { value: "arco" } });
-    fireEvent.click(screen.getByRole("button", { name: /Pendente Arco — Preto/ }));
-    expect(screen.getByDisplayValue("ARCO-PRETO")).toBeTruthy();
-    expect(screen.queryByDisplayValue("ARCO")).toBeNull();
-    mocks.products = [];
   });
 });

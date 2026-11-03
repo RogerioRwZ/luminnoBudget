@@ -57,6 +57,11 @@ const statusMeta: Record<FinanceStatus, { label: string; className: string }> =
       className: "bg-slate-500/10 text-slate-700",
     },
   };
+// A loja não informa as taxas da operadora: o que entra no cartão é o valor
+// da venda, sem o desconto da taxa.
+const CARD_NOTICE = "Os recebimentos no cartão são aproximados: as taxas da operadora não são descontadas.";
+const isCardPayment = (method: PaymentMethod) => method === "credit_card" || method === "debit_card";
+
 const paymentLabels: Record<PaymentMethod, string> = {
   pix: "PIX",
   cash: "Dinheiro",
@@ -88,7 +93,6 @@ type Receivable = {
     type: PaymentType;
     amount: number;
     paymentMethod: PaymentMethod;
-    feeAmount?: number | null;
     paidAt: Date;
     reference: string | null;
     notes: string | null;
@@ -298,12 +302,9 @@ export default function FinancePage() {
             <p className="mt-1 font-display text-2xl font-bold">
               {money(totals?.receivedThisMonth)}
             </p>
-            {totals?.cardFeesThisMonth ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Taxas de cartão {money(totals.cardFeesThisMonth)} · líquido{" "}
-                {money(totals.receivedThisMonth - totals.cardFeesThisMonth)}
-              </p>
-            ) : null}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {CARD_NOTICE}
+            </p>
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-sm">
@@ -517,7 +518,7 @@ export default function FinancePage() {
                                       : "Estorno"}
                                     : {money(payment.amount)} ·{" "}
                                     {paymentLabels[payment.paymentMethod]} ·{" "}
-                                    {payment.feeAmount ? `taxa ${money(payment.feeAmount)} · ` : ""}
+                                    {isCardPayment(payment.paymentMethod) ? "valor aproximado · " : ""}
                                     {new Intl.DateTimeFormat("pt-BR").format(
                                       new Date(payment.paidAt)
                                     )}

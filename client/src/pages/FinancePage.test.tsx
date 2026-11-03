@@ -58,6 +58,13 @@ describe("FinancePage", () => {
     expect(screen.getByDisplayValue("300.00")).toBeTruthy();
   });
 
+  it("avisa que os recebimentos no cartão são aproximados", () => {
+    mocks.overview.data = loadedOverview;
+    render(<FinancePage />);
+    expect(screen.getByText(/recebimentos no cartão são aproximados/)).toBeTruthy();
+    expect(screen.queryByText(/líquido/)).toBeNull();
+  });
+
   it("nomeia os filtros e os selects dos diálogos", () => {
     mocks.overview.data = loadedOverview;
     const { container } = render(<FinancePage />);

@@ -9,7 +9,7 @@ describe("nextProductCode", () => {
   });
 });
 
-import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, suggestVariantReference, uniqueReference } from "./productCodes";
+import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem } from "./productCodes";
 
 describe("referência e código de barras", () => {
   it("referência é obrigatória e aceita letras, números e símbolos", () => {
@@ -26,13 +26,6 @@ describe("referência e código de barras", () => {
     expect(normalizeBarcode(" 789 1234 567890 ")).toBe("7891234567890");
     expect(barcodeProblem("ABC-123/9")).toBeNull();
     expect(barcodeProblem("AÇÃO")).toMatch(/sem acento/);
-  });
-
-  it("sugere a referência da variação e evita repetir", () => {
-    expect(suggestVariantReference("LM100", ["Preto fosco", "3000K", undefined])).toBe("LM100-PRETOFOSCO-3000K");
-    expect(suggestVariantReference("LM100", ["Âmbar", "7,5W"])).toBe("LM100-AMBAR-7,5W");
-    expect(uniqueReference("LM100-PRETO", ["lm100-preto", "LM100-PRETO-2"])).toBe("LM100-PRETO-3");
-    expect(uniqueReference("NOVA", ["outra"])).toBe("NOVA");
   });
 
   const products = [

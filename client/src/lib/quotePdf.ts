@@ -446,7 +446,7 @@ async function buildQuotePdf(input: QuotePdfInput) {
     room.items.forEach((item, itemIndex) => {
       font(9, "bold");
       const description = wrap(item.shortDescription, descriptionWidth);
-      const textHeight = description.length * lineHeight(9) + 4.6;
+      const textHeight = description.length * lineHeight(9) + 1.6;
       const rowHeight = Math.max(withImages ? thumb + 3 : 0, textHeight + 3);
       ensureSpace(rowHeight + 1);
       if (itemIndex % 2 === 1) {
@@ -464,8 +464,6 @@ async function buildQuotePdf(input: QuotePdfInput) {
       const textTop = y + 3.6;
       font(9, "bold");
       pdf.text(description, col.description, textTop);
-      font(7.2, "normal", COLOR.subtle);
-      pdf.text(`Ref. ${item.code || "—"}`, col.description, textTop + description.length * lineHeight(9) + 0.6);
       font(8.6, "normal");
       pdf.text(`${quantity(item.quantity)} ${item.unit}`, col.quantity, textTop, { align: "right" });
       pdf.text(currency(item.unitPrice), col.unit, textTop, { align: "right" });

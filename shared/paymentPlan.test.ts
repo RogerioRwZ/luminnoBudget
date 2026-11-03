@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardFeeAmount, describeEntryOffer, describePlan, entryOfferValues, parseCardFees, parseEntryOffer, parsePaymentPlan, planTarget, validatePaymentPlan, type PaymentPlan } from "./paymentPlan";
+import { describeEntryOffer, describePlan, entryOfferValues, parseEntryOffer, parsePaymentPlan, planTarget, validatePaymentPlan, type PaymentPlan } from "./paymentPlan";
 
 const totals = { total: 1000, pixTotal: 900 };
 
@@ -24,15 +24,6 @@ describe("forma de pagamento", () => {
     expect(describePlan({ parts: [{ method: "pix", amount: 300, installments: 1 }, { method: "store_credit", amount: 700, installments: 2 }] })).toMatch(/^R\$\s?300,00 — PIX \+ 2x de R\$\s?350,00 — Crediário próprio$/);
     expect(parsePaymentPlan("lixo")).toBeNull();
     expect(parsePaymentPlan(null)).toBeNull();
-  });
-
-  it("calcula a taxa da maquininha por número de vezes", () => {
-    const fees = parseCardFees(JSON.stringify({ debit: 1.2, credit: [3, 4, 5, 6, 6, 6, 7, 7, 7, 8, 8, 9] }));
-    expect(cardFeeAmount(fees, "debit_card", 1, 500)).toBe(6);
-    expect(cardFeeAmount(fees, "credit_card", 3, 1000)).toBe(50);
-    expect(cardFeeAmount(fees, "credit_card", 18, 1000)).toBe(90);
-    expect(cardFeeAmount(fees, "pix", 1, 1000)).toBe(0);
-    expect(parseCardFees("{")).toEqual({ debit: 0, credit: Array(12).fill(0) });
   });
 
   it("calcula e descreve a condição de entrada + crediário", () => {

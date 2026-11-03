@@ -155,6 +155,13 @@
       "when": 1793717667703,
       "tag": "0021_indices_vinculos",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1793741036926,
+      "tag": "0022_retirar_variacoes",
+      "breakpoints": true
     }
   ]
 }

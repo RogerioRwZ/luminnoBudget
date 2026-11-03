@@ -13,12 +13,11 @@ import type { SalesReportLine, SalesReportRow } from "@shared/salesReport";
 import { BarChart3, Download, FileSpreadsheet, Receipt, ShoppingBag, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 
-type Dimension = "bySeller" | "byProfessional" | "byModel" | "byProduct";
+type Dimension = "bySeller" | "byProfessional" | "byProduct";
 const DIMENSIONS: Array<{ key: Dimension; label: string; column: string; file: string }> = [
   { key: "bySeller", label: "Vendedor", column: "Vendedor", file: "vendas-por-vendedor" },
   { key: "byProfessional", label: "Profissional", column: "Profissional", file: "vendas-por-profissional" },
-  { key: "byModel", label: "Modelo", column: "Modelo", file: "vendas-por-modelo" },
-  { key: "byProduct", label: "Variação / produto", column: "Produto", file: "vendas-por-produto" },
+  { key: "byProduct", label: "Produto", column: "Produto", file: "vendas-por-produto" },
 ];
 
 function Kpi({ icon: Icon, label, value, hint }: { icon: typeof Receipt; label: string; value: string; hint?: string }) {
@@ -70,7 +69,6 @@ export default function ReportsPage() {
       { header: "Cliente", value: line => line.clientName },
       { header: "Profissional", value: line => line.professional },
       { header: "Vendedor", value: line => line.sellerName },
-      { header: "Modelo", value: line => line.modelName },
       { header: "Código", value: line => line.code },
       { header: "Produto", value: line => line.shortDescription },
       { header: "Unidade", value: line => line.unit },

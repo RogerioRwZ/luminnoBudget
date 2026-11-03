@@ -31,30 +31,15 @@ import {
   Boxes,
   Hash,
   ImagePlus,
-  Layers,
-  Palette,
-  Plus,
   PackagePlus,
   Search,
   Truck,
   X,
 } from "lucide-react";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { VariantGenerator } from "@/components/VariantGenerator";
-import { useVariantRows, variantRowFromProduct, VariantRowsFields, type VariantRowForm } from "@/components/VariantRows";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX } from "@shared/productCodes";
-import { plural } from "@shared/plural";
-import {
-  cleanAttributes,
-  composeVariantName,
-  parseAttributes,
-  variantDisplayName,
-  VARIANT_FIELDS,
-  variantLabel,
-  type VariantKey,
-} from "@shared/variants";
 import { toast } from "sonner";
 
 type ProductForm = {
@@ -75,11 +60,7 @@ type ProductForm = {
   // Texto: vazio usa a garantia padrão das Configurações.
   warrantyMonths: string;
   active: boolean;
-  parentId: number | null;
-  modelName: string;
-  attributes: Record<VariantKey, string>;
 };
-const emptyAttributes = Object.fromEntries(VARIANT_FIELDS.map(field => [field.key, ""])) as Record<VariantKey, string>;
 const emptyProduct: ProductForm = {
   code: "",
   reference: "",
@@ -95,9 +76,6 @@ const emptyProduct: ProductForm = {
   reorderPoint: 0,
   warrantyMonths: "",
   active: true,
-  parentId: null,
-  modelName: "",
-  attributes: emptyAttributes,
 };
 type Product = {
   id: number;
@@ -116,11 +94,7 @@ type Product = {
   reorderPoint: string | number;
   warrantyMonths?: number | null;
   active: boolean;
-  parentId: number | null;
-  modelName: string | null;
-  attributes: string | null;
 };
-const toFormAttributes = (text: string | null) => ({ ...emptyAttributes, ...parseAttributes(text) });
 const costText = (value: string | number | null | undefined) => (value === null || value === undefined ? "" : String(Number(value)));
 const marginOf = (price: string | number, cost: string | number | null | undefined) =>
   cost === null || cost === undefined || cost === "" || Number(price) <= 0 ? null : (Number(price) - Number(cost)) / Number(price);
@@ -159,38 +133,6 @@ export default function ProductsPage() {
       toast.error(message);
     },
   });
-  // Produto novo já com as variações: modelo e variações gravados juntos.
-  const saveWithVariants = trpc.product.saveWithVariants.useMutation({
-    onSuccess: result => {
-      utils.product.list.invalidate();
-      utils.inventory.invalidate();
-      setFormError("");
-      removeDraft("product-new");
-      toast.success(`Produto salvo com ${plural(result.created.length, "variação", "variações")}`);
-      setOpen(false);
-    },
-    onError: error => {
-      const message = getFormErrorMessage(error, "Não foi possível salvar o produto e as variações. Confira os campos e tente novamente.");
-      setFormError(message);
-      toast.error(message);
-    },
-  });
-  // Editar um modelo: o modelo e todas as variações salvos juntos.
-  const saveFamily = trpc.product.saveFamily.useMutation({
-    onSuccess: result => {
-      utils.product.list.invalidate();
-      utils.inventory.invalidate();
-      setFormError("");
-      removeDraft(`product-${form.id ?? "new"}`);
-      toast.success(`Modelo salvo${result.created.length ? ` com ${plural(result.created.length, "variação nova", "variações novas")}` : ""}`);
-      setOpen(false);
-    },
-    onError: error => {
-      const message = getFormErrorMessage(error, "Não foi possível salvar o modelo e as variações. Confira os campos e tente novamente.");
-      setFormError(message);
-      toast.error(message);
-    },
-  });
   const upload = trpc.product.uploadImage.useMutation({
     onSuccess: file => {
       setForm(current => ({
@@ -213,75 +155,10 @@ export default function ProductsPage() {
   const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<ProductForm>(emptyProduct);
-  // Produto com variações: o produto é o modelo e cada variação da lista tem
-  // referência própria (obrigatória) e código de barras (opcional). Vale para
-  // o cadastro novo ("Este produto tem variações") e para editar um modelo.
-  const [withVariants, setWithVariants] = useState(false);
-  const variantList = useVariantRows({ taken: data, reserved: form.id && form.reference.trim() ? [form.reference] : [] });
-  // Editar o modelo: copiar preço, custo, fornecedor e foto para as variações.
-  const [applyToVariants, setApplyToVariants] = useState(false);
-  const resetVariantList = (rows: VariantRowForm[] = []) => {
-    setWithVariants(rows.length > 0);
-    setApplyToVariants(false);
-    variantList.reset(rows);
-  };
-  // O rascunho guarda também a lista de variações.
-  const draftValue = useMemo(() => ({ ...form, variantRows: withVariants ? variantList.rows : null }), [form, withVariants, variantList.rows]);
-  const productDraft = useDraftAutosave<ProductForm & { variantRows?: VariantRowForm[] | null }>(`product-${form.id ?? "new"}`, draftValue, {
+  const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
     enabled: open,
   });
-  // Modelos com variações aparecem agrupados; o resto, como antes.
-  const { families, standalone } = useMemo(() => {
-    const matches = (product: Product) => matchesProductSearch(product, search);
-    const childrenOf = new Map<number, Product[]>();
-    data.forEach(product => {
-      if (product.parentId) childrenOf.set(product.parentId, [...(childrenOf.get(product.parentId) ?? []), product]);
-    });
-    const families: Array<{ root: Product; members: Product[] }> = [];
-    const standalone: Product[] = [];
-    data.forEach(product => {
-      if (product.parentId) return;
-      const children = childrenOf.get(product.id) ?? [];
-      if (!children.length) {
-        if (matches(product)) standalone.push(product);
-        return;
-      }
-      const members = [product, ...children.sort((first, second) => first.shortDescription.localeCompare(second.shortDescription, "pt-BR", { numeric: true }))];
-      const visible = members.some(matches) ? (matches(product) ? members : members.filter(matches)) : [];
-      if (visible.length) families.push({ root: product, members: visible });
-    });
-    return { families, standalone };
-  }, [data, search]);
-  const filteredCount = families.length + standalone.length;
-  const [generatorFor, setGeneratorFor] = useState<Product | null>(null);
-  const familyMembers = (rootId: number) => data.filter(product => product.id === rootId || product.parentId === rootId);
-  const hasChildren = form.id ? data.some(product => product.parentId === form.id) : false;
-  const familyMode = Boolean(form.parentId) || hasChildren || Boolean(variantLabel(form.attributes));
-  const previewName = form.parentId
-    ? variantDisplayName(form.modelName || form.shortDescription, cleanAttributes(form.attributes), form.reference.trim())
-    : composeVariantName(form.modelName || form.shortDescription, cleanAttributes(form.attributes));
-  // Modelo sem cor/temperatura próprias: não é vendido, então não pede
-  // referência nem código de barras (a referência dele é interna).
-  const modelOnly = withVariants && !variantLabel(form.attributes);
-  const newVariant = (root: Product) => {
-    resetVariantList();
-    setForm({
-      ...emptyProduct,
-      parentId: root.id,
-      modelName: root.modelName || root.shortDescription,
-      shortDescription: root.modelName || root.shortDescription,
-      fullDescription: root.fullDescription ?? "",
-      imageUrl: root.imageUrl ?? "",
-      imageKey: root.imageKey ?? "",
-      unit: root.unit,
-      supplierName: root.supplierName ?? "",
-      unitPrice: Number(root.unitPrice),
-      costPrice: costText(root.costPrice),
-      reorderPoint: Number(root.reorderPoint),
-      warrantyMonths: root.warrantyMonths == null ? "" : String(root.warrantyMonths),
-    });
-    setOpen(true);
-  };
+  const filtered = useMemo(() => data.filter(product => matchesProductSearch(product, search)), [data, search]);
   // Avisa antes de salvar: referência e código de barras não podem repetir.
   const others = data.filter(product => product.id !== form.id);
   const referenceTwin = form.reference.trim() ? others.find(product => product.reference && findProductByScan([product], form.reference)) : undefined;
@@ -295,51 +172,19 @@ export default function ProductsPage() {
   const barcodeError = barcodeTwin ? `Já está em "${barcodeTwin.shortDescription}".` : barcodeProblem(form.barcode);
   const submit = () => {
     setTriedSave(true);
-    if (!modelOnly && (referenceProblem(form.reference) || referenceTwin || barcodeError)) {
+    if (referenceProblem(form.reference) || referenceTwin || barcodeError) {
       const message = referenceError ?? referenceProblem(form.reference) ?? barcodeError ?? "";
       setFormError(message);
       return;
     }
-    const costPrice = showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined;
-    const warrantyMonths = form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths);
-    if (withVariants) {
-      variantList.markAttempted();
-      if (!variantList.rows.length) return setFormError("Adicione ao menos uma variação.");
-      if (variantList.invalid) return setFormError("Confira as variações marcadas: a referência é obrigatória e não pode repetir.");
-      setFormError("");
-      if (form.id) {
-        saveFamily.mutate({
-          model: { ...form, id: form.id, shortDescription: familyMode ? previewName : form.shortDescription, modelName: form.modelName || form.shortDescription, attributes: form.attributes, parentId: null, costPrice, warrantyMonths, reorderPoint: modelOnly ? 0 : form.reorderPoint },
-          variants: variantList.payload(),
-          applyToVariants,
-        });
-      } else {
-        saveWithVariants.mutate({
-          product: { ...form, reference: undefined, barcode: null, attributes: null, parentId: null, modelName: null, costPrice, warrantyMonths, reorderPoint: 0 },
-          variants: variantList.payload(),
-        });
-      }
-      return;
-    }
     save.mutate({
       ...form,
-      shortDescription: familyMode ? previewName : form.shortDescription,
-      modelName: familyMode ? form.modelName || form.shortDescription : null,
-      attributes: form.attributes,
-      parentId: form.parentId,
       // Quem não vê o custo não envia o campo, e o custo gravado é mantido.
       costPrice: showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined,
       warrantyMonths: form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths),
     });
   };
   const edit = (product: Product) => {
-    // Modelo com variações: a lista já vem com cada variação para editar.
-    resetVariantList(
-      data
-        .filter(member => member.parentId === product.id)
-        .sort((first, second) => first.shortDescription.localeCompare(second.shortDescription, "pt-BR", { numeric: true }))
-        .map(member => variantRowFromProduct(member, parseAttributes))
-    );
     setForm({
       id: product.id,
       code: product.code,
@@ -356,9 +201,6 @@ export default function ProductsPage() {
       reorderPoint: Number(product.reorderPoint),
       warrantyMonths: product.warrantyMonths == null ? "" : String(product.warrantyMonths),
       active: product.active,
-      parentId: product.parentId,
-      modelName: product.modelName ?? "",
-      attributes: toFormAttributes(product.attributes),
     });
     setOpen(true);
   };
@@ -383,7 +225,6 @@ export default function ProductsPage() {
     setSearch("");
     setFormError("");
     setTriedSave(false);
-    resetVariantList();
     setForm({ ...emptyProduct, barcode: normalizeBarcode(value) });
     setOpen(true);
     toast.message(`Código ${value} não cadastrado. Preencha o novo produto.`);
@@ -397,10 +238,10 @@ export default function ProductsPage() {
   }, []);
   const handleOpen = (value: boolean) => {
     setOpen(value);
-    resetVariantList();
     setFormError("");
     setTriedSave(false);
-    if (!value) setForm(emptyProduct);
+    // Editar abre direto, com setOpen: aqui é sempre um produto novo ou o fechamento.
+    setForm(emptyProduct);
   };
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -423,7 +264,7 @@ export default function ProductsPage() {
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                {form.id ? `Editar produto #${form.code}` : form.parentId ? "Nova variação" : "Novo produto"}
+                {form.id ? `Editar produto #${form.code}` : "Novo produto"}
                 <DraftAutosaveStatus status={productDraft.status} />
               </DialogTitle>
               <DialogDescription className="sr-only">
@@ -451,10 +292,7 @@ export default function ProductsPage() {
                     onClick={() => {
                       const restored = productDraft.restore();
                       if (!restored) return;
-                      // Rascunhos antigos não têm os campos de variação.
-                      const { variantRows, ...restoredForm } = restored;
-                      setForm({ ...emptyProduct, ...restoredForm, attributes: { ...emptyAttributes, ...restoredForm.attributes } });
-                      resetVariantList((variantRows ?? []).map(row => ({ ...row, reorderPoint: row.reorderPoint ?? "", unitPrice: row.unitPrice ?? "" })));
+                      setForm({ ...emptyProduct, ...restored });
                     }}
                   >
                     Recuperar
@@ -463,13 +301,6 @@ export default function ProductsPage() {
               </div>
             ) : null}
             <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
-              {modelOnly ? (
-                <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground sm:col-span-2">
-                  Este produto é o <b className="text-foreground">modelo</b>: a referência e o código de barras
-                  ficam em cada variação, na lista abaixo.
-                  {form.id ? ` Referência interna do modelo: ${form.reference} · código #${form.code}.` : ""}
-                </p>
-              ) : (
               <div className="space-y-2">
                 <Label htmlFor="product-reference">
                   Referência <span className="text-destructive">*</span>
@@ -494,8 +325,6 @@ export default function ProductsPage() {
                   </p>
                 )}
               </div>
-              )}
-              {modelOnly ? null : (
               <div className="space-y-2">
                 <Label htmlFor="product-barcode">
                   Código de barras <span className="text-muted-foreground">(opcional)</span>
@@ -512,7 +341,6 @@ export default function ProductsPage() {
                 </div>
                 {barcodeError ? <p className="text-xs text-destructive">{barcodeError}</p> : null}
               </div>
-              )}
               <div className="space-y-2">
                 <Label htmlFor="product-unit">Unidade</Label>
                 <Input
@@ -536,31 +364,6 @@ export default function ProductsPage() {
                   placeholder="Ex.: Distribuidora Luminare"
                 />
               </div>
-              {familyMode ? (
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="product-model-name">
-                    Nome do modelo{" "}
-                    <span className="text-muted-foreground">
-                      (comum a todas as variações)
-                    </span>
-                  </Label>
-                  <Input
-                    id="product-model-name"
-                    value={form.modelName || form.shortDescription}
-                    readOnly={Boolean(form.parentId)}
-                    onChange={e => setForm({ ...form, modelName: e.target.value })}
-                  />
-                  {form.parentId ? (
-                    <p className="text-xs text-muted-foreground">
-                      Para renomear o modelo, edite o produto principal.
-                    </p>
-                  ) : hasChildren ? (
-                    <p className="text-xs text-muted-foreground">
-                      Mudar o nome do modelo renomeia todas as variações.
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
                 <div className="space-y-2 sm:col-span-2">
                   <Label>
                     Descrição curta{" "}
@@ -576,97 +379,6 @@ export default function ProductsPage() {
                     }
                   />
                 </div>
-              )}
-              {!form.id && !form.parentId ? (
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 sm:col-span-2">
-                  <div>
-                    <Label htmlFor="product-has-variants" className="text-sm font-semibold">
-                      Este produto tem variações
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Cor, temperatura, potência… Cada variação tem referência,
-                      estoque e código de barras próprios.
-                    </p>
-                  </div>
-                  <Switch
-                    id="product-has-variants"
-                    checked={withVariants}
-                    onCheckedChange={checked => {
-                      setWithVariants(checked);
-                      // Começa com uma linha em branco para a primeira variação.
-                      if (checked) {
-                        setForm(current => ({ ...current, attributes: emptyAttributes, barcode: "" }));
-                        if (!variantList.rows.length) variantList.addRow();
-                      }
-                    }}
-                  />
-                </div>
-              ) : null}
-              {withVariants ? (
-                <div className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
-                  <div className="flex items-center gap-2">
-                    <Palette className="h-4 w-4 text-primary" />
-                    <p className="text-sm font-semibold">Variações</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Em cada variação só a <b className="text-foreground">referência</b> é obrigatória; cor,
-                    temperatura, potência, preço e código de barras são opcionais. No orçamento
-                    entram as variações, cada uma com a sua referência e o seu preço (em branco,
-                    vale o preço do modelo). Fornecedor e foto das novas vêm do modelo.
-                  </p>
-                  <VariantRowsFields
-                    state={variantList}
-                    modelName={form.modelName || form.shortDescription || "Produto"}
-                    modelPrice={Number(form.unitPrice) || 0}
-                    priceLocked={Boolean(form.id) && applyToVariants}
-                  />
-                </div>
-              ) : null}
-              {modelOnly ? null : (
-              <div className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
-                <div className="flex items-center gap-2">
-                  <Palette className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold">
-                    Variação {familyMode ? "" : "(opcional)"}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {VARIANT_FIELDS.map(field => (
-                    <div key={field.key} className="space-y-1.5">
-                      <Label htmlFor={`product-variant-${field.key}`} className="text-xs">
-                        {field.label}
-                      </Label>
-                      <Input
-                        id={`product-variant-${field.key}`}
-                        value={form.attributes[field.key]}
-                        placeholder={field.placeholder}
-                        onChange={e =>
-                          setForm(current => {
-                            const attributes = { ...current.attributes, [field.key]: e.target.value };
-                            return {
-                              ...current,
-                              modelName: current.modelName || current.shortDescription,
-                              attributes,
-                            };
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-                {familyMode ? (
-                  <p className="text-xs text-muted-foreground">
-                    Vai aparecer no orçamento como <b className="text-foreground">{previewName}</b>
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Preencha só se este produto for, sozinho, uma variação (cor,
-                    temperatura, potência). Para cadastrar várias, ligue
-                    "Este produto tem variações".
-                  </p>
-                )}
-              </div>
-              )}
               <div className="space-y-2 sm:col-span-2">
                 <Label>
                   Descrição completa{" "}
@@ -710,7 +422,6 @@ export default function ProductsPage() {
                   </p>
                 </div>
               ) : null}
-              {modelOnly ? null : (
               <div className="space-y-2">
                 <Label>Ponto de reposição</Label>
                 <Input
@@ -724,21 +435,6 @@ export default function ProductsPage() {
                   }
                 />
               </div>
-              )}
-              {form.id && withVariants ? (
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 sm:col-span-2">
-                  <div>
-                    <Label htmlFor="product-apply-variants" className="text-sm font-semibold">
-                      Aplicar às variações
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Copia o preço{showCost ? ", o custo" : ""}, o fornecedor e a foto deste modelo
-                      para todas as variações ao salvar. Desligado, cada variação mantém os seus.
-                    </p>
-                  </div>
-                  <Switch id="product-apply-variants" checked={applyToVariants} onCheckedChange={setApplyToVariants} />
-                </div>
-              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="product-warranty">Garantia (meses)</Label>
                 <Input
@@ -825,13 +521,13 @@ export default function ProductsPage() {
                 Cancelar
               </Button>
               <AsyncButton
-                pending={save.isPending || saveWithVariants.isPending || saveFamily.isPending || upload.isPending}
+                pending={save.isPending || upload.isPending}
                 loadingLabel={
                   upload.isPending ? "Aguardando imagem…" : "Salvando produto…"
                 }
                 onClick={submit}
               >
-                {withVariants && variantList.rows.length ? `Salvar com ${plural(variantList.rows.length, "variação", "variações")}` : "Salvar produto"}
+                Salvar produto
               </AsyncButton>
             </div>
           </DialogContent>
@@ -872,80 +568,9 @@ export default function ProductsPage() {
                 Tentar novamente
               </Button>
             </div>
-          ) : filteredCount ? (
-            <div>
-            {families.map(({ root, members }) => (
-              <div key={root.id} className="border-b border-border p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl border bg-muted">
-                    {root.imageUrl ? (
-                      <img src={root.imageUrl} className="h-full w-full object-contain" />
-                    ) : (
-                      <ImagePlus className="h-5 w-5 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold">{root.modelName || root.shortDescription}</p>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Layers className="h-3 w-3" />
-                        {plural(familyMembers(root.id).filter(member => member.id !== root.id || variantLabel(parseAttributes(member.attributes))).length, "variação", "variações")}
-                      </span>
-                      {root.supplierName ? (
-                        <span className="flex items-center gap-1">
-                          <Truck className="h-3 w-3" />
-                          {root.supplierName}
-                        </span>
-                      ) : null}
-                      <span>
-                        Estoque total:{" "}
-                        {familyMembers(root.id).reduce((sum, member) => sum + Number(member.stockQuantity), 0)}{" "}
-                        {root.unit}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => newVariant(root)}>
-                      <Plus className="mr-1.5 h-3.5 w-3.5" />
-                      Uma variação
-                    </Button>
-                    <Button size="sm" onClick={() => setGeneratorFor(root)}>
-                      <Layers className="mr-1.5 h-3.5 w-3.5" />
-                      Criar várias
-                    </Button>
-                  </div>
-                </div>
-                <div className="mt-3 overflow-hidden rounded-xl border border-border">
-                  {members.map(member => {
-                    const stock = Number(member.stockQuantity);
-                    const point = Number(member.reorderPoint);
-                    const label = variantLabel(parseAttributes(member.attributes));
-                    return (
-                      <div key={member.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-3 py-2 text-xs last:border-0">
-                        <span className="min-w-40 flex-1 font-semibold">
-                          {label || (member.id === root.id ? <span className="text-muted-foreground">Modelo · no orçamento entram as variações</span> : `Ref. ${member.reference ?? member.code}`)}
-                          {member.id === root.id ? <Badge variant="outline" className="ml-2 text-[10px]">principal</Badge> : null}
-                        </span>
-                        <span className="font-mono text-muted-foreground">Ref. {member.reference ?? member.code} · #{member.code}</span>
-                        <span className="font-mono text-muted-foreground">{member.barcode ? `Cód. barras ${member.barcode}` : "sem código de barras"}</span>
-                        <span className="font-semibold">{money(member.unitPrice)}</span>
-                        {showCost ? <CostLine price={member.unitPrice} cost={member.costPrice} /> : null}
-                        <Badge variant="secondary" className={point > 0 && stock <= point ? "bg-red-500/10 text-red-700" : "bg-emerald-500/10 text-emerald-700"}>
-                          {stock} {member.unit}
-                        </Badge>
-                        {!member.active ? <span className="text-[10px] font-bold uppercase text-muted-foreground">Arquivado</span> : null}
-                        <button onClick={() => edit(member)} className="font-semibold text-primary hover:underline">
-                          Editar
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {standalone.length ? (
+          ) : filtered.length ? (
             <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
-              {standalone.map(product => {
+              {filtered.map(product => {
                 const stock = Number(product.stockQuantity);
                 const point = Number(product.reorderPoint);
                 const low = point > 0 && stock <= point;
@@ -1012,19 +637,10 @@ export default function ProductsPage() {
                           {stock} {product.unit}
                         </Badge>
                       </div>
-                      <button
-                        onClick={() => setGeneratorFor(product)}
-                        className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-primary"
-                      >
-                        <Layers className="h-3 w-3" />
-                        Criar variações (cor, temperatura, potência)
-                      </button>
                     </div>
                   </div>
                 );
               })}
-            </div>
-            ) : null}
             </div>
           ) : (
             <div className="p-12 text-center">
@@ -1036,13 +652,6 @@ export default function ProductsPage() {
           )}
         </CardContent>
       </Card>
-      <VariantGenerator
-        open={generatorFor !== null}
-        onOpenChange={value => !value && setGeneratorFor(null)}
-        root={generatorFor}
-        members={generatorFor ? familyMembers(generatorFor.id) : []}
-        taken={data}
-      />
     </div>
   );
 }

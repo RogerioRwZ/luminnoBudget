@@ -18,9 +18,6 @@ vi.mock("@/lib/trpc", () => ({
       list: { useQuery: () => ({ ...mocks.list, refetch: mocks.refetch }) },
       save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       uploadImage: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
-      createVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
-      saveWithVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
-      saveFamily: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
     auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
     settings: { get: { useQuery: () => ({ data: { defaultWarrantyMonths: 12 } }) } },
@@ -65,90 +62,16 @@ describe("ProductsPage", () => {
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ reference: "LM-2/PT", barcode: "7890000000017" }));
   });
 
-  it("cadastra o produto já com as variações, cada uma com a sua referência", () => {
+  it("o cadastro não tem mais variações, e o próximo produto novo abre em branco", () => {
     mocks.list.data = [];
     render(<ProductsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Novo produto" }));
-    fireEvent.change(screen.getByLabelText("Descrição curta (vai para o orçamento)"), { target: { value: "Pendente Arco" } });
-    fireEvent.click(screen.getByRole("switch", { name: "Este produto tem variações" }));
-    // O modelo não pede referência nem código de barras: ficam nas variações.
-    expect(document.getElementById("product-reference")).toBeNull();
-    expect(document.getElementById("product-barcode")).toBeNull();
-    // Primeira linha já aberta; a segunda, sem detalhe nenhum, só com referência.
-    fireEvent.change(screen.getByLabelText("Cor / acabamento da variação 1"), { target: { value: "Preto" } });
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar variação" }));
-    // Referência é obrigatória: sem ela não salva.
-    fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
-    expect(mocks.mutate).not.toHaveBeenCalled();
-    expect(screen.getAllByText("Informe a referência.")).toHaveLength(2);
-    fireEvent.change(screen.getByLabelText("Referência da variação 1"), { target: { value: "ARCO/PT" } });
-    fireEvent.change(screen.getByLabelText("Referência da variação 2"), { target: { value: "ARCO-LISO" } });
-    fireEvent.change(screen.getByLabelText("Código de barras da variação 2"), { target: { value: "789 100" } });
-    // Preço próprio na variação 2; a 1 fica com o do modelo (campo em branco).
-    fireEvent.change(screen.getByLabelText("Preço da variação 2"), { target: { value: "149,9" } });
-    expect(screen.getByText("Pendente Arco — Ref. ARCO-LISO")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
-    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
-      product: expect.objectContaining({ reference: undefined, shortDescription: "Pendente Arco", attributes: null, barcode: null }),
-      variants: [
-        { attributes: { color: "Preto" }, reference: "ARCO/PT", barcode: null },
-        { attributes: {}, reference: "ARCO-LISO", barcode: "789100", unitPrice: 149.9 },
-      ],
-    }));
-  });
-
-  it("gera combinações com a referência em branco e o atalho preenche só as vazias", () => {
-    mocks.list.data = [];
-    render(<ProductsPage />);
+    expect(screen.queryByRole("switch", { name: /tem variações/ })).toBeNull();
+    expect(screen.queryByLabelText("Cor / acabamento")).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "LM-9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     fireEvent.click(screen.getByRole("button", { name: "Novo produto" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Este produto tem variações" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remover a variação 1" }));
-    fireEvent.click(screen.getByRole("button", { name: /Gerar combinações/ }));
-    fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Preto, Branco" } });
-    fireEvent.change(screen.getByLabelText("Potência"), { target: { value: "7, 12" } });
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar combinações" }));
-    expect((screen.getByLabelText("Referência da variação 1") as HTMLInputElement).value).toBe("");
-    expect((screen.getByLabelText("Potência da variação 4") as HTMLInputElement).value).toBe("12W");
-    fireEvent.change(screen.getByLabelText("Referência da variação 2"), { target: { value: "MINHA-REF" } });
-    fireEvent.change(screen.getByLabelText(/preencher as referências vazias/), { target: { value: "TRX" } });
-    fireEvent.click(screen.getByRole("button", { name: /Preencher vazias/ }));
-    expect([1, 2, 3, 4].map(n => (screen.getByLabelText(`Referência da variação ${n}`) as HTMLInputElement).value)).toEqual(["TRX-PRETO-7W", "MINHA-REF", "TRX-BRANCO-7W", "TRX-BRANCO-12W"]);
-  });
-
-  it("editar um modelo mostra cada variação com a sua referência e código de barras", () => {
-    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: null, unitPrice: "90", reorderPoint: "0", active: true, modelName: "Arandela", stockQuantity: "0" };
-    mocks.list.data = [
-      { ...base, id: 10, code: "10", reference: "MOD-10", shortDescription: "Arandela", barcode: null, parentId: null, attributes: null },
-      { ...base, id: 11, code: "11", reference: "AR-PT", shortDescription: "Arandela — Preto", barcode: "111", parentId: 10, attributes: '{"color":"Preto"}' },
-      { ...base, id: 12, code: "12", reference: "AR-BR", shortDescription: "Arandela — Branco", barcode: null, parentId: 10, attributes: '{"color":"Branco"}' },
-    ];
-    render(<ProductsPage />);
-    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
-    // Em ordem alfabética, como no catálogo.
-    expect((screen.getByLabelText("Referência da variação 2") as HTMLInputElement).value).toBe("AR-PT");
-    expect((screen.getByLabelText("Código de barras da variação 2") as HTMLInputElement).value).toBe("111");
-    // Variações já gravadas não têm o botão de remover.
-    expect(screen.queryByRole("button", { name: "Remover a variação 1" })).toBeNull();
-    fireEvent.change(screen.getByLabelText("Referência da variação 1"), { target: { value: "AR/BR" } });
-    fireEvent.change(screen.getByLabelText("Código de barras da variação 1"), { target: { value: "222" } });
-    fireEvent.change(screen.getByLabelText("Ponto de reposição da variação 2"), { target: { value: "3" } });
-    // Cada variação mostra e altera o seu preço.
-    expect((screen.getByLabelText("Preço da variação 1") as HTMLInputElement).value).toBe("90,00");
-    fireEvent.change(screen.getByLabelText("Preço da variação 2"), { target: { value: "95" } });
-    // O modelo não tem ponto de reposição próprio; dá para levar preço e foto às variações.
-    expect(screen.queryByLabelText("Ponto de reposição")).toBeNull();
-    fireEvent.click(screen.getByRole("switch", { name: "Aplicar às variações" }));
-    // Ligado, o preço vem do modelo e o campo da variação fica travado.
-    expect((screen.getByLabelText("Preço da variação 2") as HTMLInputElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
-    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
-      model: expect.objectContaining({ id: 10, reference: "MOD-10" }),
-      variants: [
-        { id: 12, attributes: { color: "Branco" }, reference: "AR/BR", barcode: "222", reorderPoint: 0, unitPrice: 90 },
-        { id: 11, attributes: { color: "Preto" }, reference: "AR-PT", barcode: "111", reorderPoint: 3, unitPrice: 95 },
-      ],
-      applyToVariants: true,
-    }));
+    expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("");
   });
 
   it("informa carregamento e catálogo vazio", () => {
@@ -168,29 +91,18 @@ describe("ProductsPage", () => {
     expect(mocks.refetch).toHaveBeenCalledOnce();
   });
 
-  it("agrupa as variações sob o modelo e monta o nome ao preencher a variação", () => {
-    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: "Lumi", unitPrice: "64.50", reorderPoint: "0", active: true, modelName: "Spot GU10" };
+  it("lista cada produto com a sua referência, sem agrupar, e busca por ela", () => {
+    const base = { fullDescription: null, imageUrl: null, imageKey: null, unit: "UN", supplierName: "Lumi", unitPrice: "64.50", reorderPoint: "0", active: true, stockQuantity: "4" };
     mocks.list.data = [
-      { ...base, id: 1, code: "1", reference: "GU10", shortDescription: "Spot GU10 — Preto · 3000K", barcode: null, stockQuantity: "4", parentId: null, attributes: '{"color":"Preto","colorTemperature":"3000K"}' },
-      { ...base, id: 2, code: "2", shortDescription: "Spot GU10 — Branco · 3000K", barcode: "789", stockQuantity: "6", parentId: 1, attributes: '{"color":"Branco","colorTemperature":"3000K"}' },
-      { ...base, id: 3, code: "3", shortDescription: "Fita LED", modelName: null, barcode: null, stockQuantity: "1", parentId: null, attributes: null },
+      { ...base, id: 1, code: "1", reference: "GU10-PT", shortDescription: "Spot GU10 — Preto", barcode: null },
+      { ...base, id: 2, code: "2", reference: "GU10-BR", shortDescription: "Spot GU10 — Branco", barcode: "789" },
     ];
     render(<ProductsPage />);
-    expect(screen.getByText("Spot GU10")).toBeTruthy();
-    expect(screen.getByText("2 variações")).toBeTruthy();
-    expect(screen.getByText(/Estoque total: 10/)).toBeTruthy();
-    expect(screen.getByText("Branco · 3000K")).toBeTruthy();
-    expect(screen.getByText("Fita LED")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /Uma variação/ }));
-    fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Dourado" } });
-    fireEvent.change(screen.getByLabelText("Temperatura de cor"), { target: { value: "2700" } });
-    expect(screen.getByText("Spot GU10 — Dourado · 2700K")).toBeTruthy();
-    // A referência da variação é digitada (não é preenchida sozinha).
-    expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("");
-    // Digitada pela pessoa, a referência não muda mais sozinha.
-    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "GU10/DR" } });
-    fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Ouro" } });
-    expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("GU10/DR");
+    expect(screen.getByText("Spot GU10 — Preto")).toBeTruthy();
+    expect(screen.getByText("Spot GU10 — Branco")).toBeTruthy();
+    expect(screen.queryByText(/variaç/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Buscar por referência, descrição ou código de barras"), { target: { value: "gu10-br" } });
+    expect(screen.queryByText("Spot GU10 — Preto")).toBeNull();
+    expect(screen.getByText("Spot GU10 — Branco")).toBeTruthy();
   });
 });

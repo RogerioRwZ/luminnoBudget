@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { clients, financePayments, financeReceivables, quotes, storeSettings } from "../drizzle/schema";
-import { cardFeeAmount, dateFromInput, isBilledMethod, parseCardFees, PLAN_METHOD_LABELS, type PaymentPlan } from "../shared/paymentPlan";
+import { clients, financePayments, financeReceivables, quotes } from "../drizzle/schema";
+import { dateFromInput, isBilledMethod, PLAN_METHOD_LABELS, type PaymentPlan } from "../shared/paymentPlan";
 import { calculateReceivableStatus, dueDateForInstallment, PaymentMethod, PaymentType, remainingReceivableAmount, roundMoney, splitInstallments } from "../shared/finance";
 import { toNumber } from "../shared/quote";
 import { getDb } from "./db";
@@ -29,7 +29,7 @@ function hydrateReceivable(receivable: ReceivableRow, payments: PaymentRow[], no
     remainingAmount: remainingReceivableAmount(originalAmount, receivedAmount),
     status,
     overdue: status === "overdue",
-    payments: payments.map((payment) => ({ ...payment, amount: toNumber(payment.amount), feeAmount: payment.feeAmount === null ? null : toNumber(payment.feeAmount) })),
+    payments: payments.map((payment) => ({ ...payment, amount: toNumber(payment.amount) })),
   };
 }
 
@@ -54,8 +54,6 @@ export async function financeOverview() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const receivedThisMonth = payments.filter((payment) => payment.type === "receipt" && payment.paidAt >= monthStart).reduce((sum, payment) => sum + toNumber(payment.amount), 0)
     - payments.filter((payment) => payment.type === "reversal" && payment.paidAt >= monthStart).reduce((sum, payment) => sum + toNumber(payment.amount), 0);
-  // Taxas da maquininha dos recebimentos do mês.
-  const cardFeesThisMonth = payments.filter((payment) => payment.type === "receipt" && payment.paidAt >= monthStart && payment.feeAmount).reduce((sum, payment) => sum + toNumber(payment.feeAmount), 0);
   const activeRows = rows.filter((row) => row.status !== "cancelled");
   const overdueRows = rows.filter((row) => row.overdue);
   return {
@@ -67,7 +65,6 @@ export async function financeOverview() {
       overdueAmount: overdueRows.reduce((sum, row) => sum + row.remainingAmount, 0),
       overdueCount: overdueRows.length,
       receivedThisMonth: roundMoney(receivedThisMonth),
-      cardFeesThisMonth: roundMoney(cardFeesThisMonth),
     },
   };
 }
@@ -108,13 +105,11 @@ type QuoteForReceivables = { id: number; quoteNumber: number; clientId: number |
 
 // Cobranças da venda conforme a forma de pagamento escolhida na aprovação:
 // - cartão, PIX, dinheiro e transferência: um lançamento já recebido (no
-//   cartão, quem parcela é a operadora; a loja já registra o recebimento e a
-//   taxa da maquininha);
+//   cartão, quem parcela é a operadora; o valor registrado é o da venda, sem
+//   descontar a taxa da operadora, por isso é aproximado);
 // - boleto e crediário próprio: parcelas mensais a partir da data escolhida.
 // Sem forma escolhida (orçamentos antigos), mantém o comportamento anterior.
 async function insertPlanReceivables(tx: Transaction, quote: QuoteForReceivables, plan: PaymentPlan, createdByUserId: number, now = new Date()) {
-  const feesRow = (await tx.select({ cardFees: storeSettings.cardFees }).from(storeSettings).where(eq(storeSettings.id, 1)).limit(1))[0];
-  const fees = parseCardFees(feesRow?.cardFees);
   const ids: number[] = [];
   for (const part of plan.parts) {
     const label = PLAN_METHOD_LABELS[part.method];
@@ -124,13 +119,11 @@ async function insertPlanReceivables(tx: Transaction, quote: QuoteForReceivables
       continue;
     }
     const [receivableId] = await insertReceivables(tx, { quoteId: quote.id, clientId: quote.clientId, clientName: quote.clientName, description, totalAmount: part.amount, installmentCount: 1, firstDueDate: now, paymentMethod: part.method }, createdByUserId);
-    const fee = cardFeeAmount(fees, part.method, part.installments, part.amount);
     await tx.insert(financePayments).values({
       receivableId: receivableId!,
       type: "receipt",
       amount: money(part.amount),
       paymentMethod: part.method,
-      feeAmount: fee > 0 ? money(fee) : null,
       paidAt: now,
       reference: "Registrado na aprovação",
       notes: part.method === "credit_card" && part.installments > 1 ? `${part.installments}x na maquininha` : null,

@@ -3,7 +3,7 @@ import { commissionPayments, products, professionals, users } from "../drizzle/s
 import { commissionAmount, commissionBase, professionalKey } from "../shared/commission";
 import { isFollowUpDue } from "../shared/followUp";
 import { canAccess } from "../shared/permissions";
-import { buildSalesReport, type SalesReportProduct } from "../shared/salesReport";
+import { buildSalesReport } from "../shared/salesReport";
 import { roundMoney, toNumber } from "../shared/quote";
 import type { DailySummary } from "../shared/dailySummary";
 import { listAppointments } from "./agendaDb";
@@ -29,19 +29,11 @@ const inRange = (date: Date | null | undefined, range: Range) => Boolean(date) &
 
 export async function salesReport(range: Range) {
   const db = await database();
-  const [allQuotes, productRows, userRows] = await Promise.all([
+  const [allQuotes, userRows] = await Promise.all([
     listQuotes(),
-    db.select({ id: products.id, parentId: products.parentId, modelName: products.modelName, shortDescription: products.shortDescription }).from(products),
     db.select({ id: users.id, name: users.name, username: users.username }).from(users),
   ]);
   const sold = allQuotes.filter((quote) => quote.status === "approved" && inRange(quote.approvedAt, range));
-  const byId = new Map(productRows.map((product) => [product.id, product]));
-  const productInfo = new Map<number, SalesReportProduct>();
-  for (const product of productRows) {
-    const root = product.parentId ? byId.get(product.parentId) ?? product : product;
-    const isFamily = Boolean(product.parentId) || Boolean(product.modelName);
-    productInfo.set(product.id, { modelKey: `model-${root.id}`, modelName: isFamily ? root.modelName || root.shortDescription : product.shortDescription });
-  }
   const userNames = new Map(userRows.map((user) => [user.id, user.name || user.username || `Usuário #${user.id}`]));
   return buildSalesReport(sold.map((quote) => ({
     id: quote.id,
@@ -63,7 +55,7 @@ export async function salesReport(range: Range) {
       unitPrice: toNumber(item.unitPrice),
       unitCost: item.unitCost === null ? null : toNumber(item.unitCost),
     }))),
-  })), productInfo);
+  })));
 }
 
 // ------------------------------------------------------------- comissões

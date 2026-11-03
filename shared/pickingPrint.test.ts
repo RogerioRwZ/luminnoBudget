@@ -39,6 +39,16 @@ describe("separação parcial", () => {
   });
 });
 
+describe("referência na separação", () => {
+  it("mostra a referência atual do produto; sem ela, o código do item", () => {
+    const item = { key: "p1", code: "12", shortDescription: "SPOT", fullDescription: "SPOT", unit: "UN", quantity: 1, rooms: ["SALA"] };
+    const html = buildPickingPrintDocument({ quote: { quoteNumber: 1, clientName: "C", professional: "P" }, issuedAt: "01/11/2026", items: [{ ...item, reference: "LM-100/PT" }, { ...item, key: "p2", code: "13" }] });
+    expect(html).toContain("Ref. LM-100/PT");
+    expect(html).toContain("Ref. 13");
+    expect(html).not.toContain("Ref. 12");
+  });
+});
+
 describe("impressão sem script na janela nova", () => {
   it("não embute script (a política de segurança bloquearia) e pede a impressão daqui", () => {
     const data = { quote: { quoteNumber: 9, clientName: "C", professional: "P" }, issuedAt: "01/11/2026", items: [] };

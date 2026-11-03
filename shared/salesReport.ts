@@ -14,8 +14,6 @@ export type SalesReportQuote = {
   items: Array<{ productId: number | null; code: string; shortDescription: string; unit: string; quantity: number; unitPrice: number; unitCost: number | null }>;
 };
 
-export type SalesReportProduct = { modelKey: string; modelName: string };
-
 export type SalesReportRow = {
   key: string;
   label: string;
@@ -35,7 +33,6 @@ export type SalesReportLine = {
   clientName: string;
   professional: string;
   sellerName: string;
-  modelName: string;
   code: string;
   shortDescription: string;
   unit: string;
@@ -66,8 +63,8 @@ function finish(map: Map<string, Accumulator>): SalesReportRow[] {
 
 // Vendas = orçamentos aprovados. O valor de cada item já desconta a sua parte
 // do desconto do orçamento; o frete fica fora (não é venda de mercadoria).
-export function buildSalesReport(quotes: SalesReportQuote[], productInfo: Map<number, SalesReportProduct>) {
-  const groups = { seller: new Map<string, Accumulator>(), professional: new Map<string, Accumulator>(), model: new Map<string, Accumulator>(), product: new Map<string, Accumulator>() };
+export function buildSalesReport(quotes: SalesReportQuote[]) {
+  const groups = { seller: new Map<string, Accumulator>(), professional: new Map<string, Accumulator>(), product: new Map<string, Accumulator>() };
   const lines: SalesReportLine[] = [];
   const add = (map: Map<string, Accumulator>, key: string, label: string, quoteId: number, quantity: number, revenue: number, cost: number | null) => {
     const entry = map.get(key) ?? { label, quoteIds: new Set<number>(), quantity: 0, revenue: 0, coveredRevenue: 0, cost: 0 };
@@ -95,15 +92,11 @@ export function buildSalesReport(quotes: SalesReportQuote[], productInfo: Map<nu
     for (const item of quote.items) {
       const revenue = item.quantity * item.unitPrice * factor;
       const cost = item.unitCost === null ? null : item.quantity * item.unitCost;
-      const info = item.productId ? productInfo.get(item.productId) : undefined;
-      const modelKey = info?.modelKey ?? (item.productId ? `product-${item.productId}` : "manual");
-      const modelName = info?.modelName ?? (item.productId ? item.shortDescription : "Itens avulsos (fora do catálogo)");
       const productKey = item.productId ? `product-${item.productId}` : `manual-${item.code}-${item.shortDescription}`.toLocaleLowerCase("pt-BR");
       add(groups.seller, seller, seller, quote.id, item.quantity, revenue, cost);
       add(groups.professional, professional.toLocaleLowerCase("pt-BR"), professional, quote.id, item.quantity, revenue, cost);
-      add(groups.model, modelKey, modelName, quote.id, item.quantity, revenue, cost);
       add(groups.product, productKey, item.code ? `${item.shortDescription} (#${item.code})` : item.shortDescription, quote.id, item.quantity, revenue, cost);
-      lines.push({ quoteId: quote.id, quoteNumber: quote.quoteNumber, approvedAt: quote.approvedAt, clientName: quote.clientName, professional: quote.professional, sellerName: seller, modelName, code: item.code, shortDescription: item.shortDescription, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, revenue: roundMoney(revenue), unitCost: item.unitCost, cost: cost === null ? null : roundMoney(cost) });
+      lines.push({ quoteId: quote.id, quoteNumber: quote.quoteNumber, approvedAt: quote.approvedAt, clientName: quote.clientName, professional: quote.professional, sellerName: seller, code: item.code, shortDescription: item.shortDescription, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, revenue: roundMoney(revenue), unitCost: item.unitCost, cost: cost === null ? null : roundMoney(cost) });
     }
   }
   const bySeller = finish(groups.seller);
@@ -124,7 +117,6 @@ export function buildSalesReport(quotes: SalesReportQuote[], productInfo: Map<nu
     },
     bySeller,
     byProfessional: finish(groups.professional),
-    byModel: finish(groups.model),
     byProduct: finish(groups.product),
     lines,
   };
@@ -139,7 +131,6 @@ export function withoutCost(report: SalesReport): SalesReport {
     totals: { ...report.totals, cost: 0, profit: 0, margin: null, linesWithoutCost: 0 },
     bySeller: report.bySeller.map(strip),
     byProfessional: report.byProfessional.map(strip),
-    byModel: report.byModel.map(strip),
     byProduct: report.byProduct.map(strip),
     lines: report.lines.map((line) => ({ ...line, unitCost: null, cost: null })),
   };

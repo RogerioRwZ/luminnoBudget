@@ -4,7 +4,6 @@ import { toNumber } from "../shared/quote";
 import { abcCurve, staleStock } from "../shared/stockTurnover";
 import { getDb } from "./db";
 import { salesReport } from "./reportsDb";
-import { modelProductIds } from "../shared/variants";
 
 async function database() {
   const db = await getDb();
@@ -28,9 +27,7 @@ export async function staleStockReport(days: number, now = new Date()) {
   ]);
   const lastSale = new Map(lastSales.flatMap((row) => (row.productId && row.lastSaleAt ? [[row.productId, new Date(row.lastSaleAt)] as const] : [])));
   const firstEntry = new Map(firstEntries.flatMap((row) => (row.firstAt ? [[row.productId, new Date(row.firstAt)] as const] : [])));
-  // O modelo de um produto com variações não tem estoque próprio.
-  const models = modelProductIds(productRows);
-  return staleStock(productRows.filter((product) => !models.has(product.id)).map((product) => ({
+  return staleStock(productRows.map((product) => ({
     productId: product.id,
     code: product.code,
     description: product.shortDescription,

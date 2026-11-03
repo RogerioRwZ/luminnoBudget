@@ -1,9 +1,7 @@
-import { Button } from "@/components/ui/button";
 import { money } from "@/lib/format";
 import { discountPercent, percentLabel, quoteMargin, type MarginItem } from "@shared/margin";
 import { plural } from "@shared/plural";
-import { parseAttributes, rankSubstitutes, variantLabel } from "@shared/variants";
-import { AlertTriangle, ArrowRightLeft, TrendingUp } from "lucide-react";
+import { AlertTriangle, TrendingUp } from "lucide-react";
 
 // Aviso de desconto acima do limite e, para quem vê custo, a margem do orçamento.
 export function QuoteMarginPanel({
@@ -59,48 +57,27 @@ export function QuoteMarginPanel({
   );
 }
 
-type FamilyMember = { id: number; code: string; reference?: string | null; shortDescription: string; imageUrl: string | null; unit: string; unitPrice: string | number; attributes: string | null };
-
-// Item do catálogo sem saldo livre suficiente: mostra o que há e sugere outra
-// variação do mesmo modelo que atenda a quantidade.
+// Item do catálogo sem saldo livre suficiente: mostra o que há. Sem nenhum
+// saldo, o produto costuma ser sob encomenda e o aviso seria só ruído.
 export function StockShortageHint({
   productId,
-  attributes,
   unit,
   needed,
   availability,
-  family,
-  onSwap,
 }: {
   productId: number;
-  attributes: string | null;
   unit: string;
   needed: number;
   availability: Map<number, number>;
-  family: FamilyMember[];
-  onSwap: (member: FamilyMember) => void;
 }) {
   const available = availability.get(productId) ?? 0;
-  const candidates = family
-    .filter(member => member.id !== productId)
-    .map(member => ({ ...member, available: availability.get(member.id) ?? 0 }));
-  const suggestions = rankSubstitutes(parseAttributes(attributes), candidates, needed);
-  // Produto avulso que a loja não costuma ter em estoque (vende sob
-  // encomenda): sem saldo e sem alternativa, o aviso seria só ruído.
-  if (!suggestions.length && available <= 0 && candidates.length === 0) return null;
+  if (available <= 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-dashed border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-900 dark:text-amber-100" role="status">
       <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
       <span>
-        {available > 0 ? `Só ${available} ${unit} livre${available === 1 ? "" : "s"} em estoque` : "Sem estoque livre"} para {needed} {unit}
-        {suggestions.length ? ". Com estoque:" : "; o restante entra em Compras quando aprovado."}
+        Só {available} {unit} livre{available === 1 ? "" : "s"} em estoque para {needed} {unit}; o restante entra em Compras quando aprovado.
       </span>
-      {suggestions.map(member => (
-        <Button key={member.id} size="sm" variant="outline" className="h-7 gap-1.5 bg-background px-2 text-[11px]" onClick={() => onSwap(member)}>
-          <ArrowRightLeft className="h-3 w-3" />
-          {variantLabel(parseAttributes(member.attributes)) || member.shortDescription} ({member.available}) · {money(member.unitPrice)}
-        </Button>
-      ))}
     </div>
   );
 }

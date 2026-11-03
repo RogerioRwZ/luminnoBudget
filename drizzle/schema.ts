@@ -60,14 +60,9 @@ export const products = mysqlTable("products", {
   // Garantia em meses; nulo usa a garantia padrão das Configurações.
   warrantyMonths: int("warrantyMonths"),
   active: boolean("active").notNull().default(true),
-  // Variações (cor, temperatura de cor, potência...): cada variação é um
-  // produto completo ligado ao produto principal do modelo (parentId).
-  parentId: int("parentId"),
-  modelName: varchar("modelName", { length: 512 }),
-  attributes: text("attributes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [index("products_parentId_idx").on(table.parentId)]);
+});
 
 export const quotes = mysqlTable("quotes", {
   id: int("id").autoincrement().primaryKey(),
