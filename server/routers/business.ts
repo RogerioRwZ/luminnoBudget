@@ -49,6 +49,8 @@ import { adminProcedure, areaProcedure, protectedProcedure, router } from "../_c
 import { plural } from "../../shared/plural";
 import { quotePdfFileName, sanitizePdfSnapshot } from "../../shared/quoteFileName";
 import { MAX_PLAN_INSTALLMENTS, MAX_PLAN_PARTS, parseEntryOffer, PLAN_METHODS } from "../../shared/paymentPlan";
+import { documentField, emailField, phoneField } from "./contactFields";
+import { normalizeStoredContacts } from "../contactMigration";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
 
@@ -79,10 +81,10 @@ const clientInput = z.object({
   id: z.number().int().positive().optional(),
   name: z.string().trim().min(1, "Informe o nome do cliente").max(240),
   professional: z.string().trim().max(240).default(""),
-  document: nullableText,
+  document: documentField(true),
   stateRegistration: nullableText,
-  phone: nullableText,
-  email: z.string().email("Informe um e-mail válido").nullable().optional().or(z.literal("")),
+  phone: phoneField(true),
+  email: emailField(),
   address: nullableText,
 });
 
@@ -103,7 +105,7 @@ const appointmentInput = z.object({
   quoteId: z.number().int().positive().nullable().optional(),
   clientId: z.number().int().positive().nullable().optional(),
   clientName: z.string().trim().min(1, "Informe o cliente").max(240),
-  phone: nullableText,
+  phone: phoneField(),
   address: nullableText,
   scheduledAt: z.coerce.date(),
   durationMinutes: z.number().int().min(15, "Duração mínima de 15 minutos").max(24 * 60),
@@ -172,9 +174,9 @@ const quoteInput = z.object({
   clientId: z.number().int().positive().nullable().optional(),
   clientName: z.string().trim().max(240).default(""),
   professional: z.string().trim().max(240).default(""),
-  document: nullableText,
+  document: documentField(),
   stateRegistration: nullableText,
-  phone: nullableText,
+  phone: phoneField(),
   address: nullableText,
   status: z.enum(["draft", "open", "approved", "lost"]).default("draft"),
   issueDate: z.coerce.date(),
@@ -578,10 +580,10 @@ export const businessRouter = router({
       companyName: z.string().trim().min(1).max(256),
       tradingName: z.string().trim().min(1).max(256),
       logoUrl: imageLocation.nullable().optional().or(z.literal("")),
-      document: nullableText,
+      document: documentField(true),
       address: nullableText,
-      phone: nullableText,
-      email: z.string().email().nullable().optional().or(z.literal("")),
+      phone: phoneField(true),
+      email: emailField(),
       pixKey: nullableText,
       pixRecipient: nullableText,
       pixCity: z.string().trim().max(60).nullable().optional(),
@@ -631,7 +633,7 @@ export const businessRouter = router({
     saveProfessional: areaProcedure("finance").input(z.object({
       name: z.string().trim().min(1, "Informe o nome do profissional").max(240),
       commissionPercent: z.coerce.number().min(0).max(100).nullable(),
-      phone: nullableText,
+      phone: phoneField(),
     })).mutation(async ({ ctx, input }) => {
       const id = await saveProfessional(input);
       await log(ctx, { action: "commission.rate", entityType: "finance", entityId: id, summary: `Definiu a comissão de ${input.name} em ${input.commissionPercent === null ? "padrão da loja" : `${input.commissionPercent}%`}` });
@@ -706,6 +708,8 @@ export const businessRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Este arquivo não é um backup Luminno válido" });
       }
       const result = await importBackup({ data: input.data.data as Record<string, unknown>, replace: input.replace });
+      // Backups antigos trazem CPF/CNPJ e telefones em qualquer formato.
+      await normalizeStoredContacts({ force: true });
       await log(ctx, { action: "backup.import", entityType: "backup", summary: `Restaurou um backup${input.replace ? " substituindo os dados atuais" : ""}`, details: { exportadoEm: input.data.exportedAt ?? null } });
       return result;
     }),

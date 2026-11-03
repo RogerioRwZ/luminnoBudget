@@ -5,6 +5,7 @@ import { createLoan, extendLoan, listLoans, settleLoan } from "../loansDb";
 import { BORROWER_KINDS } from "../../shared/loans";
 import { isCentQuantity } from "../../shared/stock";
 import { plural } from "../../shared/plural";
+import { phoneField } from "./contactFields";
 
 const quantity = z.coerce.number().refine((value) => value > 0 && value <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais");
 const settleQuantity = z.coerce.number().min(0).max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais").default(0);
@@ -15,7 +16,7 @@ export const loansRouter = router({
   create: areaProcedure("loans").input(z.object({
     borrowerName: z.string().trim().min(1, "Informe com quem a peça vai ficar").max(240),
     borrowerKind: z.enum(BORROWER_KINDS),
-    phone: z.string().trim().max(40).nullable().optional(),
+    phone: phoneField(),
     quoteId: z.number().int().positive().nullable().optional(),
     notes: text,
     dueDate: z.coerce.date(),

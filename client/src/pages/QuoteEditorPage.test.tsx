@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   products: [] as any[],
+  customers: [] as any[],
 }));
 
 vi.mock("sonner", () => ({
@@ -48,7 +49,7 @@ vi.mock("@/lib/trpc", () => {
         delete: { useMutation: mutation },
       },
       product: { list: { useQuery: () => ({ data: mocks.products }) }, availability: { useQuery: () => ({ data: [] }) } },
-      customers: { list: { useQuery: () => ({ data: [] }) } },
+      customers: { list: { useQuery: () => ({ data: mocks.customers }) } },
       settings: { get: { useQuery: () => ({ data: undefined }) } },
       inventory: { picking: { useQuery: () => ({ isFetching: false, refetch: vi.fn() }) } },
       finance: { byQuote: { useQuery: () => ({ data: [], isLoading: false }) } },
@@ -240,6 +241,25 @@ describe("QuoteEditorPage", () => {
     // O item leva a referência da variação, não o código interno.
     expect(screen.getByDisplayValue("GU10-BR-3000")).toBeTruthy();
     mocks.products = [];
+  });
+
+  it("busca o cliente cadastrado pelo CPF ou telefone e preenche os dados", () => {
+    mocks.customers = [
+      { id: 41, name: "Maria Silva", professional: "Arq. Paulo", document: "529.982.247-25", stateRegistration: null, phone: "(11) 99999-0000", email: null, address: "Rua A, 10" },
+      { id: 42, name: "João Souza", professional: "", document: null, phone: "(21) 3123-4567", email: null, address: null },
+    ];
+    render(<QuoteEditorPage />);
+    const search = screen.getByRole("combobox", { name: "Buscar cliente cadastrado" });
+    fireEvent.change(search, { target: { value: "52998224725" } });
+    expect(screen.queryByText("João Souza")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Maria Silva/ }));
+    expect((screen.getByLabelText("CPF/CNPJ") as HTMLInputElement).value).toBe("529.982.247-25");
+    expect((screen.getByLabelText("Telefone") as HTMLInputElement).value).toBe("(11) 99999-0000");
+    expect(screen.getByDisplayValue("Rua A, 10")).toBeTruthy();
+    // Digitar o telefone no orçamento formata, mas não bloqueia.
+    fireEvent.change(screen.getByLabelText("Telefone"), { target: { value: "2131234" } });
+    expect((screen.getByLabelText("Telefone") as HTMLInputElement).value).toBe("(21) 3123-4");
+    mocks.customers = [];
   });
 
   it("modelo com variações: o principal sem variação não é oferecido sozinho", () => {

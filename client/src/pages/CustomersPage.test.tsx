@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { expectNoUnnamedFormControls } from "@/test/formAccessibility";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   setLocation: vi.fn(),
   statement: vi.fn(),
   mutate: vi.fn(),
+  saveOptions: {} as { onSuccess?: () => void },
   invalidate: vi.fn(),
   refetch: vi.fn(),
   list: { data: undefined as any, isLoading: false, error: null as Error | null },
@@ -18,7 +19,7 @@ vi.mock("@/lib/trpc", () => ({
     useUtils: () => ({ customers: { list: { invalidate: mocks.invalidate } } }),
     customers: {
       list: { useQuery: () => ({ ...mocks.list, refetch: mocks.refetch }) },
-      save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      save: { useMutation: (options: { onSuccess?: () => void }) => { mocks.saveOptions = options; return { isPending: false, mutate: mocks.mutate }; } },
       statement: { useQuery: (input: { id: number }, options: { enabled: boolean }) => (options.enabled ? mocks.statement(input) : { data: undefined, isLoading: false, error: null }) },
     },
   },
@@ -33,6 +34,65 @@ afterEach(() => {
   mocks.invalidate.mockReset();
   mocks.refetch.mockReset();
   mocks.list = { data: undefined, isLoading: false, error: null };
+});
+
+const maria = { id: 7, name: "Maria Silva", professional: "Arq. Paulo", document: "529.982.247-25", stateRegistration: null, phone: "(11) 99999-0000", email: "maria@email.com", address: null, quoteCount: 2, createdAt: new Date(), updatedAt: new Date() };
+
+describe("CustomersPage — CPF/CNPJ, telefone e e-mail", () => {
+  it("formata enquanto digita e não salva número inválido", () => {
+    mocks.list.data = [];
+    render(<CustomersPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo cliente" }));
+    fireEvent.change(screen.getByLabelText("Nome do cliente *"), { target: { value: "Ana" } });
+    fireEvent.change(screen.getByLabelText("CPF/CNPJ"), { target: { value: "52998224724" } });
+    fireEvent.change(screen.getByLabelText("Telefone"), { target: { value: "11912345678" } });
+    expect((screen.getByLabelText("CPF/CNPJ") as HTMLInputElement).value).toBe("529.982.247-24");
+    expect((screen.getByLabelText("Telefone") as HTMLInputElement).value).toBe("(11) 91234-5678");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar cliente" }));
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(screen.getAllByText("CPF inválido: confira os números.").length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("CPF/CNPJ"), { target: { value: "52998224725" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar cliente" }));
+    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ document: "529.982.247-25", phone: "(11) 91234-5678" }));
+  });
+
+  it("depois de salvar, o próximo cliente novo abre em branco", () => {
+    mocks.list.data = [];
+    render(<CustomersPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo cliente" }));
+    fireEvent.change(screen.getByLabelText("Nome do cliente *"), { target: { value: "Ana" } });
+    fireEvent.change(screen.getByLabelText("CPF/CNPJ"), { target: { value: "52998224725" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar cliente" }));
+    expect(mocks.mutate).toHaveBeenCalledOnce();
+    act(() => mocks.saveOptions.onSuccess?.());
+    fireEvent.click(screen.getByRole("button", { name: "Novo cliente" }));
+    expect((screen.getByLabelText("Nome do cliente *") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("CPF/CNPJ") as HTMLInputElement).value).toBe("");
+  });
+
+  it("avisa cliente já cadastrado com o mesmo CPF ou telefone e abre o cadastro", () => {
+    mocks.list.data = [maria];
+    render(<CustomersPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo cliente" }));
+    fireEvent.change(screen.getByLabelText("Telefone"), { target: { value: "11999990000" } });
+    expect(screen.getByText(/Já existe:/).parentElement!.textContent).toContain("Já existe: Maria Silva (telefone (11) 99999-0000)");
+    fireEvent.click(screen.getByRole("button", { name: "Abrir cadastro" }));
+    expect((screen.getByLabelText("Nome do cliente *") as HTMLInputElement).value).toBe("Maria Silva");
+    // Editando a própria Maria, não há aviso.
+    expect(screen.queryByText(/Já existe/)).toBeNull();
+  });
+
+  it("acha o cliente pelos números do CPF ou telefone, sem pontuação", () => {
+    mocks.list.data = [maria, { ...maria, id: 8, name: "João Souza", document: null, phone: "(21) 3123-4567", email: null }];
+    render(<CustomersPage />);
+    const search = screen.getByLabelText("Buscar por nome, CPF/CNPJ, telefone ou e-mail");
+    fireEvent.change(search, { target: { value: "52998224725" } });
+    expect(screen.queryByText("Maria Silva")).toBeTruthy();
+    expect(screen.queryByText("João Souza")).toBeNull();
+    fireEvent.change(search, { target: { value: "2131234567" } });
+    expect(screen.queryByText("Maria Silva")).toBeNull();
+    expect(screen.queryByText("João Souza")).toBeTruthy();
+  });
 });
 
 describe("CustomersPage", () => {

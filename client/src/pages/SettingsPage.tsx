@@ -38,6 +38,8 @@ import {
 import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { toast } from "sonner";
 import { EMPTY_CARD_FEES, parseCardFees, type CardFees } from "@shared/paymentPlan";
+import { DocumentInput, EmailInput, PhoneInput } from "@/components/ContactInputs";
+import { documentProblem, emailProblem, phoneProblem } from "@shared/contact";
 
 type SettingsForm = {
   companyName: string;
@@ -119,6 +121,7 @@ export default function SettingsPage() {
   const { data, isLoading, error, refetch } = trpc.settings.get.useQuery();
   const [form, setForm] = useState<SettingsForm>(emptySettings);
   const [formError, setFormError] = useState("");
+  const [triedSave, setTriedSave] = useState(false);
   const { data: auth } = trpc.auth.status.useQuery(undefined, {
     staleTime: Infinity,
   });
@@ -264,10 +267,11 @@ export default function SettingsPage() {
       toast.error(message);
       return;
     }
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      const message = "Informe um e-mail válido, como contato@empresa.com.";
-      setFormError(message);
-      toast.error(message);
+    setTriedSave(true);
+    const contactError = documentProblem(form.document) ?? phoneProblem(form.phone) ?? emailProblem(form.email);
+    if (contactError) {
+      setFormError(contactError);
+      toast.error(contactError);
       return;
     }
     setFormError("");
@@ -378,11 +382,11 @@ export default function SettingsPage() {
               />
             </Field>
             <Field label="CNPJ">
-              <Input
+              <DocumentInput
+                strict
+                showProblem={triedSave}
                 value={form.document}
-                onChange={event =>
-                  setForm({ ...form, document: event.target.value })
-                }
+                onValueChange={document => setForm(current => ({ ...current, document }))}
               />
             </Field>
             <Field label="Endereço" className="sm:col-span-2">
@@ -394,20 +398,19 @@ export default function SettingsPage() {
               />
             </Field>
             <Field label="Telefone">
-              <Input
+              <PhoneInput
+                strict
+                showProblem={triedSave}
                 value={form.phone}
-                onChange={event =>
-                  setForm({ ...form, phone: event.target.value })
-                }
+                onValueChange={phone => setForm(current => ({ ...current, phone }))}
               />
             </Field>
             <Field label="E-mail">
-              <Input
-                type="email"
+              <EmailInput
+                strict
+                showProblem={triedSave}
                 value={form.email}
-                onChange={event =>
-                  setForm({ ...form, email: event.target.value })
-                }
+                onValueChange={email => setForm(current => ({ ...current, email }))}
               />
             </Field>
             <div className="space-y-2 sm:col-span-2">

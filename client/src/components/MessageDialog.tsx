@@ -21,6 +21,8 @@ import { normalizeWhatsAppPhone } from "@shared/whatsapp";
 import { Copy, Mail, MessageCircle, QrCode } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { PhoneInput } from "@/components/ContactInputs";
+import { normalizePhone } from "@shared/contact";
 
 export type DialogMessage = {
   event: MessageEvent;
@@ -60,7 +62,7 @@ export function MessageDialog({
   useEffect(() => {
     if (!message) return;
     setBody(message.body);
-    setPhone(message.phone);
+    setPhone(normalizePhone(message.phone) ?? "");
     setEmail(message.email);
     setQr("");
     if (!message.pix) return;
@@ -128,12 +130,7 @@ export function MessageDialog({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="message-phone">WhatsApp</Label>
-                <Input
-                  id="message-phone"
-                  value={phone}
-                  placeholder="(11) 98888-7777"
-                  onChange={event => setPhone(event.target.value)}
-                />
+                <PhoneInput id="message-phone" value={phone} onValueChange={setPhone} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="message-email">E-mail</Label>

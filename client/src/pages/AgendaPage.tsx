@@ -40,6 +40,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
+import { PhoneInput } from "@/components/ContactInputs";
 
 type AppointmentType = keyof typeof APPOINTMENT_TYPE_LABELS;
 type Form = {
@@ -324,7 +325,7 @@ export default function AgendaPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="appointment-phone">Telefone</Label>
-              <Input id="appointment-phone" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} />
+              <PhoneInput id="appointment-phone" value={form.phone} onValueChange={phone => setForm(current => ({ ...current, phone }))} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="appointment-responsible">Responsável</Label>

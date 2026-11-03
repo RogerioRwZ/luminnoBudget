@@ -13,6 +13,7 @@ import { verifyDatabaseConnection } from "../localUserDb";
 import { getQuotePdfHistoryEntry } from "../quoteDb";
 import { startPushScheduler } from "../pushDb";
 import { startStorageCleanup } from "../storageCleanup";
+import { normalizeStoredContacts } from "../contactMigration";
 import { canAccess } from "@shared/permissions";
 
 function securityHeaders(_req: Request, res: Response, next: NextFunction) {
@@ -170,6 +171,10 @@ async function startServer() {
   // Avisos no celular (Resumo do dia de manhã e alerta de backup).
   if (process.env.PUSH_DISABLED !== "1") startPushScheduler();
   if (process.env.STORAGE_CLEANUP_DISABLED !== "1") startStorageCleanup();
+  // Uma vez: CPF/CNPJ, telefones e e-mails antigos no formato padrão.
+  normalizeStoredContacts()
+    .then((changed) => changed && console.log(`[contatos] ${changed} CPF/CNPJ, telefone(s) ou e-mail(s) reformatado(s) para o padrão.`))
+    .catch((error) => console.warn("[contatos] reformatação não executada:", error instanceof Error ? error.message : error));
 }
 
 // Sai com código de erro se a inicialização falhar (ex.: pasta de uploads

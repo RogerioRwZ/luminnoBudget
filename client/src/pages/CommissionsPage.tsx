@@ -15,6 +15,7 @@ import { ChevronDown, FileSpreadsheet, HandCoins, Percent, Trash2, UserPlus, Wal
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { PhoneInput } from "@/components/ContactInputs";
 
 type RateForm = { name: string; percent: string; phone: string; isNew: boolean };
 type PayForm = { professional: string; amount: string; paidAt: string; notes: string };
@@ -261,7 +262,7 @@ export default function CommissionsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="professional-phone">Telefone (opcional)</Label>
-                <Input id="professional-phone" value={rateForm.phone} onChange={event => setRateForm({ ...rateForm, phone: event.target.value })} />
+                <PhoneInput id="professional-phone" value={rateForm.phone} onValueChange={phone => setRateForm(current => (current ? { ...current, phone } : current))} />
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setRateForm(null)}>Cancelar</Button>

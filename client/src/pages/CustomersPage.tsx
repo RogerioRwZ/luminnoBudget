@@ -35,6 +35,8 @@ import { useLocation } from "wouter";
 import { normalizeWhatsAppPhone } from "@shared/whatsapp";
 import { QUOTE_STATUS_LABELS } from "@shared/quoteStatus";
 import { plural } from "@shared/plural";
+import { DocumentInput, EmailInput, PhoneInput } from "@/components/ContactInputs";
+import { contactKey, documentProblem, emailProblem, matchesClientSearch, phoneDigits, phoneProblem } from "@shared/contact";
 
 type CustomerForm = {
   id?: number;
@@ -72,6 +74,9 @@ export default function CustomersPage() {
       removeDraft(`customer-${form.id ?? "new"}`);
       toast.success("Cliente salvo com sucesso");
       setOpen(false);
+      // Sem limpar, o próximo "Novo cliente" abria com os dados deste.
+      setForm(emptyCustomer);
+      setTriedSave(false);
     },
     onError: error => {
       const message = getFormErrorMessage(
@@ -90,15 +95,33 @@ export default function CustomersPage() {
   const customerDraft = useDraftAutosave(`customer-${form.id ?? "new"}`, form, {
     enabled: open,
   });
-  const filtered = useMemo(
-    () =>
-      data.filter(customer =>
-        `${customer.name} ${customer.professional}`
-          .toLocaleLowerCase("pt-BR")
-          .includes(search.toLocaleLowerCase("pt-BR"))
-      ),
-    [data, search]
-  );
+  const filtered = useMemo(() => data.filter(customer => matchesClientSearch(customer, search)), [data, search]);
+  // Mesmo CPF/CNPJ ou telefone em outro cliente: avisa (sem bloquear; uma
+  // família pode dividir o telefone) e oferece abrir o cadastro existente.
+  const duplicates = useMemo(() => {
+    const documentKey = contactKey(form.document);
+    const phoneKey = phoneDigits(form.phone);
+    return data
+      .filter(customer => customer.id !== form.id)
+      .flatMap<{ customer: (typeof data)[number]; by: "document" | "phone" }>(customer =>
+        documentKey.length >= 11 && contactKey(customer.document) === documentKey
+          ? [{ customer, by: "document" }]
+          : phoneKey.length >= 10 && phoneDigits(customer.phone) === phoneKey
+            ? [{ customer, by: "phone" }]
+            : []
+      )
+      .slice(0, 3);
+  }, [data, form.document, form.phone, form.id]);
+  const [triedSave, setTriedSave] = useState(false);
+  const submit = () => {
+    setTriedSave(true);
+    const problem = documentProblem(form.document) ?? phoneProblem(form.phone) ?? emailProblem(form.email);
+    if (problem) {
+      setFormError(problem);
+      return;
+    }
+    save.mutate(form);
+  };
   const edit = (customer: (typeof data)[number]) => {
     setForm({
       id: customer.id,
@@ -115,6 +138,7 @@ export default function CustomersPage() {
   const close = (value: boolean) => {
     setOpen(value);
     setFormError("");
+    setTriedSave(false);
     if (!value) setForm(emptyCustomer);
   };
   const historyCustomer = data.find(customer => customer.id === historyId);
@@ -200,28 +224,50 @@ export default function CustomersPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>CPF/CNPJ</Label>
-                <Input
+                <Label htmlFor="customer-document">CPF/CNPJ</Label>
+                <DocumentInput
+                  id="customer-document"
                   aria-label="CPF/CNPJ"
+                  strict
+                  showProblem={triedSave}
                   value={form.document}
-                  onChange={e => setForm({ ...form, document: e.target.value })}
+                  onValueChange={document => setForm(current => ({ ...current, document }))}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Telefone</Label>
-                <Input
+                <Label htmlFor="customer-phone">Telefone</Label>
+                <PhoneInput
+                  id="customer-phone"
                   aria-label="Telefone"
+                  strict
+                  showProblem={triedSave}
                   value={form.phone}
-                  onChange={e => setForm({ ...form, phone: e.target.value })}
+                  onValueChange={phone => setForm(current => ({ ...current, phone }))}
                 />
               </div>
+              {duplicates.length ? (
+                <div role="status" className="space-y-1.5 rounded-xl border border-amber-400/50 bg-amber-500/10 p-3 text-xs sm:col-span-2">
+                  {duplicates.map(({ customer, by }) => (
+                    <div key={customer.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        Já existe: <b>{customer.name}</b> ({by === "document" ? `CPF/CNPJ ${customer.document}` : `telefone ${customer.phone}`})
+                      </span>
+                      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => edit(customer)}>
+                        Abrir cadastro
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               <div className="space-y-2 sm:col-span-2">
-                <Label>E-mail</Label>
-                <Input
+                <Label htmlFor="customer-email">E-mail</Label>
+                <EmailInput
+                  id="customer-email"
                   aria-label="E-mail"
-                  type="email"
+                  strict
+                  showProblem={triedSave}
                   value={form.email}
-                  onChange={e => setForm({ ...form, email: e.target.value })}
+                  onValueChange={email => setForm(current => ({ ...current, email }))}
                 />
               </div>
               <div className="space-y-2 sm:col-span-2">
@@ -241,7 +287,7 @@ export default function CustomersPage() {
               <AsyncButton
                 pending={save.isPending}
                 loadingLabel="Salvando cliente…"
-                onClick={() => save.mutate(form)}
+                onClick={submit}
               >
                 Salvar cliente
               </AsyncButton>
@@ -254,10 +300,10 @@ export default function CustomersPage() {
           <div className="relative border-b border-border p-4">
             <Search className="pointer-events-none absolute left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              aria-label="Buscar por cliente ou profissional"
+              aria-label="Buscar por nome, CPF/CNPJ, telefone ou e-mail"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar por cliente ou profissional"
+              placeholder="Buscar por nome, CPF/CNPJ, telefone ou e-mail"
               className="max-w-md pl-9"
             />
           </div>
