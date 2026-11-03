@@ -26,7 +26,7 @@ import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate
 import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
-import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, VARIANT_FIELDS, variantDisplayName, variantLabel, type VariantAttributes } from "../shared/variants";
+import { attributesKey, cleanAttributes, composeVariantName, modelProductIds, parseAttributes, VARIANT_FIELDS, variantDisplayName, variantLabel, type VariantAttributes } from "../shared/variants";
 import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
 import { barcodeProblem, matchesProductSearch, nextProductCode, normalizeBarcode, normalizeReference, referenceProblem, suggestVariantReference, uniqueReference } from "../shared/productCodes";
 import { professionalKey } from "../shared/commission";
@@ -196,7 +196,10 @@ export async function saveClient(input: {
 
 export async function listProducts(search?: string) {
   const db = await database();
-  const all = await db.select().from(products).orderBy(desc(products.updatedAt));
+  const rows = await db.select().from(products).orderBy(desc(products.updatedAt));
+  // isModel: principal de variações (não é vendido nem estocado).
+  const models = modelProductIds(rows);
+  const all = rows.map((product) => ({ ...product, isModel: models.has(product.id) }));
   const needle = search?.trim().toLocaleLowerCase("pt-BR");
   return needle
     ? all.filter((product) => matchesProductSearch(product, needle))
@@ -321,7 +324,7 @@ export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): P
 // os dados do produto principal; as que já existem são puladas. O ponto de
 // reposição começa zerado: senão cada variação nova, sem estoque, já iria
 // para Compras.
-type VariantInput = { id?: number; attributes?: VariantAttributes | null; reference?: string | null; barcode?: string | null };
+type VariantInput = { id?: number; attributes?: VariantAttributes | null; reference?: string | null; barcode?: string | null; reorderPoint?: number | null };
 
 // Confere a lista inteira antes de gravar qualquer coisa: um erro no meio
 // deixaria só parte das variações. Em cada variação só a referência é
@@ -394,7 +397,9 @@ export async function saveProductWithVariants(product: Omit<Parameters<typeof sa
 
 // Editar o modelo e todas as variações juntos: as que têm id são atualizadas
 // (referência, detalhes e código de barras) e as sem id são criadas.
-export async function saveProductFamily(model: Parameters<typeof saveProduct>[0] & { id: number }, variants: VariantInput[]) {
+// `applyToVariants`: copia preço, custo, fornecedor e foto do modelo para as
+// variações já gravadas (as novas sempre copiam).
+export async function saveProductFamily(model: Parameters<typeof saveProduct>[0] & { id: number }, variants: VariantInput[], { applyToVariants = false }: { applyToVariants?: boolean } = {}) {
   const root = await getProduct(model.id);
   if (!root || root.parentId) throw new Error("Modelo não encontrado.");
   await assertVariantInputs(variants, { rootId: root.id, reserved: [normalizeReference(model.reference ?? root.reference ?? root.code)] });
@@ -402,7 +407,19 @@ export async function saveProductFamily(model: Parameters<typeof saveProduct>[0]
   const updated: number[] = [];
   for (const variant of variants.filter((item) => item.id)) {
     const current = (await getProduct(variant.id!))!;
-    await saveProduct({ ...keptFields(current), id: current.id, parentId: root.id, reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, attributes: cleanAttributes(variant.attributes) });
+    const fromModel = applyToVariants
+      ? { unitPrice: model.unitPrice, supplierName: model.supplierName ?? null, imageUrl: model.imageUrl ?? null, imageKey: model.imageKey ?? null, ...(model.costPrice !== undefined ? { costPrice: model.costPrice } : {}) }
+      : {};
+    await saveProduct({
+      ...keptFields(current),
+      ...fromModel,
+      id: current.id,
+      parentId: root.id,
+      reference: normalizeReference(variant.reference),
+      barcode: variant.barcode ?? null,
+      attributes: cleanAttributes(variant.attributes),
+      ...(variant.reorderPoint != null ? { reorderPoint: variant.reorderPoint } : {}),
+    });
     updated.push(current.id);
   }
   const fresh = variants.filter((item) => !item.id);
@@ -420,7 +437,7 @@ export async function createProductVariants(productId: number, variants: Variant
   const modelName = root.modelName || root.shortDescription;
   const created: number[] = [];
   for (const variant of variants) {
-    created.push(await saveProduct({ reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: cleanAttributes(variant.attributes), fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: 0, active: true }));
+    created.push(await saveProduct({ reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: cleanAttributes(variant.attributes), fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: variant.reorderPoint ?? 0, active: true }));
   }
   return { rootId: root.id, created };
 }

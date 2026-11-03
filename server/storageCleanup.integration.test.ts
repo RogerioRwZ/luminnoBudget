@@ -43,6 +43,11 @@ describe("economia de armazenamento", () => {
     expect(entry).toMatchObject({ rebuild: true, downloadUrl: null, fileSize: 85_000 });
     expect(await admin.quote.pdfSnapshot({ id: entry.id })).toMatchObject({ snapshot, fileName: expect.stringMatching(/Ana\.pdf$/) });
     await expect(admin.quote.savePdf({ quoteId: quote.id, snapshot: "{}", fileSize: 1 })).rejects.toThrow(/inválidos/);
+    // Imagens de fora do sistema são descartadas ao gravar.
+    const outside = await admin.quote.savePdf({ quoteId: quote.id, snapshot: JSON.stringify({ rooms: [{ name: "A", items: [{ imageUrl: "https://rastreador.example/p.gif" }, { imageUrl: "/uploads/products/x.webp" }] }], summary: {}, settings: { logoUrl: "http://10.0.0.1/" } }), fileSize: 1 });
+    const stored = JSON.parse((await admin.quote.pdfSnapshot({ id: outside.id })).snapshot);
+    expect(stored.rooms[0].items.map((item: { imageUrl: string | null }) => item.imageUrl)).toEqual([null, "/uploads/products/x.webp"]);
+    expect(stored.settings.logoUrl).toBeNull();
   });
 
   it("apaga só arquivos sem uso e com mais de 3 dias", async () => {

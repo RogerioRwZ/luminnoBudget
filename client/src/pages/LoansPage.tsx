@@ -258,7 +258,7 @@ export default function LoansPage() {
                 </div>
                 {productQuery.trim().length >= 2 ? (
                   <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-xl border border-border text-sm">
-                    {(productSearch.data ?? []).filter(product => product.active).slice(0, 20).map(product => (
+                    {(productSearch.data ?? []).filter(product => product.active && !product.isModel).slice(0, 20).map(product => (
                       <li key={product.id}>
                         <button className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/60" onClick={() => addProduct(product)}>
                           <span className="min-w-0">

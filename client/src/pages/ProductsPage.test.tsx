@@ -129,13 +129,18 @@ describe("ProductsPage", () => {
     expect(screen.queryByRole("button", { name: "Remover a variação 1" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Referência da variação 1"), { target: { value: "AR/BR" } });
     fireEvent.change(screen.getByLabelText("Código de barras da variação 1"), { target: { value: "222" } });
+    fireEvent.change(screen.getByLabelText("Ponto de reposição da variação 2"), { target: { value: "3" } });
+    // O modelo não tem ponto de reposição próprio; dá para levar preço e foto às variações.
+    expect(screen.queryByLabelText("Ponto de reposição")).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "Aplicar às variações" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
       model: expect.objectContaining({ id: 10, reference: "MOD-10" }),
       variants: [
-        { id: 12, attributes: { color: "Branco" }, reference: "AR/BR", barcode: "222" },
-        { id: 11, attributes: { color: "Preto" }, reference: "AR-PT", barcode: "111" },
+        { id: 12, attributes: { color: "Branco" }, reference: "AR/BR", barcode: "222", reorderPoint: 0 },
+        { id: 11, attributes: { color: "Preto" }, reference: "AR-PT", barcode: "111", reorderPoint: 3 },
       ],
+      applyToVariants: true,
     }));
   });
 

@@ -2,6 +2,7 @@ import { and, desc, eq, max } from "drizzle-orm";
 import { internalComments, messageTemplates, quoteAttachments, quoteVersions, products } from "../drizzle/schema";
 import { getDb } from "./db";
 import { getQuote, saveQuote, type QuoteDraft } from "./quoteDb";
+import { parseAttributes, variantLabel } from "../shared/variants";
 
 async function database() {
   const db = await getDb();
@@ -51,5 +52,13 @@ export async function getAttachment(id: number) { const db = await database(); c
 export async function listMessageTemplates() { const db = await database(); return db.select().from(messageTemplates).orderBy(messageTemplates.event); }
 export async function saveMessageTemplate(input: { id?: number; event: "quote_sent"|"quote_approved"|"quote_expiring"|"quote_expired"|"payment_due"|"payment_overdue"|"delivery_scheduled"|"delivery_completed"; name: string; subject?: string | null; body: string; active: boolean }) { const db = await database(); if (input.id) { await db.update(messageTemplates).set({ event: input.event, name: input.name, subject: input.subject || null, body: input.body, active: input.active }).where(eq(messageTemplates.id, input.id)); return { id: input.id }; } const result = await db.insert(messageTemplates).values({ event: input.event, name: input.name, subject: input.subject || null, body: input.body, active: input.active }); return { id: Number(result[0].insertId) }; }
 // Leitura de código: primeiro o código de barras, depois a referência.
-export async function findProductByBarcode(barcode: string) { const db = await database(); const value = barcode.trim(); const rows = await db.select().from(products).where(eq(products.barcode, value)).limit(1); return rows[0] ?? (await db.select().from(products).where(eq(products.reference, value)).limit(1))[0] ?? null; }
+// O modelo de um produto com variações não é vendido: a leitura não o devolve.
+export async function findProductByBarcode(barcode: string) {
+  const db = await database();
+  const value = barcode.trim();
+  const product = (await db.select().from(products).where(eq(products.barcode, value)).limit(1))[0] ?? (await db.select().from(products).where(eq(products.reference, value)).limit(1))[0] ?? null;
+  if (!product || product.parentId || variantLabel(parseAttributes(product.attributes))) return product;
+  const child = await db.select({ id: products.id }).from(products).where(eq(products.parentId, product.id)).limit(1);
+  return child.length ? null : product;
+}
 export async function updateProductBarcode(productId: number, barcode: string | null) { const db = await database(); await db.update(products).set({ barcode: barcode || null }).where(eq(products.id, productId)); return { productId, barcode }; }

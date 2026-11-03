@@ -38,3 +38,13 @@ describe("separação parcial", () => {
     expect(html).toContain("6 UN · 2,5 M");
   });
 });
+
+describe("impressão sem script na janela nova", () => {
+  it("não embute script (a política de segurança bloquearia) e pede a impressão daqui", () => {
+    const data = { quote: { quoteNumber: 9, clientName: "C", professional: "P" }, issuedAt: "01/11/2026", items: [] };
+    expect(buildPickingPrintDocument(data)).not.toMatch(/<script/i);
+    let printed = false;
+    openPickingPrintDocument(data, () => ({ document: { write: () => undefined, close: () => undefined }, focus: () => undefined, print: () => { printed = true; } }));
+    expect(printed).toBe(true);
+  });
+});

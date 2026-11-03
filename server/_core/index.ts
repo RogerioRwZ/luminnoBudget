@@ -13,6 +13,7 @@ import { verifyDatabaseConnection } from "../localUserDb";
 import { getQuotePdfHistoryEntry } from "../quoteDb";
 import { startPushScheduler } from "../pushDb";
 import { startStorageCleanup } from "../storageCleanup";
+import { canAccess } from "@shared/permissions";
 
 function securityHeaders(_req: Request, res: Response, next: NextFunction) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -21,8 +22,47 @@ function securityHeaders(_req: Request, res: Response, next: NextFunction) {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   // A câmera é usada pelo leitor de código de barras; o resto fica bloqueado.
   res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=()");
-  if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=15552000");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=15552000");
+    res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  }
   next();
+}
+
+// De onde o navegador pode carregar cada coisa. Só em produção (o Vite de
+// desenvolvimento injeta scripts próprios). Scripts só do sistema; WebAssembly
+// para o leitor de código de barras; estilos inline (gráficos) e as fontes do
+// Google; imagens e buscas HTTPS para fotos antigas guardadas fora daqui;
+// blob: para a pré-visualização do PDF.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self' https:",
+  "frame-src 'self' blob:",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+].join("; ");
+
+// Envios grandes (fotos, anexos) só de quem está logado: sem isso, qualquer
+// um poderia mandar 25 MB e o servidor leria tudo antes de recusar.
+const ANONYMOUS_BODY_LIMIT = 1024 * 1024;
+async function limitAnonymousBodies(req: Request, res: Response, next: NextFunction) {
+  if (req.method === "GET" || req.method === "HEAD") return next();
+  const declared = req.headers["content-length"];
+  if (declared !== undefined && Number(declared) <= ANONYMOUS_BODY_LIMIT) return next();
+  try {
+    if (await getRequestUser(req)) return next();
+  } catch {
+    // Sem como conferir a sessão: trata como anônimo.
+  }
+  res.status(413).send("Envio grande demais. Entre no sistema para enviar arquivos.");
 }
 
 // res.download é assíncrono: um arquivo ausente no disco não cai em
@@ -67,6 +107,7 @@ async function startServer() {
   app.disable("x-powered-by");
   app.use(securityHeaders);
   // O maior envio legítimo é um anexo de 15 MB em base64 (~20 MB de JSON).
+  app.use(limitAnonymousBodies);
   app.use(express.json({ limit: "25mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
   await ensureUploadDirectory();
@@ -81,6 +122,8 @@ async function startServer() {
     const attachmentId = Number(req.params.attachmentId);
     const user = await getRequestUser(req);
     if (!user) return res.status(401).send("Autenticação necessária.");
+    // Mesmo acesso da tela de anexos (Operação/Orçamentos).
+    if (!canAccess(user.role, "quotes")) return res.status(403).send("Seu perfil não tem acesso aos anexos dos orçamentos.");
     if (!Number.isSafeInteger(attachmentId) || attachmentId < 1) return res.status(404).send("Anexo não encontrado.");
     const entry = await getAttachment(attachmentId);
     if (!entry) return res.status(404).send("Anexo não encontrado.");
@@ -90,6 +133,8 @@ async function startServer() {
     const historyId = Number(req.params.historyId);
     const user = await getRequestUser(req);
     if (!user) return res.status(401).send("Autenticação necessária.");
+    // Mesmo acesso do Histórico de PDFs.
+    if (!canAccess(user.role, "quotes", "pdfs")) return res.status(403).send("Seu perfil não tem acesso ao histórico de PDFs.");
     if (!Number.isSafeInteger(historyId) || historyId < 1) return res.status(404).send("PDF não encontrado.");
     const entry = await getQuotePdfHistoryEntry(historyId);
     // PDFs novos não têm arquivo: são montados no navegador a partir dos dados.

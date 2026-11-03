@@ -4,6 +4,7 @@ import { products, quoteItemDeliveries, quoteItemReservations, quoteItems, quote
 import { calculateAvailableStock, calculatePendingDelivery, calculateRemainingReservation, calculateStockAfter, describeFulfillment, getStockDelta, isCentQuantity, StockMovementType } from "../shared/stock";
 import { toNumber } from "../shared/quote";
 import { getDb } from "./db";
+import { modelProductIds } from "../shared/variants";
 
 const money = (value: number) => value.toFixed(2);
 
@@ -18,7 +19,7 @@ async function database() {
 
 export async function inventoryOverview() {
   const db = await database();
-  const [productRows, movementRows, reservationRows, loaned] = await Promise.all([
+  const [allProductRows, movementRows, reservationRows, loaned] = await Promise.all([
     db.select().from(products).orderBy(products.shortDescription),
     db.select().from(stockMovements).orderBy(desc(stockMovements.occurredAt), desc(stockMovements.id)).limit(100),
     db.select().from(quoteItemReservations),
@@ -26,7 +27,11 @@ export async function inventoryOverview() {
   ]);
   const reservedByProduct = new Map<number, number>();
   reservationRows.forEach((reservation) => reservedByProduct.set(reservation.productId, (reservedByProduct.get(reservation.productId) ?? 0) + toNumber(reservation.reservedQuantity)));
-  const productMap = new Map(productRows.map((product) => [product.id, product]));
+  const productMap = new Map(allProductRows.map((product) => [product.id, product]));
+  // O modelo de um produto com variações não tem estoque próprio: fica fora
+  // do saldo, da reposição e da movimentação.
+  const models = modelProductIds(allProductRows);
+  const productRows = allProductRows.filter((product) => !models.has(product.id));
   const stockValue = productRows.reduce((sum, product) => sum + toNumber(product.stockQuantity) * toNumber(product.unitPrice), 0);
   const lowStock = productRows.filter((product) => toNumber(product.reorderPoint) > 0 && toNumber(product.stockQuantity) <= toNumber(product.reorderPoint));
   return {
@@ -267,7 +272,10 @@ export async function purchaseSuggestions() {
     waiting.set(line.productId!, list);
   });
   const suppliers = new Map<string, PurchaseLine[]>();
+  // Compra-se a variação, nunca o modelo.
+  const models = modelProductIds(productRows);
   for (const product of productRows) {
+    if (models.has(product.id)) continue;
     const stockQuantity = toNumber(product.stockQuantity);
     const reservedQuantity = reservedByProduct.get(product.id) ?? 0;
     const freeQuantity = Math.max(0, calculateAvailableStock(stockQuantity, reservedQuantity));
