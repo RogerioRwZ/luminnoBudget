@@ -120,6 +120,20 @@
       "when": 1793686863084,
       "tag": "0016_avisos_celular",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1793705295500,
+      "tag": "0017_formas_pagamento",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1793706021217,
+      "tag": "0018_entrada_crediario",
+      "breakpoints": true
     }
   ]
 }

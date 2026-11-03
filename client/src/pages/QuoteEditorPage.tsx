@@ -18,6 +18,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { QuoteMarginPanel, StockShortageHint } from "@/components/QuoteInsights";
 import { canSeeCost } from "@shared/permissions";
 import { LOST_REASONS, LOST_REASON_LABELS, type LostReason } from "@shared/followUp";
+import { DEFAULT_ENTRY_OFFER, describeEntryOffer, describePart, parseEntryOffer, parsePaymentPlan, type EntryOffer, type PaymentPlan } from "@shared/paymentPlan";
+import { PaymentPlanDialog } from "@/components/PaymentPlanDialog";
+import { Switch } from "@/components/ui/switch";
 import { parseAttributes, variantLabel } from "@shared/variants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,6 +115,8 @@ type QuoteDraft = {
   pixDiscountMode: "percentage" | "fixed";
   pixDiscountValue: number;
   installments: number;
+  paymentPlan: PaymentPlan | null;
+  entryOffer: EntryOffer | null;
   notes: string;
   followUpAt: Date | null;
   lostReason: LostReason | null;
@@ -132,6 +137,8 @@ type QuoteRecord = {
   discountMode: "percentage" | "fixed";
   pixDiscountMode: "percentage" | "fixed";
   installments: number;
+  paymentPlan?: string | null;
+  entryOffer?: string | null;
   notes: string | null;
   followUpAt?: Date | string | null;
   lostReason?: LostReason | null;
@@ -200,6 +207,8 @@ function fromQuote(quote: QuoteRecord): QuoteDraft {
     pixDiscountMode: quote.pixDiscountMode,
     pixDiscountValue: Number(quote.pixDiscountValue),
     installments: quote.installments,
+    paymentPlan: parsePaymentPlan(quote.paymentPlan),
+    entryOffer: parseEntryOffer(quote.entryOffer),
     notes: quote.notes ?? "",
     followUpAt: quote.followUpAt ? new Date(quote.followUpAt) : null,
     lostReason: quote.lostReason ?? null,
@@ -242,6 +251,7 @@ export default function QuoteEditorPage() {
   const { data: availabilityRows } = trpc.product.availability.useQuery(undefined, { staleTime: 30_000 });
   const availability = useMemo(() => new Map((availabilityRows ?? []).map(row => [row.productId, row.available])), [availabilityRows]);
   const [lossDialog, setLossDialog] = useState<{ reason: LostReason; notes: string } | null>(null);
+  const [planDialog, setPlanDialog] = useState(false);
   const settings = settingsQuery.data as StoreSettings | undefined;
   const pickingQuery = trpc.inventory.picking.useQuery(
     { quoteId: Number.isFinite(quoteId) && quoteId > 0 ? quoteId : 1 },
@@ -630,6 +640,7 @@ export default function QuoteEditorPage() {
       clientName: draft.clientName,
       rooms: draft.rooms,
       installments: draft.installments,
+      entryOffer: draft.entryOffer,
       notes: draft.notes,
       summary,
     });
@@ -948,10 +959,13 @@ export default function QuoteEditorPage() {
                 <Select
                   value={draft.status}
                   onValueChange={(status: QuoteDraft["status"]) =>
-                    // "Não aprovado" pede o motivo antes de mudar o status.
+                    // "Não aprovado" pede o motivo e "Aprovado", a forma de
+                    // pagamento, antes de mudar o status.
                     status === "lost" && draft.status !== "lost"
                       ? setLossDialog({ reason: draft.lostReason ?? "price", notes: draft.lostNotes })
-                      : changeDraft({ status })
+                      : status === "approved" && draft.status !== "approved"
+                        ? setPlanDialog(true)
+                        : changeDraft({ status, ...(status !== "approved" ? { paymentPlan: null } : {}) })
                   }
                 >
                   <SelectTrigger>
@@ -1626,6 +1640,65 @@ export default function QuoteEditorPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2 rounded-xl border border-border p-3">
+                <label className="flex items-center justify-between gap-2 text-sm font-medium">
+                  Entrada + crediário
+                  <Switch
+                    checked={Boolean(draft.entryOffer)}
+                    onCheckedChange={checked =>
+                      changeDraft({ entryOffer: checked ? { ...DEFAULT_ENTRY_OFFER, installments: Math.max(2, draft.installments) } : null })
+                    }
+                    aria-label="Oferecer entrada + crediário"
+                  />
+                </label>
+                {draft.entryOffer ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="entry-percent" className="text-xs">Entrada (%)</Label>
+                        <Input
+                          id="entry-percent"
+                          className="h-9"
+                          type="number"
+                          min="1"
+                          max="90"
+                          step="5"
+                          value={draft.entryOffer.entryPercent}
+                          onChange={e => changeDraft({ entryOffer: { ...draft.entryOffer!, entryPercent: Math.min(90, Math.max(1, Number(e.target.value) || 1)) } })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="entry-installments" className="text-xs">Parcelas</Label>
+                        <Input
+                          id="entry-installments"
+                          className="h-9"
+                          type="number"
+                          min="1"
+                          max="24"
+                          step="1"
+                          value={draft.entryOffer.installments}
+                          onChange={e => changeDraft({ entryOffer: { ...draft.entryOffer!, installments: Math.min(24, Math.max(1, Math.floor(Number(e.target.value) || 1))) } })}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{describeEntryOffer(summary.total, draft.entryOffer)}. Aparece no PDF e na mensagem do WhatsApp.</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Ofereça ao cliente uma entrada e o restante em parcelas no crediário próprio.</p>
+                )}
+              </div>
+              {draft.status === "approved" ? (
+                <div className="rounded-xl border border-border p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Forma de pagamento da venda</p>
+                  {draft.paymentPlan?.parts.length ? (
+                    <ul className="mt-1 space-y-0.5 text-sm">
+                      {draft.paymentPlan.parts.map((part, index) => <li key={index}>{describePart(part)}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">Não registrada: aprovado antes desta versão. Revise em Financeiro.</p>
+                  )}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
           {can("finance") ? (
@@ -1641,6 +1714,17 @@ export default function QuoteEditorPage() {
             <Trash2 className="mr-2 h-4 w-4" />
             Excluir orçamento
           </Button>
+          <PaymentPlanDialog
+            open={planDialog}
+            totals={{ total: summary.total, pixTotal: summary.pixTotal }}
+            installments={draft.installments}
+            entryOffer={draft.entryOffer}
+            onCancel={() => setPlanDialog(false)}
+            onConfirm={paymentPlan => {
+              setPlanDialog(false);
+              changeDraft({ status: "approved", paymentPlan });
+            }}
+          />
           <ConfirmDialog
             open={confirmDelete}
             onOpenChange={setConfirmDelete}

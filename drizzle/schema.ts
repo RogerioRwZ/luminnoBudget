@@ -84,6 +84,11 @@ export const quotes = mysqlTable("quotes", {
   pixDiscountMode: mysqlEnum("pixDiscountMode", ["percentage", "fixed"]).notNull().default("percentage"),
   pixDiscountValue: decimal("pixDiscountValue", { precision: 12, scale: 2 }).notNull().default("0"),
   installments: int("installments").notNull().default(8),
+  // Forma de pagamento da venda (JSON, ver shared/paymentPlan), escolhida na
+  // aprovação. Nulo nos orçamentos aprovados antes desta versão.
+  paymentPlan: text("paymentPlan"),
+  // Condição "entrada + crediário" oferecida na proposta (JSON; nulo = não oferece).
+  entryOffer: text("entryOffer"),
   notes: text("notes"),
   // Ordem de chegada dos aprovados: o estoque que entra atende primeiro quem
   // foi aprovado antes.
@@ -141,6 +146,8 @@ export const financeReceivables = mysqlTable("financeReceivables", {
   description: varchar("description", { length: 512 }).notNull(),
   installmentNumber: int("installmentNumber").notNull().default(1),
   installmentCount: int("installmentCount").notNull().default(1),
+  // Forma prevista (boleto, crediário...): vem preenchida ao receber.
+  paymentMethod: mysqlEnum("paymentMethod", ["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "store_credit", "other"]),
   originalAmount: decimal("originalAmount", { precision: 12, scale: 2 }).notNull(),
   dueDate: timestamp("dueDate").notNull(),
   status: mysqlEnum("status", ["open", "partial", "paid", "cancelled"]).notNull().default("open"),
@@ -154,7 +161,9 @@ export const financePayments = mysqlTable("financePayments", {
   receivableId: int("receivableId").notNull(),
   type: mysqlEnum("type", ["receipt", "reversal"]).notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
-  paymentMethod: mysqlEnum("paymentMethod", ["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "other"]).notNull().default("other"),
+  paymentMethod: mysqlEnum("paymentMethod", ["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "store_credit", "other"]).notNull().default("other"),
+  // Taxa da maquininha descontada deste recebimento (cartão).
+  feeAmount: decimal("feeAmount", { precision: 12, scale: 2 }),
   paidAt: timestamp("paidAt").notNull().defaultNow(),
   reference: varchar("reference", { length: 120 }),
   notes: text("notes"),
@@ -271,6 +280,8 @@ export const storeSettings = mysqlTable("storeSettings", {
   defaultCommissionPercent: decimal("defaultCommissionPercent", { precision: 5, scale: 2 }).notNull().default("0"),
   alertThresholdDays: int("alertThresholdDays").notNull().default(7),
   defaultWarrantyMonths: int("defaultWarrantyMonths").notNull().default(12),
+  // Taxas da maquininha (JSON: débito e crédito de 1x a 12x, em %).
+  cardFees: text("cardFees"),
   defaultTerms: text("defaultTerms"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

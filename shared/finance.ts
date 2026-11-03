@@ -1,5 +1,5 @@
 export type FinanceStatus = "open" | "partial" | "paid" | "cancelled" | "overdue";
-export type PaymentMethod = "pix" | "cash" | "credit_card" | "debit_card" | "bank_transfer" | "boleto" | "other";
+export type PaymentMethod = "pix" | "cash" | "credit_card" | "debit_card" | "bank_transfer" | "boleto" | "store_credit" | "other";
 export type PaymentType = "receipt" | "reversal";
 
 export const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;

@@ -38,13 +38,14 @@ import { withoutCost } from "../../shared/salesReport";
 import { LOST_REASONS, LOST_REASON_LABELS } from "../../shared/followUp";
 import { deleteAppointment, findConflicts, listAppointments, saveAppointment, setAppointmentStatus, upcomingAppointments } from "../agendaDb";
 import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_TYPE_LABELS } from "../../shared/agenda";
-import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, getReceivableSummary, recordFinancePayment } from "../financeDb";
+import { cancelReceivable, createReceivables, financeByQuote, financeClients, financeOverview, getReceivableSummary, legacyApprovedQuotes, recordFinancePayment, settleLegacyQuote } from "../financeDb";
 import { changedFields, formatActivityMoney as brl, listActivity, recordActivity, type ActivityEntity, type ActivityEntry } from "../activityLog";
 import { messageForQuote, messageForReceivable, pendingMessages } from "../messagesDb";
 import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
 import { adminProcedure, areaProcedure, protectedProcedure, router } from "../_core/trpc";
 import { plural } from "../../shared/plural";
 import { quotePdfFileName } from "../../shared/quoteFileName";
+import { MAX_PLAN_INSTALLMENTS, MAX_PLAN_PARTS, parseEntryOffer, PLAN_METHODS } from "../../shared/paymentPlan";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
 
@@ -170,6 +171,18 @@ const quoteInput = z.object({
   pixDiscountMode: z.enum(["percentage", "fixed"]).default("percentage"),
   pixDiscountValue: money,
   installments: z.coerce.number().int().min(1).max(24).default(8),
+  paymentPlan: z.object({
+    parts: z.array(z.object({
+      method: z.enum(PLAN_METHODS),
+      amount: z.coerce.number().positive().max(99_999_999),
+      installments: z.coerce.number().int().min(1).max(MAX_PLAN_INSTALLMENTS),
+      firstDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    })).min(1).max(MAX_PLAN_PARTS),
+  }).nullable().optional(),
+  entryOffer: z.object({
+    entryPercent: z.coerce.number().min(1).max(90),
+    installments: z.coerce.number().int().min(1).max(MAX_PLAN_INSTALLMENTS),
+  }).nullable().optional(),
   notes: nullableText,
   followUpAt: z.coerce.date().nullable().optional(),
   lostReason: z.enum(LOST_REASONS).nullable().optional(),
@@ -312,6 +325,8 @@ export const businessRouter = router({
         id: fresh.id,
         quoteNumber: fresh.quoteNumber,
         status: "draft",
+        paymentPlan: null,
+        entryOffer: parseEntryOffer(source.entryOffer),
         issueDate: new Date(),
         rooms: source.rooms.map((room) => ({ name: room.name, items: room.items.map((item) => ({
           productId: item.productId,
@@ -381,6 +396,18 @@ export const businessRouter = router({
   }),
   finance: router({
     overview: areaProcedure("finance").query(financeOverview),
+    legacy: areaProcedure("finance").query(() => legacyApprovedQuotes()),
+    settleLegacy: areaProcedure("finance").input(z.object({
+      quoteId: z.number().int().positive(),
+      method: z.enum(["credit_card", "boleto", "store_credit"]),
+      installments: z.coerce.number().int().min(1).max(24),
+      paidAt: z.coerce.date(),
+    })).mutation(async ({ ctx, input }) => {
+      const quote = await settleLegacyQuote(input, ctx.user.id);
+      const what = input.method === "credit_card" ? `pago no cartão em ${input.installments}x: parcelas canceladas e recebimento de ${brl(quote.amount)} registrado` : `parcelas mantidas como ${input.method === "boleto" ? "boleto" : "crediário próprio"}`;
+      await log(ctx, { action: "finance.plan", entityType: "finance", entityId: quote.id, summary: `Revisou a forma de pagamento do orçamento #${quote.quoteNumber} (${quote.clientName}): ${what}` });
+      return { ok: true };
+    }),
     clients: areaProcedure("finance").query(financeClients),
     byQuote: areaProcedure("finance").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => financeByQuote(input.quoteId)),
     create: areaProcedure("finance").input(z.object({
@@ -400,7 +427,7 @@ export const businessRouter = router({
       receivableId: z.number().int().positive(),
       type: z.enum(["receipt", "reversal"]),
       amount: money.refine((value) => value > 0, "Informe um valor maior que zero"),
-      paymentMethod: z.enum(["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "other"]),
+      paymentMethod: z.enum(["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "store_credit", "other"]),
       paidAt: z.coerce.date(),
       reference: z.string().trim().max(120).nullable().optional(),
       notes: nullableText,
@@ -527,6 +554,7 @@ export const businessRouter = router({
       minMarginPercent: z.coerce.number().min(0).max(100).default(0),
       defaultCommissionPercent: z.coerce.number().min(0).max(100).default(0),
       defaultWarrantyMonths: z.coerce.number().int().min(0).max(120).default(12),
+      cardFees: z.object({ debit: z.coerce.number().min(0).max(30), credit: z.array(z.coerce.number().min(0).max(30)).length(12) }).nullable().optional(),
       defaultTerms: nullableText,
     })).mutation(async ({ ctx, input }) => {
       const before = await getSettings();
@@ -545,8 +573,9 @@ export const businessRouter = router({
         maxDiscountPercent: input.maxDiscountPercent.toFixed(2),
         minMarginPercent: input.minMarginPercent.toFixed(2),
         defaultCommissionPercent: input.defaultCommissionPercent.toFixed(2),
+        cardFees: input.cardFees ? JSON.stringify(input.cardFees) : (before.cardFees ?? null),
       });
-      const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "followUpDays", "maxDiscountPercent", "minMarginPercent", "defaultCommissionPercent", "defaultWarrantyMonths", "defaultTerms"]);
+      const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["companyName", "tradingName", "logoUrl", "document", "address", "phone", "email", "pixKey", "pixRecipient", "pixCity", "defaultPixDiscountMode", "defaultPixDiscountValue", "defaultInstallments", "alertThresholdDays", "followUpDays", "maxDiscountPercent", "minMarginPercent", "defaultCommissionPercent", "defaultWarrantyMonths", "cardFees", "defaultTerms"]);
       if (Object.keys(changes).length) await log(ctx, { action: "settings.update", entityType: "settings", summary: `Alterou as configurações da loja: ${Object.keys(changes).join(", ")}`, details: changes });
       return saved;
     }),

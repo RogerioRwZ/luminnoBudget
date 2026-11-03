@@ -4,6 +4,9 @@ import { buildExpirationReminder, buildWhatsAppProposal, normalizeWhatsAppPhone 
 describe("WhatsApp helpers", () => {
   it("organiza a mensagem de proposta com divisão por ambiente", () => {
     const text = buildWhatsAppProposal({ brand: "Luminno", quoteNumber: 42, clientName: "Ana", rooms: [{ name: "SALA", items: [{ quantity: 2, shortDescription: "SPOT LED", unitPrice: 35 }] }], installments: 4, notes: "Entrega em até 10 dias.", summary: { rooms: [70], productsSubtotal: 70, discountAmount: 0, shipping: 0, total: 70, pixDiscountAmount: 7, pixTotal: 63, installmentValue: 17.5 } });
+    const withEntry = buildWhatsAppProposal({ brand: "Luminno", quoteNumber: 42, clientName: "Ana", rooms: [{ name: "SALA", items: [{ quantity: 2, shortDescription: "SPOT LED", unitPrice: 35 }] }], installments: 4, notes: "Entrega em até 10 dias.", summary: { rooms: [70], productsSubtotal: 70, discountAmount: 0, shipping: 0, total: 70, pixDiscountAmount: 7, pixTotal: 63, installmentValue: 17.5 }, entryOffer: { entryPercent: 30, installments: 2 } });
+    expect(withEntry).toMatch(/🤝 Entrada de R\$\s?21,00 \+ 2x de R\$\s?24,50 no crediário/);
+    expect(text).not.toContain("Entrada de");
     expect(text).toContain("🏠 *SALA*");
     expect(text).toContain("• 2x SPOT LED — R$ 70,00");
     expect(text).toContain("⚡ PIX: R$ 63,00");

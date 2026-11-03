@@ -39,6 +39,7 @@ import { MessageDialog } from "@/components/MessageDialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { plural } from "@shared/plural";
+import { LegacyPlanReview } from "@/components/LegacyPlanReview";
 
 const nowInput = () => new Date().toISOString().slice(0, 16);
 const dateInput = () => new Date().toISOString().slice(0, 10);
@@ -63,6 +64,7 @@ const paymentLabels: Record<PaymentMethod, string> = {
   debit_card: "Cartão de débito",
   bank_transfer: "Transferência",
   boleto: "Boleto",
+  store_credit: "Crediário próprio",
   other: "Outro",
 };
 type Receivable = {
@@ -74,6 +76,7 @@ type Receivable = {
   description: string;
   installmentNumber: number;
   installmentCount: number;
+  paymentMethod?: PaymentMethod | null;
   originalAmount: number;
   dueDate: Date;
   status: FinanceStatus;
@@ -85,6 +88,7 @@ type Receivable = {
     type: PaymentType;
     amount: number;
     paymentMethod: PaymentMethod;
+    feeAmount?: number | null;
     paidAt: Date;
     reference: string | null;
     notes: string | null;
@@ -226,7 +230,8 @@ export default function FinancePage() {
         type === "receipt"
           ? row.remainingAmount.toFixed(2)
           : row.receivedAmount.toFixed(2),
-      paymentMethod: "pix",
+      // Boleto e crediário já vêm marcados na cobrança.
+      paymentMethod: row.paymentMethod ?? "pix",
       paidAt: nowInput(),
       reference: "",
       notes: "",
@@ -293,6 +298,12 @@ export default function FinancePage() {
             <p className="mt-1 font-display text-2xl font-bold">
               {money(totals?.receivedThisMonth)}
             </p>
+            {totals?.cardFeesThisMonth ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Taxas de cartão {money(totals.cardFeesThisMonth)} · líquido{" "}
+                {money(totals.receivedThisMonth - totals.cardFeesThisMonth)}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-sm">
@@ -321,6 +332,7 @@ export default function FinancePage() {
           </CardContent>
         </Card>
       </section>
+      <LegacyPlanReview />
       <Card className="border-border/70 shadow-sm">
         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div>
@@ -505,6 +517,7 @@ export default function FinancePage() {
                                       : "Estorno"}
                                     : {money(payment.amount)} ·{" "}
                                     {paymentLabels[payment.paymentMethod]} ·{" "}
+                                    {payment.feeAmount ? `taxa ${money(payment.feeAmount)} · ` : ""}
                                     {new Intl.DateTimeFormat("pt-BR").format(
                                       new Date(payment.paidAt)
                                     )}
