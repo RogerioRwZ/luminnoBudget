@@ -58,6 +58,11 @@ export function uniqueReference(wanted: string, taken: Iterable<string | null | 
   }
 }
 
+// Referência que vale na venda: a da variação escolhida ou, em produto sem
+// variação, a do próprio produto (cada variação é um produto com referência
+// própria). O código interno só aparece se faltar referência.
+export const saleReference = (product: { reference?: string | null; code: string }) => product.reference || product.code;
+
 export type SearchableProduct = {
   code: string;
   reference?: string | null;

@@ -26,6 +26,7 @@ import {
   saveClient,
   saveProduct,
   createProductVariants,
+  saveProductWithVariants,
   saveQuote,
   saveSettings,
 } from "../quoteDb";
@@ -110,6 +111,8 @@ const appointmentInput = z.object({
 });
 
 const variantAttributes = z.object(Object.fromEntries(VARIANT_FIELDS.map((field) => [field.key, z.string().trim().max(80).optional()])) as Record<VariantKey, z.ZodOptional<z.ZodString>>);
+
+const variantList = z.array(z.object({ attributes: variantAttributes, reference: z.string().trim().max(64).nullable().optional(), barcode: z.string().trim().max(64).nullable().optional() })).min(1).max(100);
 
 const productInput = z.object({
   id: z.number().int().positive().optional(),
@@ -238,7 +241,16 @@ export const businessRouter = router({
       }
       return id;
     }),
-    createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), variants: z.array(z.object({ attributes: variantAttributes, reference: z.string().trim().max(64).nullable().optional(), barcode: z.string().trim().max(64).nullable().optional() })).min(1).max(100) })).mutation(async ({ ctx, input }) => {
+    // Produto novo já com as variações (cada uma com referência própria).
+    saveWithVariants: areaProcedure("catalog").input(z.object({ product: productInput, variants: variantList })).mutation(async ({ ctx, input }) => {
+      const result = await saveProductWithVariants({ ...input.product, costPrice: canSeeCost(ctx.user.role) ? input.product.costPrice : undefined, imageUrl: input.product.imageUrl || null }, input.variants).catch((error) => {
+        if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Uma referência ou código de barras acabou de ser usado em outro produto." });
+        throw error;
+      });
+      await log(ctx, { action: "product.create", entityType: "product", entityId: result.rootId, summary: `Cadastrou o produto ${input.product.shortDescription} com ${plural(result.created.length, "variação", "variações")}` });
+      return result;
+    }),
+    createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), variants: variantList })).mutation(async ({ ctx, input }) => {
       const result = await createProductVariants(input.productId, input.variants);
       const root = await getProduct(result.rootId);
       if (result.created.length) await log(ctx, { action: "product.variants", entityType: "product", entityId: result.rootId, summary: `Criou ${plural(result.created.length, "variação", "variações")} do modelo ${root?.modelName ?? root?.shortDescription ?? `#${result.rootId}`}` });

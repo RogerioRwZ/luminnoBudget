@@ -40,9 +40,10 @@ import {
 } from "lucide-react";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { VariantGenerator } from "@/components/VariantGenerator";
+import { useVariantRows, VariantRowsFields } from "@/components/VariantRows";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
-import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX } from "@shared/productCodes";
+import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX, suggestVariantReference, uniqueReference } from "@shared/productCodes";
 import { plural } from "@shared/plural";
 import {
   cleanAttributes,
@@ -156,6 +157,22 @@ export default function ProductsPage() {
       toast.error(message);
     },
   });
+  // Produto novo já com as variações: modelo e variações gravados juntos.
+  const saveWithVariants = trpc.product.saveWithVariants.useMutation({
+    onSuccess: result => {
+      utils.product.list.invalidate();
+      utils.inventory.invalidate();
+      setFormError("");
+      removeDraft("product-new");
+      toast.success(`Produto salvo com ${plural(result.created.length, "variação", "variações")}`);
+      setOpen(false);
+    },
+    onError: error => {
+      const message = getFormErrorMessage(error, "Não foi possível salvar o produto e as variações. Confira os campos e tente novamente.");
+      setFormError(message);
+      toast.error(message);
+    },
+  });
   const upload = trpc.product.uploadImage.useMutation({
     onSuccess: file => {
       setForm(current => ({
@@ -178,6 +195,14 @@ export default function ProductsPage() {
   const [formError, setFormError] = useState("");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<ProductForm>(emptyProduct);
+  // "Este produto tem variações": a referência do formulário é a do modelo e
+  // cada variação da lista tem a sua.
+  const [withVariants, setWithVariants] = useState(false);
+  const newVariants = useVariantRows({ baseReference: form.reference.trim() || "REF", taken: data, reserved: withVariants && form.reference.trim() ? [form.reference] : [] });
+  const resetVariantList = () => {
+    setWithVariants(false);
+    newVariants.reset();
+  };
   const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
     enabled: open,
   });
@@ -209,7 +234,16 @@ export default function ProductsPage() {
   const hasChildren = form.id ? data.some(product => product.parentId === form.id) : false;
   const familyMode = Boolean(form.parentId) || hasChildren || Boolean(variantLabel(form.attributes));
   const previewName = composeVariantName(form.modelName || form.shortDescription, cleanAttributes(form.attributes));
+  // Nova variação: a referência acompanha o que é digitado na variação
+  // ("REF-PRETO-3000K") até alguém digitar outra.
+  const [variantBase, setVariantBase] = useState<string | null>(null);
+  const suggestedReference = (attributes: Record<VariantKey, string>) =>
+    variantBase === null
+      ? null
+      : uniqueReference(suggestVariantReference(variantBase, VARIANT_FIELDS.map(field => cleanAttributes(attributes)[field.key])), data.map(product => product.reference));
   const newVariant = (root: Product) => {
+    setVariantBase(root.reference ?? root.code);
+    resetVariantList();
     setForm({
       ...emptyProduct,
       parentId: root.id,
@@ -245,6 +279,17 @@ export default function ProductsPage() {
       setFormError(message);
       return;
     }
+    const costPrice = showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined;
+    const warrantyMonths = form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths);
+    if (withVariants) {
+      if (!newVariants.rows.length) return setFormError("Informe as variações: por exemplo, as cores separadas por vírgula.");
+      if (newVariants.hasProblem) return setFormError("Corrija as referências ou códigos de barras marcados nas variações.");
+      saveWithVariants.mutate({
+        product: { ...form, barcode: null, attributes: null, parentId: null, modelName: null, costPrice, warrantyMonths },
+        variants: newVariants.payload(),
+      });
+      return;
+    }
     save.mutate({
       ...form,
       shortDescription: familyMode ? previewName : form.shortDescription,
@@ -257,6 +302,8 @@ export default function ProductsPage() {
     });
   };
   const edit = (product: Product) => {
+    setVariantBase(null);
+    resetVariantList();
     setForm({
       id: product.id,
       code: product.code,
@@ -300,6 +347,8 @@ export default function ProductsPage() {
     setSearch("");
     setFormError("");
     setTriedSave(false);
+    setVariantBase(null);
+    resetVariantList();
     setForm({ ...emptyProduct, barcode: normalizeBarcode(value) });
     setOpen(true);
     toast.message(`Código ${value} não cadastrado. Preencha o novo produto.`);
@@ -313,6 +362,8 @@ export default function ProductsPage() {
   }, []);
   const handleOpen = (value: boolean) => {
     setOpen(value);
+    setVariantBase(null);
+    resetVariantList();
     setFormError("");
     setTriedSave(false);
     if (!value) setForm(emptyProduct);
@@ -377,7 +428,7 @@ export default function ProductsPage() {
             <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="product-reference">
-                  Referência <span className="text-destructive">*</span>
+                  {withVariants ? "Referência do modelo" : "Referência"} <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="product-reference"
@@ -387,7 +438,10 @@ export default function ProductsPage() {
                   maxLength={REFERENCE_MAX}
                   autoCapitalize="characters"
                   value={form.reference}
-                  onChange={e => setForm({ ...form, reference: e.target.value })}
+                  onChange={e => {
+                    setVariantBase(null);
+                    setForm({ ...form, reference: e.target.value });
+                  }}
                   placeholder="Ex.: LM-100/PT"
                 />
                 {referenceError ? (
@@ -399,6 +453,11 @@ export default function ProductsPage() {
                   </p>
                 )}
               </div>
+              {withVariants ? (
+                <p className="self-end rounded-lg bg-muted/60 p-2 text-xs text-muted-foreground">
+                  O código de barras fica em cada variação, logo abaixo.
+                </p>
+              ) : (
               <div className="space-y-2">
                 <Label htmlFor="product-barcode">
                   Código de barras <span className="text-muted-foreground">(opcional)</span>
@@ -415,6 +474,7 @@ export default function ProductsPage() {
                 </div>
                 {barcodeError ? <p className="text-xs text-destructive">{barcodeError}</p> : null}
               </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="product-unit">Unidade</Label>
                 <Input
@@ -479,6 +539,40 @@ export default function ProductsPage() {
                   />
                 </div>
               )}
+              {!form.id && !form.parentId ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 sm:col-span-2">
+                  <div>
+                    <Label htmlFor="product-has-variants" className="text-sm font-semibold">
+                      Este produto tem variações
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Cor, temperatura, potência… Cada variação tem referência,
+                      estoque e código de barras próprios.
+                    </p>
+                  </div>
+                  <Switch
+                    id="product-has-variants"
+                    checked={withVariants}
+                    onCheckedChange={checked => {
+                      setWithVariants(checked);
+                      if (checked) setForm(current => ({ ...current, attributes: emptyAttributes, barcode: "" }));
+                    }}
+                  />
+                </div>
+              ) : null}
+              {withVariants ? (
+                <div className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
+                  <div className="flex items-center gap-2">
+                    <Palette className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold">Variações</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Separe as opções por vírgula. O produto fica como modelo e, no
+                    orçamento, entram as variações, cada uma com a sua referência.
+                  </p>
+                  <VariantRowsFields state={newVariants} modelName={form.shortDescription || "Produto"} />
+                </div>
+              ) : (
               <div className="space-y-3 rounded-xl border border-border p-3 sm:col-span-2">
                 <div className="flex items-center gap-2">
                   <Palette className="h-4 w-4 text-primary" />
@@ -497,10 +591,15 @@ export default function ProductsPage() {
                         value={form.attributes[field.key]}
                         placeholder={field.placeholder}
                         onChange={e =>
-                          setForm({
-                            ...form,
-                            modelName: form.modelName || form.shortDescription,
-                            attributes: { ...form.attributes, [field.key]: e.target.value },
+                          setForm(current => {
+                            const attributes = { ...current.attributes, [field.key]: e.target.value };
+                            const suggestion = suggestedReference(attributes);
+                            return {
+                              ...current,
+                              modelName: current.modelName || current.shortDescription,
+                              attributes,
+                              ...(suggestion !== null ? { reference: suggestion } : {}),
+                            };
                           })
                         }
                       />
@@ -513,12 +612,13 @@ export default function ProductsPage() {
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Preencha se este produto for uma variação (cor, temperatura
-                    de luz, potência). Depois de salvo, use "Criar variações"
-                    para cadastrar as outras de uma vez.
+                    Preencha só se este produto for, sozinho, uma variação (cor,
+                    temperatura, potência). Para cadastrar várias, ligue
+                    "Este produto tem variações".
                   </p>
                 )}
               </div>
+              )}
               <div className="space-y-2 sm:col-span-2">
                 <Label>
                   Descrição completa{" "}
@@ -666,13 +766,13 @@ export default function ProductsPage() {
                 Cancelar
               </Button>
               <AsyncButton
-                pending={save.isPending || upload.isPending}
+                pending={save.isPending || saveWithVariants.isPending || upload.isPending}
                 loadingLabel={
                   upload.isPending ? "Aguardando imagem…" : "Salvando produto…"
                 }
                 onClick={submit}
               >
-                Salvar produto
+                {withVariants && newVariants.rows.length ? `Salvar com ${plural(newVariants.rows.length, "variação", "variações")}` : "Salvar produto"}
               </AsyncButton>
             </div>
           </DialogContent>
@@ -730,7 +830,7 @@ export default function ProductsPage() {
                     <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Layers className="h-3 w-3" />
-                        {plural(familyMembers(root.id).length, "variação", "variações")}
+                        {plural(familyMembers(root.id).filter(member => member.id !== root.id || variantLabel(parseAttributes(member.attributes))).length, "variação", "variações")}
                       </span>
                       {root.supplierName ? (
                         <span className="flex items-center gap-1">
@@ -764,7 +864,7 @@ export default function ProductsPage() {
                     return (
                       <div key={member.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-3 py-2 text-xs last:border-0">
                         <span className="min-w-40 flex-1 font-semibold">
-                          {label || <span className="text-amber-700 dark:text-amber-300">Principal sem variação definida</span>}
+                          {label || <span className="text-muted-foreground">Modelo · no orçamento entram as variações</span>}
                           {member.id === root.id ? <Badge variant="outline" className="ml-2 text-[10px]">principal</Badge> : null}
                         </span>
                         <span className="font-mono text-muted-foreground">Ref. {member.reference ?? member.code} · #{member.code}</span>

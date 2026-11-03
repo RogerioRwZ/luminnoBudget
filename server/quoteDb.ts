@@ -318,32 +318,58 @@ export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): P
 // os dados do produto principal; as que já existem são puladas. O ponto de
 // reposição começa zerado: senão cada variação nova, sem estoque, já iria
 // para Compras.
-// Cada variação tem referência própria (sem informar, vira "REF-PRETO-3000K")
-// e, se quiser, código de barras.
-export async function createProductVariants(productId: number, variants: Array<{ attributes: VariantAttributes; reference?: string | null; barcode?: string | null }>) {
-  const base = await getProduct(productId);
-  const root = base?.parentId ? await getProduct(base.parentId) : base;
-  if (!root) throw new Error("Produto não encontrado.");
-  const modelName = root.modelName || root.shortDescription;
-  const created: number[] = [];
-  const skipped: string[] = [];
+type VariantInput = { attributes: VariantAttributes; reference?: string | null; barcode?: string | null };
+
+// Confere todas as variações antes de criar qualquer uma: um erro no meio
+// deixaria só parte delas. `reserved`: referências desta mesma gravação (a do
+// modelo que está sendo cadastrado junto). Devolve as referências em uso.
+async function assertVariantInputs(variants: VariantInput[], reserved: string[] = []) {
   const db = await database();
   const existing = await db.select({ reference: products.reference, barcode: products.barcode }).from(products);
-  const taken = existing.map((row) => row.reference);
-  // Confere tudo antes de criar: um erro no meio deixaria só parte das variações.
-  const seen = { references: new Set<string>(), barcodes: new Set<string>() };
+  const taken: Array<string | null> = [...existing.map((row) => row.reference), ...reserved];
+  const seen = { references: new Set<string>(), barcodes: new Set<string>(), combos: new Set<string>() };
   for (const variant of variants) {
     const typed = normalizeReference(variant.reference);
     const barcode = normalizeBarcode(variant.barcode);
+    const label = variantLabel(cleanAttributes(variant.attributes));
+    if (!label) throw new Error("Informe cor, temperatura, potência ou outro detalhe em cada variação.");
+    const comboKey = attributesKey(cleanAttributes(variant.attributes));
+    if (seen.combos.has(comboKey)) throw new Error(`A variação ${label} está repetida.`);
+    seen.combos.add(comboKey);
     const problem = (typed ? referenceProblem(typed) : null) ?? barcodeProblem(barcode);
-    if (problem) throw new Error(`${variantLabel(cleanAttributes(variant.attributes))}: ${problem}`);
+    if (problem) throw new Error(`${label}: ${problem}`);
     const referenceKey = typed.toLocaleLowerCase("pt-BR");
     if (typed && (seen.references.has(referenceKey) || taken.some((value) => value?.toLocaleLowerCase("pt-BR") === referenceKey))) throw new Error(`A referência ${typed} já está em uso.`);
     if (barcode && (seen.barcodes.has(barcode) || existing.some((row) => row.barcode === barcode))) throw new Error(`O código de barras ${barcode} já está em uso.`);
     if (typed) seen.references.add(referenceKey);
     if (barcode) seen.barcodes.add(barcode);
   }
-  taken.push(...Array.from(seen.references));
+  return [...taken, ...Array.from(seen.references)];
+}
+
+// Cadastro do produto já com as variações, numa gravação só: o produto vira o
+// modelo (sem cor/temperatura) e cada variação tem referência própria.
+export async function saveProductWithVariants(product: Parameters<typeof saveProduct>[0], variants: VariantInput[]) {
+  if (product.id) throw new Error("Use \"Criar variações\" para acrescentar variações a um produto já cadastrado.");
+  if (!variants.length) throw new Error("Informe ao menos uma variação.");
+  // Tudo conferido antes de gravar: modelo e variações entram juntos.
+  await assertVariantInputs(variants, [normalizeReference(product.reference)]);
+  if (product.barcode && variants.some((variant) => normalizeBarcode(variant.barcode) === normalizeBarcode(product.barcode))) throw new Error("O código de barras do modelo não pode repetir o de uma variação.");
+  const rootId = await saveProduct({ ...product, attributes: null, parentId: null });
+  const result = await createProductVariants(rootId, variants);
+  return { rootId, created: result.created };
+}
+
+// Cada variação tem referência própria (sem informar, vira "REF-PRETO-3000K")
+// e, se quiser, código de barras.
+export async function createProductVariants(productId: number, variants: VariantInput[]) {
+  const base = await getProduct(productId);
+  const root = base?.parentId ? await getProduct(base.parentId) : base;
+  if (!root) throw new Error("Produto não encontrado.");
+  const modelName = root.modelName || root.shortDescription;
+  const created: number[] = [];
+  const skipped: string[] = [];
+  const taken = await assertVariantInputs(variants);
   for (const variant of variants) {
     const combination = variant.attributes;
     const typed = normalizeReference(variant.reference);

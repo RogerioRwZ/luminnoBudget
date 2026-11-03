@@ -59,7 +59,7 @@ export function QuoteMarginPanel({
   );
 }
 
-type FamilyMember = { id: number; code: string; shortDescription: string; imageUrl: string | null; unit: string; unitPrice: string | number; attributes: string | null };
+type FamilyMember = { id: number; code: string; reference?: string | null; shortDescription: string; imageUrl: string | null; unit: string; unitPrice: string | number; attributes: string | null };
 
 // Item do catálogo sem saldo livre suficiente: mostra o que há e sugere outra
 // variação do mesmo modelo que atenda a quantidade.
