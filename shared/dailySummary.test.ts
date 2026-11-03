@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildDailySummaryText, dailySummaryCount, type DailySummary } from "./dailySummary";
+import { buildDailySummaryText, dailySummaryCount, dailySummaryHeadline, type DailySummary } from "./dailySummary";
 
-const empty: DailySummary = { date: new Date(2026, 10, 2), followUps: null, expiring: null, installments: null, purchases: null, deliveries: null, appointments: null, afterSales: null, backup: null };
+const empty: DailySummary = { date: new Date(2026, 10, 2), followUps: null, expiring: null, installments: null, purchases: null, deliveries: null, appointments: null, loans: null, afterSales: null, backup: null };
 
 describe("resumo do dia", () => {
   it("conta só as seções do perfil", () => {
@@ -37,6 +37,17 @@ describe("resumo do dia", () => {
     expect(text).toContain("*Pós-venda (2)*");
     expect(text).toContain("Troca #7 — Ana: Spot Orbit (atrasado)");
     expect(text).toContain("Backup atrasado (último em 01/11/2026");
+  });
+
+  it("resume em uma linha para o aviso no celular", () => {
+    expect(dailySummaryHeadline({
+      ...empty,
+      followUps: { count: 1, items: [] },
+      installments: { dueToday: { count: 1, amount: 10 }, overdue: { count: 2, amount: 20 }, items: [] },
+      loans: { count: 2, items: [] },
+      backup: { state: "failed", lastSuccessAt: null, error: null },
+    })).toBe("1 retorno de proposta · 3 parcelas a receber · 2 empréstimos para devolver · backup falhou");
+    expect(dailySummaryHeadline(empty)).toBe("");
   });
 
   it("avisa quando não há nada", () => {

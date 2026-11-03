@@ -32,6 +32,7 @@ import { approvedFulfillments, productAvailability, deliverAllAvailable, deliver
 import { isCentQuantity } from "../../shared/stock";
 import { VARIANT_FIELDS, type VariantKey } from "../../shared/variants";
 import { canAccess, canSeeCost, USER_ROLES } from "../../shared/permissions";
+import { abcReport, staleStockReport } from "../turnoverDb";
 import { commissionReport, dailySummary, deleteCommissionPayment, recordCommissionPayment, salesReport, saveProfessional } from "../reportsDb";
 import { withoutCost } from "../../shared/salesReport";
 import { LOST_REASONS, LOST_REASON_LABELS } from "../../shared/followUp";
@@ -428,6 +429,8 @@ export const businessRouter = router({
     overview: areaProcedure("stock").query(inventoryOverview),
     fulfillments: areaProcedure("stock").query(approvedFulfillments),
     purchases: areaProcedure("purchases").query(purchaseSuggestions),
+    stale: areaProcedure("stock").input(z.object({ days: z.number().int().min(1).max(3650) })).query(({ input }) => staleStockReport(input.days)),
+    abc: areaProcedure("stock").input(periodInput).query(({ input }) => abcReport(input)),
     picking: areaProcedure("stock", "quotes").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => getPickingList(input.quoteId)),
     move: areaProcedure("stock").input(z.object({
       productId: z.number().int().positive(),

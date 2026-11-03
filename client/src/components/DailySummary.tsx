@@ -7,10 +7,11 @@ import { APPOINTMENT_TYPE_LABELS } from "@shared/agenda";
 import { buildDailySummaryText, dailySummaryCount, type DailySummary } from "@shared/dailySummary";
 import { plural } from "@shared/plural";
 import { AFTER_SALES_TYPE_LABELS } from "@shared/afterSales";
-import { Bell, CalendarDays, Copy, DatabaseBackup, LifeBuoy, MessageCircle, PackageCheck, PhoneCall, ShoppingCart, Timer, WalletCards } from "lucide-react";
+import { Bell, CalendarDays, Copy, DatabaseBackup, LifeBuoy, Lightbulb, MessageCircle, PackageCheck, PhoneCall, ShoppingCart, Timer, WalletCards } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { PhoneSetup } from "./PhoneSetup";
 
 const todayKey = () => new Date().toLocaleDateString("sv-SE");
 const storage = {
@@ -99,6 +100,16 @@ function SummaryBody({ summary, go }: { summary: DailySummary; go: (path: string
           ))}
         </Section>
       ) : null}
+      {summary.loans ? (
+        <Section icon={Lightbulb} title="Mostruário para devolver" count={summary.loans.count} action="Abrir mostruário" onAction={() => go("/mostruario")}>
+          {summary.loans.items.map(item => (
+            <p key={item.id} className="truncate">
+              #{item.id} {item.borrowerName} · {item.pending} peça(s) · até {dateOnly(item.dueDate)}
+              {item.overdue ? <span className="font-semibold text-red-700 dark:text-red-300"> · atrasado</span> : null}
+            </p>
+          ))}
+        </Section>
+      ) : null}
       {summary.afterSales ? (
         <Section icon={LifeBuoy} title="Pós-venda com prazo até hoje" count={summary.afterSales.count} action="Abrir pós-venda" onAction={() => go("/pos-venda")}>
           {summary.afterSales.items.map(item => (
@@ -141,6 +152,16 @@ export function DailySummaryButton({ userId }: { userId: number }) {
   const [autoOpen, setAutoOpen] = useState(() => storage.get(autoKey) !== "off");
   const count = dailySummaryCount(data);
 
+  // Vindo do aviso no celular (/?resumo=1): abre o resumo direto.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("resumo")) return;
+    params.delete("resumo");
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
+    storage.set(seenKey, todayKey());
+    setOpen(true);
+  }, [seenKey]);
+
   useEffect(() => {
     if (!data || !count || !autoOpen || storage.get(seenKey) === todayKey()) return;
     storage.set(seenKey, todayKey());
@@ -182,6 +203,7 @@ export function DailySummaryButton({ userId }: { userId: number }) {
               {data ? "Nenhuma pendência para hoje. ✅" : "Carregando…"}
             </p>
           )}
+          <PhoneSetup />
           <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <Switch

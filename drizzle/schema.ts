@@ -176,7 +176,8 @@ export const quoteItemReservations = mysqlTable("quoteItemReservations", {
 export const stockMovements = mysqlTable("stockMovements", {
   id: int("id").autoincrement().primaryKey(),
   productId: int("productId").notNull(),
-  type: mysqlEnum("type", ["entry", "delivery", "adjustment", "return"]).notNull(),
+  // loan_out/loan_return: saída e volta de peças emprestadas (mostruário).
+  type: mysqlEnum("type", ["entry", "delivery", "adjustment", "return", "loan_out", "loan_return"]).notNull(),
   quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
   beforeQuantity: decimal("beforeQuantity", { precision: 12, scale: 2 }).notNull(),
   afterQuantity: decimal("afterQuantity", { precision: 12, scale: 2 }).notNull(),
@@ -346,6 +347,56 @@ export const afterSalesCases = mysqlTable("afterSalesCases", {
   index("afterSalesCases_quoteId_idx").on(table.quoteId),
   index("afterSalesCases_status_idx").on(table.status),
 ]);
+
+// Mostruário e consignação: peças emprestadas a clientes e profissionais
+// para testar na obra. Saem do estoque sem virar venda e, no acerto, voltam,
+// viram venda (voltam ao saldo para o pedido) ou são dadas como perdidas.
+export const stockLoans = mysqlTable("stockLoans", {
+  id: int("id").autoincrement().primaryKey(),
+  borrowerName: varchar("borrowerName", { length: 240 }).notNull(),
+  borrowerKind: mysqlEnum("borrowerKind", ["client", "professional", "other"]).notNull().default("client"),
+  phone: varchar("phone", { length: 40 }),
+  quoteId: int("quoteId"),
+  notes: text("notes"),
+  loanedAt: timestamp("loanedAt").notNull().defaultNow(),
+  dueDate: timestamp("dueDate").notNull(),
+  closedAt: timestamp("closedAt"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("stockLoans_dueDate_idx").on(table.dueDate)]);
+
+export const stockLoanItems = mysqlTable("stockLoanItems", {
+  id: int("id").autoincrement().primaryKey(),
+  loanId: int("loanId").notNull(),
+  productId: int("productId").notNull(),
+  shortDescription: varchar("shortDescription", { length: 512 }).notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
+  returnedQuantity: decimal("returnedQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
+  soldQuantity: decimal("soldQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
+  lostQuantity: decimal("lostQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
+}, (table) => [index("stockLoanItems_loanId_idx").on(table.loanId)]);
+
+// Avisos no celular (Web Push): um registro por aparelho que ativou os
+// avisos. O endereço é longo demais para índice único; o hash cumpre o papel.
+export const pushSubscriptions = mysqlTable("pushSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  endpointHash: varchar("endpointHash", { length: 64 }).notNull().unique(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: varchar("p256dh", { length: 160 }).notNull(),
+  auth: varchar("auth", { length: 64 }).notNull(),
+  userAgent: varchar("userAgent", { length: 255 }),
+  lastDailyAt: timestamp("lastDailyAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("pushSubscriptions_userId_idx").on(table.userId)]);
+
+// Chaves e marcadores internos do sistema (ex.: chaves VAPID dos avisos).
+export const appKeys = mysqlTable("appKeys", {
+  name: varchar("name", { length: 64 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
 
 // Registro de atividades: quem fez o quê e quando. O nome do usuário é
 // copiado no momento da ação para o histórico continuar legível mesmo se o

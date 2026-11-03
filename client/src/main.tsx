@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import "./index.css";
+import { setupPwa } from "./lib/pwa";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,8 @@ const trpcClient = trpc.createClient({
     }),
   ],
 });
+
+setupPwa();
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>

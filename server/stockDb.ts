@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { loanedByProduct } from "./loansDb";
 import { products, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements } from "../drizzle/schema";
 import { calculateAvailableStock, calculatePendingDelivery, calculateRemainingReservation, calculateStockAfter, describeFulfillment, getStockDelta, isCentQuantity, StockMovementType } from "../shared/stock";
 import { toNumber } from "../shared/quote";
@@ -17,10 +18,11 @@ async function database() {
 
 export async function inventoryOverview() {
   const db = await database();
-  const [productRows, movementRows, reservationRows] = await Promise.all([
+  const [productRows, movementRows, reservationRows, loaned] = await Promise.all([
     db.select().from(products).orderBy(products.shortDescription),
     db.select().from(stockMovements).orderBy(desc(stockMovements.occurredAt), desc(stockMovements.id)).limit(100),
     db.select().from(quoteItemReservations),
+    loanedByProduct(),
   ]);
   const reservedByProduct = new Map<number, number>();
   reservationRows.forEach((reservation) => reservedByProduct.set(reservation.productId, (reservedByProduct.get(reservation.productId) ?? 0) + toNumber(reservation.reservedQuantity)));
@@ -28,7 +30,7 @@ export async function inventoryOverview() {
   const stockValue = productRows.reduce((sum, product) => sum + toNumber(product.stockQuantity) * toNumber(product.unitPrice), 0);
   const lowStock = productRows.filter((product) => toNumber(product.reorderPoint) > 0 && toNumber(product.stockQuantity) <= toNumber(product.reorderPoint));
   return {
-    products: productRows.map((product) => { const stockQuantity = toNumber(product.stockQuantity); const reservedQuantity = reservedByProduct.get(product.id) ?? 0; return { ...product, stockQuantity, reservedQuantity, availableQuantity: calculateAvailableStock(stockQuantity, reservedQuantity), reorderPoint: toNumber(product.reorderPoint), unitPrice: toNumber(product.unitPrice), lowStock: toNumber(product.reorderPoint) > 0 && stockQuantity <= toNumber(product.reorderPoint) }; }),
+    products: productRows.map((product) => { const stockQuantity = toNumber(product.stockQuantity); const reservedQuantity = reservedByProduct.get(product.id) ?? 0; return { ...product, stockQuantity, reservedQuantity, availableQuantity: calculateAvailableStock(stockQuantity, reservedQuantity), loanedQuantity: loaned.get(product.id) ?? 0, reorderPoint: toNumber(product.reorderPoint), unitPrice: toNumber(product.unitPrice), lowStock: toNumber(product.reorderPoint) > 0 && stockQuantity <= toNumber(product.reorderPoint) }; }),
     lowStock: lowStock.map((product) => ({ ...product, stockQuantity: toNumber(product.stockQuantity), reorderPoint: toNumber(product.reorderPoint) })),
     suppliers: Array.from(new Set(productRows.map((product) => product.supplierName).filter((supplier): supplier is string => Boolean(supplier)))).sort((first, second) => first.localeCompare(second, "pt-BR")),
     stockValue,
@@ -48,10 +50,12 @@ export async function moveStock(tx: Tx, input: StockMovementInput) {
   if (!product) throw new Error("Produto não encontrado");
   const beforeQuantity = toNumber(product.stockQuantity);
   const afterQuantity = calculateStockAfter(beforeQuantity, input.type, input.quantity);
-  if (input.type === "adjustment" && afterQuantity < beforeQuantity) {
+  // Saída que não é retirada de pedido (ajuste, empréstimo): não pode usar o
+  // que já está reservado para orçamentos aprovados.
+  if (afterQuantity < beforeQuantity) {
     const reservations = await tx.select({ reservedQuantity: quoteItemReservations.reservedQuantity }).from(quoteItemReservations).where(eq(quoteItemReservations.productId, product.id));
     const reserved = reservations.reduce((sum, row) => sum + toNumber(row.reservedQuantity), 0);
-    if (afterQuantity < reserved) throw new Error(`O ajuste deixaria o saldo (${afterQuantity}) abaixo da quantidade reservada para orçamentos aprovados (${reserved}).`);
+    if (afterQuantity < reserved) throw new Error(`${input.type === "loan_out" ? "O empréstimo" : "O ajuste"} deixaria o saldo (${afterQuantity}) abaixo da quantidade reservada para orçamentos aprovados (${reserved}).`);
   }
   await tx.update(products).set({ stockQuantity: money(afterQuantity) }).where(eq(products.id, product.id));
   const inserted = await tx.insert(stockMovements).values({ productId: product.id, type: input.type, quantity: money(getStockDelta(input.type, input.quantity)), beforeQuantity: money(beforeQuantity), afterQuantity: money(afterQuantity), responsible: input.responsible || null, notes: input.notes || null, occurredAt: input.occurredAt, quoteId: input.quoteId ?? null, quoteItemId: input.quoteItemId ?? null, clientName: input.clientName || null }).$returningId();
