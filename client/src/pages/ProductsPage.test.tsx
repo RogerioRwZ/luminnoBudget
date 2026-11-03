@@ -45,6 +45,24 @@ describe("ProductsPage", () => {
     expectNoUnnamedFormControls(container);
   });
 
+  it("abre o cadastro com o código lido em outra tela e exige a referência", () => {
+    mocks.list.data = [{ id: 9, code: "9", reference: "LM-1", shortDescription: "Spot", fullDescription: null, imageUrl: null, imageKey: null, barcode: "111", unit: "UN", supplierName: null, unitPrice: "1", stockQuantity: "0", reorderPoint: "0", active: true, parentId: null, modelName: null, attributes: null }];
+    window.history.replaceState(null, "", "/catalogo?novo=7890000000017");
+    render(<ProductsPage />);
+    expect((screen.getByLabelText(/Código de barras/) as HTMLInputElement).value).toBe("7890000000017");
+    expect(window.location.search).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(screen.getAllByText("Informe a referência do produto.").length).toBeGreaterThan(0);
+    // Referência já usada (sem diferenciar maiúsculas) também não salva.
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "lm-1" } });
+    expect(screen.getByText('Já usada em "Spot".')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "LM-2/PT" } });
+    fireEvent.change(screen.getByLabelText("Descrição curta (vai para o orçamento)"), { target: { value: "Spot novo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
+    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ reference: "LM-2/PT", barcode: "7890000000017" }));
+  });
+
   it("informa carregamento e catálogo vazio", () => {
     mocks.list.isLoading = true;
     const { rerender } = render(<ProductsPage />);

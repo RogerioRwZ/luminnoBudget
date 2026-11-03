@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 const query = (key: "versions" | "comments" | "attachments") => ({ data: key === "versions" ? [{ id: 9, quoteId: 1, versionNumber: 2, snapshot: JSON.stringify({ id: 1, quoteNumber: 12, clientName: "Cliente anterior", status: "open", summary: { productsSubtotal: 100, discountAmount: 5, shipping: 10, total: 105, pixTotal: 100, installmentValue: 52.5 }, rooms: [{ name: "Sala", items: [{ shortDescription: "Spot", quantity: 2 }] }] }), changeNote: "Acabamento anterior", createdAt: new Date().toISOString() }] : [], isLoading: false, error: null, refetch: mocks.refetch });
 vi.mock("@/lib/trpc", () => ({ trpc: {
+  auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
   useUtils: () => ({ product: { list: { invalidate: mocks.invalidate } } }),
   quote: { list: { useQuery: () => mocks.quoteList }, versions: { useQuery: () => query("versions") }, restoreVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, comments: { useQuery: () => query("comments") }, attachments: { useQuery: () => query("attachments") }, createVersion: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, addComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, resolveComment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) }, uploadAttachment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
   product: { findByBarcode: { useQuery: () => mocks.barcode } },

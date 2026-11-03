@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { dateOnly, formatDateInput } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { useUnknownCode } from "@/hooks/useUnknownCode";
 import { BORROWER_KIND_LABELS, BORROWER_KINDS, type BorrowerKind } from "@shared/loans";
 import { canOpenPage } from "@shared/permissions";
 import { plural } from "@shared/plural";
@@ -38,6 +39,7 @@ const emptyNew = (): NewForm => ({ borrowerName: "", borrowerKind: "professional
 
 export default function LoansPage() {
   const utils = trpc.useUtils();
+  const unknownCode = useUnknownCode();
   const { data: me } = trpc.auth.me.useQuery();
   const canOpenQuote = canOpenPage(me?.role, "/orcamentos");
   const loans = trpc.loans.list.useQuery();
@@ -246,9 +248,10 @@ export default function LoansPage() {
                     onDetected={async value => {
                       const product = await utils.product.findByBarcode.fetch({ barcode: value }).catch(() => null);
                       if (product?.active) addProduct(product);
+                      else if (product) toast.error(`${product.shortDescription} está arquivado no catálogo.`);
                       else {
                         setProductQuery(value);
-                        toast.error(`Nenhum produto ativo com o código ${value}.`);
+                        unknownCode(value);
                       }
                     }}
                   />

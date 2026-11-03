@@ -19,6 +19,7 @@ vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href=
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
     useUtils: () => ({ inventory: { invalidate: mocks.invalidate }, product: { list: { invalidate: mocks.invalidate } } }),
     inventory: {
       overview: { useQuery: () => ({ ...mocks.overview, refetch: mocks.refetchOverview }) },

@@ -38,7 +38,7 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { VariantGenerator } from "@/components/VariantGenerator";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX } from "@shared/productCodes";
@@ -298,6 +298,22 @@ export default function ProductsPage() {
       });
     reader.readAsDataURL(file);
   };
+  // Código lido que não está no catálogo: abre o cadastro já com ele.
+  const startWithBarcode = (value: string) => {
+    setSearch("");
+    setFormError("");
+    setTriedSave(false);
+    setForm({ ...emptyProduct, barcode: normalizeBarcode(value) });
+    setOpen(true);
+    toast.message(`Código ${value} não cadastrado. Preencha o novo produto.`);
+  };
+  // Vindo do atalho "Cadastrar" de outra tela (/catalogo?novo=CODIGO).
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("novo");
+    if (!code) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    startWithBarcode(code);
+  }, []);
   const handleOpen = (value: boolean) => {
     setOpen(value);
     setFormError("");
@@ -682,7 +698,7 @@ export default function ProductsPage() {
             <ScanButton title="Buscar pelo código de barras" onDetected={value => {
               setSearch(value);
               const found = findProductByScan(data, value);
-              if (!found) toast.error(`Nenhum produto com o código ${value}.`);
+              if (!found) startWithBarcode(value);
             }} />
           </div>
           </div>

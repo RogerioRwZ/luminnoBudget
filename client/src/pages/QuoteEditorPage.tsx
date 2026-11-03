@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { parseAttributes, variantLabel } from "@shared/variants";
 import { findProductByScan, matchesProductSearch } from "@shared/productCodes";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { useUnknownCode } from "@/hooks/useUnknownCode";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -533,6 +534,7 @@ export default function QuoteEditorPage() {
       next[index] = value;
       return next;
     });
+  const unknownCode = useUnknownCode();
   // Código lido (câmera ou leitor USB) que bate com um produto: entra direto.
   const addScanned = (roomIndex: number, value: string) => {
     const product = findProductByScan(activeProducts, value);
@@ -1248,10 +1250,14 @@ export default function QuoteEditorPage() {
                           className="h-10 w-10"
                           title={`Adicionar pelo código de barras no ambiente ${roomIndex + 1}`}
                           onDetected={value => {
-                            if (!addScanned(roomIndex, value)) {
-                              setSearchAt(roomIndex, value);
-                              toast.error(`Nenhum produto ativo com o código ${value}.`);
+                            if (addScanned(roomIndex, value)) return;
+                            const archived = findProductByScan(products, value);
+                            if (archived) {
+                              toast.error(`${archived.shortDescription} está arquivado no catálogo. Reative-o para usar no orçamento.`);
+                              return;
                             }
+                            setSearchAt(roomIndex, value);
+                            unknownCode(value);
                           }}
                         />
                       </div>

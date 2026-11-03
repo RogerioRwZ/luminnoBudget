@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { useUnknownCode } from "@/hooks/useUnknownCode";
 import { findProductByScan, matchesProductSearch } from "@shared/productCodes";
 import { downloadCsv } from "@/lib/csvDownload";
 import { filterInventoryProducts } from "@shared/stockFilters";
@@ -112,6 +113,7 @@ export default function InventoryPage() {
   >(null);
   const [supplierFilter, setSupplierFilter] = useState("all");
   const [productSearch, setProductSearch] = useState("");
+  const unknownCode = useUnknownCode();
   const [maximumStock, setMaximumStock] = useState("");
   const [availabilityFilter, setAvailabilityFilter] = useState<
     "all" | "reserved" | "low"
@@ -400,7 +402,10 @@ export default function InventoryPage() {
                     value={productSearch}
                     onChange={e => setProductSearch(e.target.value)}
                   />
-                  <ScanButton className="h-9 w-9 shrink-0" title="Buscar no estoque pelo código de barras" onDetected={setProductSearch} />
+                  <ScanButton className="h-9 w-9 shrink-0" title="Buscar no estoque pelo código de barras" onDetected={value => {
+                    setProductSearch(value);
+                    if (!findProductByScan(products, value)) unknownCode(value);
+                  }} />
                 </div>
               </div>
               <div className="space-y-1">
@@ -899,7 +904,7 @@ export default function InventoryPage() {
                   onDetected={value => {
                     const found = findProductByScan(products, value);
                     if (found) setMovementForm(current => ({ ...current, productId: found.id }));
-                    else toast.error(`Nenhum produto com o código ${value}.`);
+                    else unknownCode(value);
                   }}
                 />
               </div>
