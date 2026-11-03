@@ -117,4 +117,20 @@ describe("forma de pagamento na aprovação", () => {
     expect((await admin.finance.legacy()).some((row) => row.id === quote.id)).toBe(false);
     expect(JSON.parse((await admin.quote.get({ id: quote.id }))!.paymentPlan!).parts[0]).toMatchObject({ method: "credit_card", installments: 3 });
   });
+
+  it("grava a entrada + crediário oferecida, copia ao duplicar e trava após aprovar", async () => {
+    const { admin, draft, quote } = await newQuote("Cliente entrada");
+    const offered = await admin.quote.save({ ...draft, entryOffer: { entryPercent: 40, installments: 5 } });
+    expect(JSON.parse(offered!.entryOffer!)).toEqual({ entryPercent: 40, installments: 5 });
+    // Sem enviar o campo, a condição gravada é mantida.
+    expect(JSON.parse((await admin.quote.save(draft))!.entryOffer!)).toEqual({ entryPercent: 40, installments: 5 });
+
+    const copy = (await admin.quote.duplicate({ id: quote.id }))!;
+    created.quoteIds.push(copy.id);
+    expect(JSON.parse(copy.entryOffer!)).toEqual({ entryPercent: 40, installments: 5 });
+
+    const plan = { parts: [{ method: "pix" as const, amount: 400, installments: 1 }, { method: "store_credit" as const, amount: 600, installments: 5, firstDueDate: addDaysInput(30) }] };
+    await admin.quote.save({ ...draft, status: "approved", entryOffer: { entryPercent: 40, installments: 5 }, paymentPlan: plan });
+    await expect(admin.quote.save({ ...draft, status: "approved", entryOffer: { entryPercent: 50, installments: 5 }, paymentPlan: plan })).rejects.toThrow(/Em aberto/);
+  });
 });

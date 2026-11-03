@@ -120,3 +120,31 @@ export function cardFeePercent(fees: CardFees, method: PlanMethod, installments:
 
 export const cardFeeAmount = (fees: CardFees, method: PlanMethod, installments: number, amount: number) =>
   roundMoney((amount * cardFeePercent(fees, method, installments)) / 100);
+
+// Condição "entrada + crediário" oferecida na proposta: a entrada é um
+// percentual do total e o restante vai em parcelas mensais.
+export type EntryOffer = { entryPercent: number; installments: number };
+export const DEFAULT_ENTRY_OFFER: EntryOffer = { entryPercent: 30, installments: 6 };
+
+export function parseEntryOffer(text: string | null | undefined): EntryOffer | null {
+  if (!text) return null;
+  try {
+    const value = JSON.parse(text) as Partial<EntryOffer>;
+    const entryPercent = Number(value.entryPercent);
+    const installments = Math.floor(Number(value.installments));
+    return entryPercent > 0 && entryPercent < 100 && installments >= 1 ? { entryPercent, installments } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function entryOfferValues(total: number, offer: EntryOffer) {
+  const entry = roundMoney((total * offer.entryPercent) / 100);
+  const remaining = roundMoney(total - entry);
+  return { entry, remaining, installments: offer.installments, installmentValue: roundMoney(remaining / offer.installments) };
+}
+
+export function describeEntryOffer(total: number, offer: EntryOffer, label = "no crediário") {
+  const values = entryOfferValues(total, offer);
+  return `Entrada de ${brl(values.entry)} + ${values.installments}x de ${brl(values.installmentValue)} ${label}`;
+}

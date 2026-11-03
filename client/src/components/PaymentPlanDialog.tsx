@@ -14,6 +14,9 @@ import {
   planSum,
   planTarget,
   validatePaymentPlan,
+  DEFAULT_ENTRY_OFFER,
+  entryOfferValues,
+  type EntryOffer,
   type PaymentPlan,
   type PlanMethod,
 } from "@shared/paymentPlan";
@@ -34,25 +37,28 @@ const toPlan = (parts: PartForm[]): PaymentPlan => ({
 });
 const part = (method: PlanMethod, amount: number, installments = 1): PartForm => ({ method, amount: amount.toFixed(2), installments: String(installments), firstDueDate: addDaysInput(30) });
 
-// Atalhos para as combinações mais comuns.
-function presets(totals: Totals, installments: number): Array<{ label: string; parts: PartForm[] }> {
-  const entry = roundMoney(totals.total * 0.3);
+// Atalhos para as combinações mais comuns. A entrada segue a condição
+// oferecida na proposta (ou 30% + 6 parcelas, se não houver).
+function presets(totals: Totals, installments: number, offer: EntryOffer | null): Array<{ label: string; parts: PartForm[] }> {
+  const entry = entryOfferValues(totals.total, offer ?? { ...DEFAULT_ENTRY_OFFER, installments: Math.max(2, installments) });
   return [
     { label: "Cartão de crédito", parts: [part("credit_card", totals.total, installments)] },
     { label: "PIX à vista", parts: [part("pix", totals.pixTotal)] },
-    { label: "Entrada + crediário", parts: [part("pix", entry), part("store_credit", roundMoney(totals.total - entry), Math.max(2, installments))] },
+    { label: "Entrada + crediário", parts: [part("pix", entry.entry), part("store_credit", entry.remaining, entry.installments)] },
+    { label: "Entrada + boleto", parts: [part("pix", entry.entry), part("boleto", entry.remaining, entry.installments)] },
     { label: "Boleto", parts: [part("boleto", totals.total, installments)] },
   ];
 }
 
 // Como o cliente vai pagar: pedido ao aprovar o orçamento.
-export function PaymentPlanDialog({ open, totals, installments, onCancel, onConfirm }: { open: boolean; totals: Totals; installments: number; onCancel: () => void; onConfirm: (plan: PaymentPlan) => void }) {
+export function PaymentPlanDialog({ open, totals, installments, entryOffer = null, onCancel, onConfirm }: { open: boolean; totals: Totals; installments: number; entryOffer?: EntryOffer | null; onCancel: () => void; onConfirm: (plan: PaymentPlan) => void }) {
   const [parts, setParts] = useState<PartForm[]>([]);
   // Ao abrir, sugere cartão de crédito no parcelamento do orçamento.
   const { total, pixTotal } = totals;
   useEffect(() => {
-    if (open) setParts(presets({ total, pixTotal }, installments)[0]!.parts);
-  }, [open, total, pixTotal, installments]);
+    // Com entrada + crediário na proposta, já abre nessa condição.
+    if (open) setParts(presets({ total, pixTotal }, installments, entryOffer)[entryOffer ? 2 : 0]!.parts);
+  }, [open, total, pixTotal, installments, entryOffer]);
   const plan = toPlan(parts);
   const target = planTarget(plan, totals);
   const difference = roundMoney(target - planSum(plan));
@@ -76,7 +82,7 @@ export function PaymentPlanDialog({ open, totals, installments, onCancel, onConf
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-2">
-          {presets(totals, installments).map(preset => (
+          {presets(totals, installments, entryOffer).map(preset => (
             <Button key={preset.label} size="sm" variant="outline" onClick={() => setParts(preset.parts)}>{preset.label}</Button>
           ))}
         </div>

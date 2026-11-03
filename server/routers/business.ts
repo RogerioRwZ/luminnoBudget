@@ -45,7 +45,7 @@ import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
 import { adminProcedure, areaProcedure, protectedProcedure, router } from "../_core/trpc";
 import { plural } from "../../shared/plural";
 import { quotePdfFileName } from "../../shared/quoteFileName";
-import { MAX_PLAN_INSTALLMENTS, MAX_PLAN_PARTS, PLAN_METHODS } from "../../shared/paymentPlan";
+import { MAX_PLAN_INSTALLMENTS, MAX_PLAN_PARTS, parseEntryOffer, PLAN_METHODS } from "../../shared/paymentPlan";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
 
@@ -178,6 +178,10 @@ const quoteInput = z.object({
       installments: z.coerce.number().int().min(1).max(MAX_PLAN_INSTALLMENTS),
       firstDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     })).min(1).max(MAX_PLAN_PARTS),
+  }).nullable().optional(),
+  entryOffer: z.object({
+    entryPercent: z.coerce.number().min(1).max(90),
+    installments: z.coerce.number().int().min(1).max(MAX_PLAN_INSTALLMENTS),
   }).nullable().optional(),
   notes: nullableText,
   followUpAt: z.coerce.date().nullable().optional(),
@@ -322,6 +326,7 @@ export const businessRouter = router({
         quoteNumber: fresh.quoteNumber,
         status: "draft",
         paymentPlan: null,
+        entryOffer: parseEntryOffer(source.entryOffer),
         issueDate: new Date(),
         rooms: source.rooms.map((room) => ({ name: room.name, items: room.items.map((item) => ({
           productId: item.productId,

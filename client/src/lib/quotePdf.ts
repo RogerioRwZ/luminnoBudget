@@ -2,6 +2,7 @@ import { buildPixPayload } from "@shared/pix";
 import { quotePdfFileName } from "@shared/quoteFileName";
 import { pixQrDataUrl } from "./pixQr";
 import { jsPDF } from "jspdf";
+import { entryOfferValues, type EntryOffer } from "@shared/paymentPlan";
 
 export type QuotePdfInput = {
   quoteNumber: number;
@@ -20,6 +21,7 @@ export type QuotePdfInput = {
   pixDiscountMode: "percentage" | "fixed";
   pixDiscountValue: number;
   installments: number;
+  entryOffer?: EntryOffer | null;
   notes: string;
   rooms: Array<{ name: string; items: Array<{ code: string; shortDescription: string; imageUrl?: string | null; unit: string; quantity: number; unitPrice: number }> }>;
   summary: { rooms: number[]; productsSubtotal: number; discountAmount: number; shipping: number; total: number; pixDiscountAmount: number; pixTotal: number; installmentValue?: number };
@@ -366,6 +368,8 @@ async function buildQuotePdf(input: QuotePdfInput) {
   tiles.push(installments > 1
     ? { label: "Parcelado", value: `${installments}x ${currency(installmentValue)}`, note: "sem juros", tone: "light" }
     : { label: "Pagamento", value: "À vista", note: pixQr ? "PIX, cartão ou transferência" : "condições abaixo", tone: "light" });
+  const entry = input.entryOffer ? entryOfferValues(input.summary.total, input.entryOffer) : null;
+  if (entry) tiles.push({ label: "Entrada + crediário", value: `${entry.installments}x ${currency(entry.installmentValue)}`, note: `entrada de ${currency(entry.entry)}`, tone: "light" });
   const tileWidth = (CONTENT_WIDTH - (tiles.length - 1) * 4) / tiles.length;
   tiles.forEach((tile, index) => {
     const x = PAGE.margin + index * (tileWidth + 4);
@@ -484,9 +488,10 @@ async function buildQuotePdf(input: QuotePdfInput) {
   const paymentLines = [
     installments > 1 ? `Parcelado em até ${installments}x de ${currency(installmentValue)} sem juros.` : "Pagamento à vista.",
     input.summary.pixDiscountAmount > 0 ? `À vista no PIX: ${currency(input.summary.pixTotal)}.` : "",
+    entry ? `Entrada de ${currency(entry.entry)} + ${entry.installments}x de ${currency(entry.installmentValue)} no crediário próprio.` : "",
     settings?.pixKey ? `Chave PIX: ${settings.pixKey}${settings.pixRecipient ? ` (${settings.pixRecipient})` : ""}` : "",
   ].filter(Boolean);
-  const totalsHeight = 8 + totalRows.length * 6 + 11.5 + (input.summary.pixDiscountAmount > 0 ? 6 : 0) + (installments > 1 ? 4 : 0) + 1;
+  const totalsHeight = 8 + totalRows.length * 6 + 11.5 + (input.summary.pixDiscountAmount > 0 ? 6 : 0) + (installments > 1 ? 4 : 0) + (entry ? 4 : 0) + 1;
   font(8.6);
   const paymentWrapped = paymentLines.flatMap((value) => wrap(value, CONTENT_WIDTH - 74 - 6 - 10));
   const paymentHeight = pixQr ? 52 : 19 + paymentWrapped.length * 4.5;
@@ -521,6 +526,11 @@ async function buildQuotePdf(input: QuotePdfInput) {
   if (installments > 1) {
     font(7.8, "normal", COLOR.muted);
     pdf.text(`ou ${installments}x de ${currency(installmentValue)} sem juros`, RIGHT - 5, rowY, { align: "right" });
+    rowY += 4;
+  }
+  if (entry) {
+    font(7.8, "normal", COLOR.muted);
+    pdf.text(`ou entrada de ${currency(entry.entry)} + ${entry.installments}x de ${currency(entry.installmentValue)}`, RIGHT - 5, rowY, { align: "right" });
   }
 
   const paymentWidth = CONTENT_WIDTH - totalsWidth - 6;

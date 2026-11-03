@@ -87,6 +87,8 @@ export const quotes = mysqlTable("quotes", {
   // Forma de pagamento da venda (JSON, ver shared/paymentPlan), escolhida na
   // aprovação. Nulo nos orçamentos aprovados antes desta versão.
   paymentPlan: text("paymentPlan"),
+  // Condição "entrada + crediário" oferecida na proposta (JSON; nulo = não oferece).
+  entryOffer: text("entryOffer"),
   notes: text("notes"),
   // Ordem de chegada dos aprovados: o estoque que entra atende primeiro quem
   // foi aprovado antes.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardFeeAmount, describePlan, parseCardFees, parsePaymentPlan, planTarget, validatePaymentPlan, type PaymentPlan } from "./paymentPlan";
+import { cardFeeAmount, describeEntryOffer, describePlan, entryOfferValues, parseCardFees, parseEntryOffer, parsePaymentPlan, planTarget, validatePaymentPlan, type PaymentPlan } from "./paymentPlan";
 
 const totals = { total: 1000, pixTotal: 900 };
 
@@ -33,5 +33,13 @@ describe("forma de pagamento", () => {
     expect(cardFeeAmount(fees, "credit_card", 18, 1000)).toBe(90);
     expect(cardFeeAmount(fees, "pix", 1, 1000)).toBe(0);
     expect(parseCardFees("{")).toEqual({ debit: 0, credit: Array(12).fill(0) });
+  });
+
+  it("calcula e descreve a condição de entrada + crediário", () => {
+    expect(entryOfferValues(415.31, { entryPercent: 30, installments: 3 })).toEqual({ entry: 124.59, remaining: 290.72, installments: 3, installmentValue: 96.91 });
+    expect(describeEntryOffer(1000, { entryPercent: 20, installments: 4 })).toMatch(/^Entrada de R\$\s?200,00 \+ 4x de R\$\s?200,00 no crediário$/);
+    expect(parseEntryOffer(JSON.stringify({ entryPercent: 30, installments: 6 }))).toEqual({ entryPercent: 30, installments: 6 });
+    expect(parseEntryOffer(JSON.stringify({ entryPercent: 0, installments: 6 }))).toBeNull();
+    expect(parseEntryOffer(null)).toBeNull();
   });
 });

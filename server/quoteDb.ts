@@ -31,7 +31,7 @@ import { professionalKey } from "../shared/commission";
 import { getDb } from "./db";
 import { commissionRateFor } from "./reportsDb";
 import { createReceivablesFromQuote, financeOverview, releaseQuoteReceivables } from "./financeDb";
-import { parsePaymentPlan, validatePaymentPlan, type PaymentPlan } from "../shared/paymentPlan";
+import { parseEntryOffer, parsePaymentPlan, validatePaymentPlan, type EntryOffer, type PaymentPlan } from "../shared/paymentPlan";
 import { allocatePendingReservations, fulfillmentLines } from "./stockDb";
 
 export type QuoteDraft = {
@@ -61,6 +61,8 @@ export type QuoteDraft = {
   // Forma de pagamento da venda: obrigatória na tela ao aprovar; undefined
   // mantém a gravada.
   paymentPlan?: PaymentPlan | null;
+  // Entrada + crediário oferecidos na proposta; undefined mantém o gravado.
+  entryOffer?: EntryOffer | null;
   rooms: Array<{
     id?: number;
     name: string;
@@ -575,11 +577,12 @@ export async function createQuote(sellerUserId: number | null = null) {
 // Itens, valores e condições de pagamento: o que não pode mudar enquanto o
 // orçamento está aprovado (há reserva de estoque e parcelas geradas).
 type Amount = number | string;
-function commercialTerms(quote: { discountMode: string; discountValue: Amount; shipping: Amount; pixDiscountMode: string; pixDiscountValue: Amount; installments: number; paymentPlan?: PaymentPlan | null; rooms: Array<{ name: string; items: Array<{ productId?: number | null; code: string; shortDescription: string; unit: string; quantity: Amount; unitPrice: Amount }> }> }) {
+function commercialTerms(quote: { discountMode: string; discountValue: Amount; shipping: Amount; pixDiscountMode: string; pixDiscountValue: Amount; installments: number; paymentPlan?: PaymentPlan | null; entryOffer?: EntryOffer | null; rooms: Array<{ name: string; items: Array<{ productId?: number | null; code: string; shortDescription: string; unit: string; quantity: Amount; unitPrice: Amount }> }> }) {
   const n = (value: Amount) => Math.round(Number(value) * 100) / 100;
   return JSON.stringify({
     discountMode: quote.discountMode, discountValue: n(quote.discountValue), shipping: n(quote.shipping),
     pixDiscountMode: quote.pixDiscountMode, pixDiscountValue: n(quote.pixDiscountValue), installments: Math.floor(quote.installments),
+    entryOffer: quote.entryOffer ? { entryPercent: n(quote.entryOffer.entryPercent), installments: quote.entryOffer.installments } : null,
     paymentPlan: quote.paymentPlan?.parts.map((part) => ({ method: part.method, amount: n(part.amount), installments: part.installments, firstDueDate: part.firstDueDate ?? null })) ?? null,
     rooms: quote.rooms.map((room) => ({ name: room.name || "AMBIENTE", items: room.items.map((item) => ({ productId: item.productId || null, code: item.code, shortDescription: item.shortDescription, unit: item.unit || "UN", quantity: n(item.quantity), unitPrice: n(item.unitPrice) })) })),
   });
@@ -610,6 +613,8 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
   // Forma de pagamento: só existe em orçamento aprovado. Ao aprovar, precisa
   // fechar com o valor da venda (total, ou o do PIX se for tudo à vista).
   const storedPlan = parsePaymentPlan(before?.paymentPlan);
+  const storedOffer = parseEntryOffer(before?.entryOffer);
+  const entryOffer = typeof input.entryOffer === "string" ? parseEntryOffer(input.entryOffer) : input.entryOffer !== undefined ? input.entryOffer : storedOffer;
   // Versões restauradas trazem a forma como texto (é como fica gravada).
   const inputPlan = typeof input.paymentPlan === "string" ? parsePaymentPlan(input.paymentPlan) : input.paymentPlan;
   const paymentPlan = input.status === "approved" ? (inputPlan !== undefined ? inputPlan : storedPlan) : null;
@@ -640,6 +645,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       installments: Math.max(1, Math.floor(input.installments)),
       notes: input.notes || null,
       paymentPlan: paymentPlan?.parts.length ? JSON.stringify(paymentPlan) : null,
+      entryOffer: entryOffer ? JSON.stringify(entryOffer) : null,
       ...outcome,
       commissionPercent,
     };
@@ -663,7 +669,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
 
       if (existingQuote.status === "approved" && input.status === "approved") {
         // Continua aprovado: só os dados do cliente, datas e observações mudam.
-        if (before && commercialTerms({ ...before, paymentPlan: storedPlan }) !== commercialTerms({ ...input, paymentPlan })) {
+        if (before && commercialTerms({ ...before, paymentPlan: storedPlan, entryOffer: storedOffer }) !== commercialTerms({ ...input, paymentPlan, entryOffer })) {
           throw new Error(deliveries.length
             ? "Este orçamento já tem retiradas registradas: itens, valores e condições não podem mais ser alterados."
             : "Orçamento aprovado: para alterar itens, valores ou condições, mude o status para Em aberto (a reserva de estoque será liberada).");
