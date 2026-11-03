@@ -1,5 +1,6 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
-import { clients, financePayments, financeReceivables, quotes } from "../drizzle/schema";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { clients, financePayments, financeReceivables, quotes, storeSettings } from "../drizzle/schema";
+import { cardFeeAmount, dateFromInput, isBilledMethod, parseCardFees, PLAN_METHOD_LABELS, type PaymentPlan } from "../shared/paymentPlan";
 import { calculateReceivableStatus, dueDateForInstallment, PaymentMethod, PaymentType, remainingReceivableAmount, roundMoney, splitInstallments } from "../shared/finance";
 import { toNumber } from "../shared/quote";
 import { getDb } from "./db";
@@ -28,7 +29,7 @@ function hydrateReceivable(receivable: ReceivableRow, payments: PaymentRow[], no
     remainingAmount: remainingReceivableAmount(originalAmount, receivedAmount),
     status,
     overdue: status === "overdue",
-    payments: payments.map((payment) => ({ ...payment, amount: toNumber(payment.amount) })),
+    payments: payments.map((payment) => ({ ...payment, amount: toNumber(payment.amount), feeAmount: payment.feeAmount === null ? null : toNumber(payment.feeAmount) })),
   };
 }
 
@@ -53,6 +54,8 @@ export async function financeOverview() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const receivedThisMonth = payments.filter((payment) => payment.type === "receipt" && payment.paidAt >= monthStart).reduce((sum, payment) => sum + toNumber(payment.amount), 0)
     - payments.filter((payment) => payment.type === "reversal" && payment.paidAt >= monthStart).reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+  // Taxas da maquininha dos recebimentos do mês.
+  const cardFeesThisMonth = payments.filter((payment) => payment.type === "receipt" && payment.paidAt >= monthStart && payment.feeAmount).reduce((sum, payment) => sum + toNumber(payment.feeAmount), 0);
   const activeRows = rows.filter((row) => row.status !== "cancelled");
   const overdueRows = rows.filter((row) => row.overdue);
   return {
@@ -64,11 +67,12 @@ export async function financeOverview() {
       overdueAmount: overdueRows.reduce((sum, row) => sum + row.remainingAmount, 0),
       overdueCount: overdueRows.length,
       receivedThisMonth: roundMoney(receivedThisMonth),
+      cardFeesThisMonth: roundMoney(cardFeesThisMonth),
     },
   };
 }
 
-export async function createReceivables(input: { quoteId?: number | null; clientId?: number | null; clientName: string; description: string; totalAmount: number; installmentCount: number; firstDueDate: Date }, createdByUserId: number) {
+export async function createReceivables(input: { quoteId?: number | null; clientId?: number | null; clientName: string; description: string; totalAmount: number; installmentCount: number; firstDueDate: Date; paymentMethod?: PaymentMethod | null }, createdByUserId: number) {
   if (!Number.isFinite(input.totalAmount) || input.totalAmount <= 0) throw new Error("O valor da cobrança deve ser maior que zero.");
   const db = await database();
   return db.transaction((tx) => insertReceivables(tx, input, createdByUserId));
@@ -89,6 +93,7 @@ async function insertReceivables(tx: Transaction, input: ReceivableInput, create
       description: input.description.trim() || "Cobrança avulsa",
       installmentNumber: index + 1,
       installmentCount,
+      paymentMethod: input.paymentMethod ?? null,
       originalAmount: money(installments[index]!),
       dueDate: dueDateForInstallment(input.firstDueDate, index + 1),
       status: "open",
@@ -99,19 +104,73 @@ async function insertReceivables(tx: Transaction, input: ReceivableInput, create
   return inserted;
 }
 
-export async function createReceivablesFromQuote(input: { id: number; quoteNumber: number; clientId: number | null; clientName: string; installments: number; issueDate: Date; summary: { total: number } }, createdByUserId: number) {
+type QuoteForReceivables = { id: number; quoteNumber: number; clientId: number | null; clientName: string; installments: number; issueDate: Date; summary: { total: number }; paymentPlan?: PaymentPlan | null };
+
+// Cobranças da venda conforme a forma de pagamento escolhida na aprovação:
+// - cartão, PIX, dinheiro e transferência: um lançamento já recebido (no
+//   cartão, quem parcela é a operadora; a loja já registra o recebimento e a
+//   taxa da maquininha);
+// - boleto e crediário próprio: parcelas mensais a partir da data escolhida.
+// Sem forma escolhida (orçamentos antigos), mantém o comportamento anterior.
+async function insertPlanReceivables(tx: Transaction, quote: QuoteForReceivables, plan: PaymentPlan, createdByUserId: number, now = new Date()) {
+  const feesRow = (await tx.select({ cardFees: storeSettings.cardFees }).from(storeSettings).where(eq(storeSettings.id, 1)).limit(1))[0];
+  const fees = parseCardFees(feesRow?.cardFees);
+  const ids: number[] = [];
+  for (const part of plan.parts) {
+    const label = PLAN_METHOD_LABELS[part.method];
+    const description = `Orçamento #${quote.quoteNumber} — ${label}${part.installments > 1 && !isBilledMethod(part.method) ? ` em ${part.installments}x` : ""}`;
+    if (isBilledMethod(part.method)) {
+      ids.push(...await insertReceivables(tx, { quoteId: quote.id, clientId: quote.clientId, clientName: quote.clientName, description, totalAmount: part.amount, installmentCount: part.installments, firstDueDate: dateFromInput(part.firstDueDate!), paymentMethod: part.method }, createdByUserId));
+      continue;
+    }
+    const [receivableId] = await insertReceivables(tx, { quoteId: quote.id, clientId: quote.clientId, clientName: quote.clientName, description, totalAmount: part.amount, installmentCount: 1, firstDueDate: now, paymentMethod: part.method }, createdByUserId);
+    const fee = cardFeeAmount(fees, part.method, part.installments, part.amount);
+    await tx.insert(financePayments).values({
+      receivableId: receivableId!,
+      type: "receipt",
+      amount: money(part.amount),
+      paymentMethod: part.method,
+      feeAmount: fee > 0 ? money(fee) : null,
+      paidAt: now,
+      reference: "Registrado na aprovação",
+      notes: part.method === "credit_card" && part.installments > 1 ? `${part.installments}x na maquininha` : null,
+      createdByUserId,
+    });
+    await tx.update(financeReceivables).set({ status: "paid" }).where(eq(financeReceivables.id, receivableId!));
+    ids.push(receivableId!);
+  }
+  return ids;
+}
+
+export async function createReceivablesFromQuote(input: QuoteForReceivables, createdByUserId: number) {
   if (!(input.summary.total > 0)) return { created: false, ids: [] as number[] };
   const db = await database();
   return db.transaction(async (tx) => {
     // Trava a linha do orçamento: dois salvamentos "aprovado" simultâneos
     // passariam juntos pela checagem abaixo e gerariam parcelas em dobro.
     await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, input.id)} FOR UPDATE`);
-    const existing = await tx.select({ id: financeReceivables.id }).from(financeReceivables).where(eq(financeReceivables.quoteId, input.id)).limit(1);
+    // Canceladas não contam: ao reaprovar, a venda ganha cobranças novas.
+    const existing = await tx.select({ id: financeReceivables.id }).from(financeReceivables).where(and(eq(financeReceivables.quoteId, input.id), ne(financeReceivables.status, "cancelled"))).limit(1);
     if (existing.length) return { created: false, ids: [] as number[] };
-    const ids = await insertReceivables(tx, { quoteId: input.id, clientId: input.clientId, clientName: input.clientName, description: `Orçamento #${input.quoteNumber}`, totalAmount: input.summary.total, installmentCount: input.installments, firstDueDate: input.issueDate }, createdByUserId);
+    const ids = input.paymentPlan?.parts.length
+      ? await insertPlanReceivables(tx, input, input.paymentPlan, createdByUserId)
+      : await insertReceivables(tx, { quoteId: input.id, clientId: input.clientId, clientName: input.clientName, description: `Orçamento #${input.quoteNumber}`, totalAmount: input.summary.total, installmentCount: input.installments, firstDueDate: input.issueDate }, createdByUserId);
     return { created: true, ids };
   });
 }
+
+// Ao tirar um orçamento de Aprovado: as cobranças sem recebimento são
+// canceladas (a reaprovação gera as novas). Com dinheiro já recebido, não sai.
+export async function releaseQuoteReceivables(tx: Transaction, quoteId: number) {
+  const receivables = await tx.select().from(financeReceivables).where(and(eq(financeReceivables.quoteId, quoteId), ne(financeReceivables.status, "cancelled")));
+  if (!receivables.length) return;
+  const payments = await tx.select().from(financePayments).where(inArray(financePayments.receivableId, receivables.map((row) => row.id)));
+  const received = receivables.some((receivable) => hydrateReceivable(receivable, payments.filter((payment) => payment.receivableId === receivable.id)).receivedAmount > 0);
+  if (received) throw new Error("Este orçamento já tem recebimentos no Financeiro e não pode sair do status Aprovado. Estorne os recebimentos antes, se a venda mudou.");
+  await tx.update(financeReceivables).set({ status: "cancelled" }).where(inArray(financeReceivables.id, receivables.map((row) => row.id)));
+}
+
+export type { Transaction as FinanceTransaction };
 
 export async function recordFinancePayment(input: { receivableId: number; type: PaymentType; amount: number; paymentMethod: PaymentMethod; paidAt: Date; reference?: string | null; notes?: string | null }, createdByUserId: number) {
   if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error("O valor informado deve ser maior que zero.");
@@ -174,4 +233,44 @@ export async function getReceivableSummary(id: number) {
 export async function financeByQuote(quoteId: number) {
   const overview = await financeOverview();
   return overview.receivables.filter((receivable) => receivable.quoteId === quoteId);
+}
+
+// Aprovados antes da forma de pagamento: parcelas mensais criadas para toda
+// venda, inclusive as pagas no cartão. Lista os que ainda não têm recebimento
+// para a loja dizer como foi.
+export async function legacyApprovedQuotes() {
+  const db = await database();
+  const quoteRows = await db.select({ id: quotes.id, quoteNumber: quotes.quoteNumber, clientName: quotes.clientName, approvedAt: quotes.approvedAt }).from(quotes).where(and(eq(quotes.status, "approved"), isNull(quotes.paymentPlan)));
+  if (!quoteRows.length) return [];
+  const receivables = await db.select().from(financeReceivables).where(and(inArray(financeReceivables.quoteId, quoteRows.map((row) => row.id)), ne(financeReceivables.status, "cancelled")));
+  const payments = receivables.length ? await db.select().from(financePayments).where(inArray(financePayments.receivableId, receivables.map((row) => row.id))) : [];
+  return quoteRows.flatMap((quote) => {
+    const mine = receivables.filter((row) => row.quoteId === quote.id).sort((first, second) => first.dueDate.getTime() - second.dueDate.getTime());
+    if (mine.length < 2 || payments.some((payment) => mine.some((row) => row.id === payment.receivableId))) return [];
+    return [{ ...quote, installments: mine.length, amount: roundMoney(mine.reduce((sum, row) => sum + toNumber(row.originalAmount), 0)), firstDueDate: mine[0]!.dueDate }];
+  });
+}
+
+const inputDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+// "Foi no cartão": cancela as parcelas e registra o recebimento na maquininha.
+// "Manter parcelas": só anota se são de boleto ou crediário.
+export async function settleLegacyQuote(input: { quoteId: number; method: "credit_card" | "boleto" | "store_credit"; installments: number; paidAt: Date }, createdByUserId: number) {
+  const candidate = (await legacyApprovedQuotes()).find((row) => row.id === input.quoteId);
+  if (!candidate) throw new Error("Este orçamento não está mais na lista de revisão.");
+  const db = await database();
+  await db.transaction(async (tx) => {
+    const receivables = await tx.select().from(financeReceivables).where(and(eq(financeReceivables.quoteId, input.quoteId), ne(financeReceivables.status, "cancelled")));
+    let plan: PaymentPlan;
+    if (input.method === "credit_card") {
+      plan = { parts: [{ method: "credit_card", amount: candidate.amount, installments: input.installments, firstDueDate: null }] };
+      await tx.update(financeReceivables).set({ status: "cancelled" }).where(inArray(financeReceivables.id, receivables.map((row) => row.id)));
+      await insertPlanReceivables(tx, { id: input.quoteId, quoteNumber: candidate.quoteNumber, clientId: receivables[0]?.clientId ?? null, clientName: candidate.clientName, installments: input.installments, issueDate: input.paidAt, summary: { total: candidate.amount } }, plan, createdByUserId, input.paidAt);
+    } else {
+      plan = { parts: [{ method: input.method, amount: candidate.amount, installments: candidate.installments, firstDueDate: inputDate(candidate.firstDueDate) }] };
+      await tx.update(financeReceivables).set({ paymentMethod: input.method }).where(inArray(financeReceivables.id, receivables.map((row) => row.id)));
+    }
+    await tx.update(quotes).set({ paymentPlan: JSON.stringify(plan) }).where(eq(quotes.id, input.quoteId));
+  });
+  return candidate;
 }

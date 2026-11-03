@@ -18,6 +18,8 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { QuoteMarginPanel, StockShortageHint } from "@/components/QuoteInsights";
 import { canSeeCost } from "@shared/permissions";
 import { LOST_REASONS, LOST_REASON_LABELS, type LostReason } from "@shared/followUp";
+import { describePart, parsePaymentPlan, type PaymentPlan } from "@shared/paymentPlan";
+import { PaymentPlanDialog } from "@/components/PaymentPlanDialog";
 import { parseAttributes, variantLabel } from "@shared/variants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,6 +114,7 @@ type QuoteDraft = {
   pixDiscountMode: "percentage" | "fixed";
   pixDiscountValue: number;
   installments: number;
+  paymentPlan: PaymentPlan | null;
   notes: string;
   followUpAt: Date | null;
   lostReason: LostReason | null;
@@ -132,6 +135,7 @@ type QuoteRecord = {
   discountMode: "percentage" | "fixed";
   pixDiscountMode: "percentage" | "fixed";
   installments: number;
+  paymentPlan?: string | null;
   notes: string | null;
   followUpAt?: Date | string | null;
   lostReason?: LostReason | null;
@@ -200,6 +204,7 @@ function fromQuote(quote: QuoteRecord): QuoteDraft {
     pixDiscountMode: quote.pixDiscountMode,
     pixDiscountValue: Number(quote.pixDiscountValue),
     installments: quote.installments,
+    paymentPlan: parsePaymentPlan(quote.paymentPlan),
     notes: quote.notes ?? "",
     followUpAt: quote.followUpAt ? new Date(quote.followUpAt) : null,
     lostReason: quote.lostReason ?? null,
@@ -242,6 +247,7 @@ export default function QuoteEditorPage() {
   const { data: availabilityRows } = trpc.product.availability.useQuery(undefined, { staleTime: 30_000 });
   const availability = useMemo(() => new Map((availabilityRows ?? []).map(row => [row.productId, row.available])), [availabilityRows]);
   const [lossDialog, setLossDialog] = useState<{ reason: LostReason; notes: string } | null>(null);
+  const [planDialog, setPlanDialog] = useState(false);
   const settings = settingsQuery.data as StoreSettings | undefined;
   const pickingQuery = trpc.inventory.picking.useQuery(
     { quoteId: Number.isFinite(quoteId) && quoteId > 0 ? quoteId : 1 },
@@ -948,10 +954,13 @@ export default function QuoteEditorPage() {
                 <Select
                   value={draft.status}
                   onValueChange={(status: QuoteDraft["status"]) =>
-                    // "Não aprovado" pede o motivo antes de mudar o status.
+                    // "Não aprovado" pede o motivo e "Aprovado", a forma de
+                    // pagamento, antes de mudar o status.
                     status === "lost" && draft.status !== "lost"
                       ? setLossDialog({ reason: draft.lostReason ?? "price", notes: draft.lostNotes })
-                      : changeDraft({ status })
+                      : status === "approved" && draft.status !== "approved"
+                        ? setPlanDialog(true)
+                        : changeDraft({ status, ...(status !== "approved" ? { paymentPlan: null } : {}) })
                   }
                 >
                   <SelectTrigger>
@@ -1626,6 +1635,18 @@ export default function QuoteEditorPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {draft.status === "approved" ? (
+                <div className="rounded-xl border border-border p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Forma de pagamento da venda</p>
+                  {draft.paymentPlan?.parts.length ? (
+                    <ul className="mt-1 space-y-0.5 text-sm">
+                      {draft.paymentPlan.parts.map((part, index) => <li key={index}>{describePart(part)}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">Não registrada: aprovado antes desta versão. Revise em Financeiro.</p>
+                  )}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
           {can("finance") ? (
@@ -1641,6 +1662,16 @@ export default function QuoteEditorPage() {
             <Trash2 className="mr-2 h-4 w-4" />
             Excluir orçamento
           </Button>
+          <PaymentPlanDialog
+            open={planDialog}
+            totals={{ total: summary.total, pixTotal: summary.pixTotal }}
+            installments={draft.installments}
+            onCancel={() => setPlanDialog(false)}
+            onConfirm={paymentPlan => {
+              setPlanDialog(false);
+              changeDraft({ status: "approved", paymentPlan });
+            }}
+          />
           <ConfirmDialog
             open={confirmDelete}
             onOpenChange={setConfirmDelete}

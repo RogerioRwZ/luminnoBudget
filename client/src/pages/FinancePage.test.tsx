@@ -28,6 +28,8 @@ vi.mock("@/lib/trpc", () => ({
       create: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       recordPayment: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       cancel: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      legacy: { useQuery: () => ({ data: [] }) },
+      settleLegacy: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       message: { useQuery: (_input: unknown, options: { enabled: boolean }) => (options.enabled ? { data: mocks.chargeMessage, isLoading: false, error: null } : { data: undefined, isLoading: false, error: null }) },
     },
     messages: { logSent: { useMutation: () => ({ mutate: mocks.logSent }) } },
