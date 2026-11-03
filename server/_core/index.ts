@@ -11,6 +11,7 @@ import { ensurePdfHistoryDirectory, ensureUploadDirectory, getLocalAttachmentPat
 import { getAttachment } from "../advancedDb";
 import { verifyDatabaseConnection } from "../localUserDb";
 import { getQuotePdfHistoryEntry } from "../quoteDb";
+import { startPushScheduler } from "../pushDb";
 
 function securityHeaders(_req: Request, res: Response, next: NextFunction) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -118,6 +119,8 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+  // Avisos no celular (Resumo do dia de manhã e alerta de backup).
+  if (process.env.PUSH_DISABLED !== "1") startPushScheduler();
 }
 
 // Sai com código de erro se a inicialização falhar (ex.: pasta de uploads

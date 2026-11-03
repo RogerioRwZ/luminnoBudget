@@ -37,6 +37,7 @@ import {
   ShoppingCart,
   RotateCcw,
   SlidersHorizontal,
+  TrendingUp,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
@@ -74,6 +75,16 @@ const movementMeta = {
     label: "Devolução",
     icon: RotateCcw,
     className: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  },
+  loan_out: {
+    label: "Empréstimo",
+    icon: ArrowUpFromLine,
+    className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300",
+  },
+  loan_return: {
+    label: "Volta do empréstimo",
+    icon: ArrowDownToLine,
+    className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300",
   },
 } as const;
 
@@ -273,6 +284,12 @@ export default function InventoryPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="h-11 px-4">
+            <Link href="/estoque/giro">
+              <TrendingUp className="mr-2 h-4 w-4" />
+              Giro e curva ABC
+            </Link>
+          </Button>
           <Button
             variant="outline"
             className="h-11 px-4"
@@ -483,6 +500,11 @@ export default function InventoryPage() {
                         >
                           Res.: {product.reservedQuantity}
                         </Badge>
+                        {product.loanedQuantity ? (
+                          <Badge variant="secondary" className="bg-violet-500/10 text-violet-700 dark:text-violet-300" title="Fora da loja, no mostruário">
+                            Emprest.: {product.loanedQuantity}
+                          </Badge>
+                        ) : null}
                       </div>
                       <p className="mt-1 text-xs font-semibold text-primary">
                         Disponível: {product.availableQuantity} {product.unit}

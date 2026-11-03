@@ -16,6 +16,8 @@ import {
   professionals,
   commissionPayments,
   afterSalesCases,
+  stockLoans,
+  stockLoanItems,
 } from "../drizzle/schema";
 import { calculateQuote, toNumber } from "../shared/quote";
 import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate } from "../shared/dashboardMetrics";
@@ -809,7 +811,7 @@ export async function registerFollowUp(id: number, days: number) {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -826,12 +828,14 @@ export async function exportBackup() {
     db.select().from(professionals),
     db.select().from(commissionPayments),
     db.select().from(afterSalesCases),
+    db.select().from(stockLoans),
+    db.select().from(stockLoanItems),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows },
   };
 }
 
@@ -870,6 +874,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     professionals?: Array<typeof professionals.$inferInsert>;
     commissionPayments?: Array<typeof commissionPayments.$inferInsert>;
     afterSalesCases?: Array<typeof afterSalesCases.$inferInsert>;
+    stockLoans?: Array<typeof stockLoans.$inferInsert>;
+    stockLoanItems?: Array<typeof stockLoanItems.$inferInsert>;
   };
   await db.transaction(async (tx) => {
     if (input.replace) {
@@ -889,6 +895,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(professionals);
       await tx.delete(commissionPayments);
       await tx.delete(afterSalesCases);
+      await tx.delete(stockLoanItems);
+      await tx.delete(stockLoans);
     }
     if (data.clients?.length) await tx.insert(clients).values(data.clients).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, professional: sql`values(professional)` } });
     if (data.products?.length) await tx.insert(products).values(data.products).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
@@ -905,6 +913,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.professionals?.length) await tx.insert(professionals).values(data.professionals).onDuplicateKeyUpdate({ set: { commissionPercent: sql`values(commissionPercent)`, phone: sql`values(phone)` } });
     if (data.commissionPayments?.length) await tx.insert(commissionPayments).values(data.commissionPayments).onDuplicateKeyUpdate({ set: { amount: sql`values(amount)`, paidAt: sql`values(paidAt)`, notes: sql`values(notes)` } });
     if (data.afterSalesCases?.length) await tx.insert(afterSalesCases).values(data.afterSalesCases).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, resolution: sql`values(resolution)`, resolvedAt: sql`values(resolvedAt)` } });
+    if (data.stockLoans?.length) await tx.insert(stockLoans).values(data.stockLoans).onDuplicateKeyUpdate({ set: { dueDate: sql`values(dueDate)`, closedAt: sql`values(closedAt)`, notes: sql`values(notes)` } });
+    if (data.stockLoanItems?.length) await tx.insert(stockLoanItems).values(data.stockLoanItems).onDuplicateKeyUpdate({ set: { returnedQuantity: sql`values(returnedQuantity)`, soldQuantity: sql`values(soldQuantity)`, lostQuantity: sql`values(lostQuantity)` } });
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };

@@ -1,10 +1,10 @@
-export type StockMovementType = "entry" | "delivery" | "adjustment" | "return";
+export type StockMovementType = "entry" | "delivery" | "adjustment" | "return" | "loan_out" | "loan_return";
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export function getStockDelta(type: StockMovementType, quantity: number) {
-  if (type === "delivery") return -Math.abs(quantity);
-  if (type === "entry" || type === "return") return Math.abs(quantity);
+  if (type === "delivery" || type === "loan_out") return -Math.abs(quantity);
+  if (type === "entry" || type === "return" || type === "loan_return") return Math.abs(quantity);
   return quantity;
 }
 
