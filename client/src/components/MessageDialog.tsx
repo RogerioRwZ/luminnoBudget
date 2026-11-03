@@ -63,11 +63,16 @@ export function MessageDialog({
     setPhone(message.phone);
     setEmail(message.email);
     setQr("");
-    if (message.pix) {
-      pixQrDataUrl(message.pix)
-        .then(setQr)
-        .catch(() => setQr(""));
-    }
+    if (!message.pix) return;
+    // O QR fica pronto depois: se a janela fechar ou trocar de mensagem antes,
+    // o resultado atrasado é descartado (não mostra o PIX de outra cobrança).
+    let current = true;
+    pixQrDataUrl(message.pix)
+      .then(url => current && setQr(url))
+      .catch(() => current && setQr(""));
+    return () => {
+      current = false;
+    };
   }, [message]);
 
   const register = (channel: "whatsapp" | "email" | "copy") => {
