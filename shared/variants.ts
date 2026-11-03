@@ -44,6 +44,13 @@ export function composeVariantName(modelName: string, attributes: VariantAttribu
   return label ? `${modelName.trim()} — ${label}` : modelName.trim();
 }
 
+// Nome de uma variação do modelo. Sem nenhum detalhe preenchido (todos são
+// opcionais), a referência diferencia: "Spot Arco — Ref. ARC-01".
+export function variantDisplayName(modelName: string, attributes: VariantAttributes, reference?: string | null) {
+  if (variantLabel(attributes)) return composeVariantName(modelName, attributes);
+  return reference ? `${modelName.trim()} — Ref. ${reference}` : modelName.trim();
+}
+
 // Chave para não repetir a mesma variação dentro do modelo.
 export function attributesKey(attributes: VariantAttributes) {
   return VARIANT_FIELDS.map(({ key }) => (attributes[key] ?? "").toLocaleLowerCase("pt-BR")).join("|");

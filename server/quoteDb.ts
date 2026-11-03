@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { desc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   appointments,
@@ -25,7 +26,7 @@ import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate
 import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
-import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, VARIANT_FIELDS, variantLabel, type VariantAttributes } from "../shared/variants";
+import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, VARIANT_FIELDS, variantDisplayName, variantLabel, type VariantAttributes } from "../shared/variants";
 import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
 import { barcodeProblem, matchesProductSearch, nextProductCode, normalizeBarcode, normalizeReference, referenceProblem, suggestVariantReference, uniqueReference } from "../shared/productCodes";
 import { professionalKey } from "../shared/commission";
@@ -244,10 +245,12 @@ export async function saveProduct(input: {
   const inFamily = Boolean(parentId) || children.length > 0 || Boolean(variantLabel(attributes));
   const modelName = inFamily ? (input.modelName?.trim() || current?.modelName || root?.modelName || root?.shortDescription || input.shortDescription).slice(0, 400) : null;
   const rootId = parentId ?? (children.length ? input.id! : null);
-  if (rootId) {
+  // Detalhes são opcionais; só não pode haver duas variações do mesmo modelo
+  // com exatamente os mesmos detalhes preenchidos.
+  if (rootId && variantLabel(attributes)) {
     const key = attributesKey(attributes);
     const twin = (await db.select().from(products).where(or(eq(products.id, rootId), eq(products.parentId, rootId)))).find((member) => member.id !== input.id && attributesKey(parseAttributes(member.attributes)) === key);
-    if (twin) throw new Error(variantLabel(attributes) ? `A variação ${variantLabel(attributes)} já existe neste modelo (#${twin.code}).` : `Informe cor, temperatura, potência ou outro detalhe: sem isso a variação fica igual a #${twin.code}.`);
+    if (twin) throw new Error(`A variação ${variantLabel(attributes)} já existe neste modelo (Ref. ${twin.reference ?? twin.code}).`);
   }
   const reference = input.reference !== undefined ? normalizeReference(input.reference) : current?.reference ?? current?.code ?? "";
   const referenceError = referenceProblem(reference);
@@ -260,7 +263,7 @@ export async function saveProduct(input: {
   if (referenceOwner && referenceOwner.id !== input.id) throw new Error(`A referência ${reference} já está no produto "${referenceOwner.shortDescription}".`);
   const values = {
     reference,
-    shortDescription: modelName ? composeVariantName(modelName, attributes) : input.shortDescription,
+    shortDescription: modelName ? (parentId ? variantDisplayName(modelName, attributes, reference) : composeVariantName(modelName, attributes)) : input.shortDescription,
     parentId,
     modelName,
     attributes: variantLabel(attributes) ? JSON.stringify(attributes) : null,
@@ -285,7 +288,7 @@ export async function saveProduct(input: {
   if (root && !root.modelName) await db.update(products).set({ modelName: root.shortDescription }).where(eq(products.id, root.id));
   for (const child of children) {
     if (child.modelName === modelName) continue;
-    await db.update(products).set({ modelName, shortDescription: composeVariantName(modelName!, parseAttributes(child.attributes)) }).where(eq(products.id, child.id));
+    await db.update(products).set({ modelName, shortDescription: variantDisplayName(modelName!, parseAttributes(child.attributes), child.reference) }).where(eq(products.id, child.id));
   }
   if (input.id) {
     await db.update(products).set(values).where(eq(products.id, input.id));
@@ -318,73 +321,108 @@ export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): P
 // os dados do produto principal; as que já existem são puladas. O ponto de
 // reposição começa zerado: senão cada variação nova, sem estoque, já iria
 // para Compras.
-type VariantInput = { attributes: VariantAttributes; reference?: string | null; barcode?: string | null };
+type VariantInput = { id?: number; attributes?: VariantAttributes | null; reference?: string | null; barcode?: string | null };
 
-// Confere todas as variações antes de criar qualquer uma: um erro no meio
-// deixaria só parte delas. `reserved`: referências desta mesma gravação (a do
-// modelo que está sendo cadastrado junto). Devolve as referências em uso.
-async function assertVariantInputs(variants: VariantInput[], reserved: string[] = []) {
+// Confere a lista inteira antes de gravar qualquer coisa: um erro no meio
+// deixaria só parte das variações. Em cada variação só a referência é
+// obrigatória; detalhes (cor, temperatura...) e código de barras são opcionais.
+// `rootId`: modelo já gravado (as variações dele contam para detalhes
+// repetidos). `reserved`: referências desta mesma gravação (a do modelo).
+async function assertVariantInputs(variants: VariantInput[], { rootId = null, reserved = [] }: { rootId?: number | null; reserved?: string[] } = {}) {
   const db = await database();
-  const existing = await db.select({ reference: products.reference, barcode: products.barcode }).from(products);
-  const taken: Array<string | null> = [...existing.map((row) => row.reference), ...reserved];
+  const all = await db.select({ id: products.id, reference: products.reference, barcode: products.barcode, parentId: products.parentId, attributes: products.attributes }).from(products);
+  const editing = new Set(variants.map((variant) => variant.id).filter(Boolean));
+  const others = all.filter((row) => !editing.has(row.id));
+  const fold = (value: string | null | undefined) => (value ?? "").toLocaleLowerCase("pt-BR");
+  const takenReferences = new Set([...others.map((row) => fold(row.reference)), ...reserved.map(fold)].filter(Boolean));
+  const takenBarcodes = new Set(others.map((row) => row.barcode).filter(Boolean));
+  const familyCombos = new Set(rootId ? others.filter((row) => (row.id === rootId || row.parentId === rootId) && variantLabel(parseAttributes(row.attributes))).map((row) => attributesKey(parseAttributes(row.attributes))) : []);
   const seen = { references: new Set<string>(), barcodes: new Set<string>(), combos: new Set<string>() };
-  for (const variant of variants) {
-    const typed = normalizeReference(variant.reference);
+  variants.forEach((variant, index) => {
+    const attributes = cleanAttributes(variant.attributes);
+    const label = variantLabel(attributes);
+    const name = label || `Variação ${index + 1}`;
+    if (variant.id && !all.some((row) => row.id === variant.id && row.parentId === rootId)) throw new Error(`${name}: não pertence a este modelo.`);
+    const reference = normalizeReference(variant.reference);
+    if (!reference) throw new Error(`${name}: informe a referência.`);
     const barcode = normalizeBarcode(variant.barcode);
-    const label = variantLabel(cleanAttributes(variant.attributes));
-    if (!label) throw new Error("Informe cor, temperatura, potência ou outro detalhe em cada variação.");
-    const comboKey = attributesKey(cleanAttributes(variant.attributes));
-    if (seen.combos.has(comboKey)) throw new Error(`A variação ${label} está repetida.`);
-    seen.combos.add(comboKey);
-    const problem = (typed ? referenceProblem(typed) : null) ?? barcodeProblem(barcode);
-    if (problem) throw new Error(`${label}: ${problem}`);
-    const referenceKey = typed.toLocaleLowerCase("pt-BR");
-    if (typed && (seen.references.has(referenceKey) || taken.some((value) => value?.toLocaleLowerCase("pt-BR") === referenceKey))) throw new Error(`A referência ${typed} já está em uso.`);
-    if (barcode && (seen.barcodes.has(barcode) || existing.some((row) => row.barcode === barcode))) throw new Error(`O código de barras ${barcode} já está em uso.`);
-    if (typed) seen.references.add(referenceKey);
+    const problem = referenceProblem(reference) ?? barcodeProblem(barcode);
+    if (problem) throw new Error(`${name}: ${problem}`);
+    if (label) {
+      const key = attributesKey(attributes);
+      if (seen.combos.has(key) || familyCombos.has(key)) throw new Error(`A variação ${label} já existe neste modelo.`);
+      seen.combos.add(key);
+    }
+    if (seen.references.has(fold(reference)) || takenReferences.has(fold(reference))) throw new Error(`A referência ${reference} já está em uso.`);
+    if (barcode && (seen.barcodes.has(barcode) || takenBarcodes.has(barcode))) throw new Error(`O código de barras ${barcode} já está em uso.`);
+    seen.references.add(fold(reference));
     if (barcode) seen.barcodes.add(barcode);
-  }
-  return [...taken, ...Array.from(seen.references)];
+  });
+}
+
+// O modelo de um produto com variações não é vendido; a referência dele é
+// interna ("MOD-12", pelo código interno) quando não for informada.
+async function setModelReference(rootId: number) {
+  const db = await database();
+  const root = (await getProduct(rootId))!;
+  const taken = (await db.select({ reference: products.reference }).from(products)).map((row) => row.reference).filter((value) => value !== root.reference);
+  await db.update(products).set({ reference: uniqueReference(`MOD-${root.code}`, taken) }).where(eq(products.id, rootId));
+}
+
+// Campos que uma variação já gravada mantém quando só a referência, o código
+// de barras ou os detalhes mudam.
+function keptFields(current: typeof products.$inferSelect) {
+  return {
+    shortDescription: current.shortDescription, fullDescription: current.fullDescription, imageUrl: current.imageUrl, imageKey: current.imageKey,
+    unit: current.unit, supplierName: current.supplierName, unitPrice: toNumber(current.unitPrice), reorderPoint: toNumber(current.reorderPoint), active: current.active,
+  };
 }
 
 // Cadastro do produto já com as variações, numa gravação só: o produto vira o
-// modelo (sem cor/temperatura) e cada variação tem referência própria.
-export async function saveProductWithVariants(product: Parameters<typeof saveProduct>[0], variants: VariantInput[]) {
-  if (product.id) throw new Error("Use \"Criar variações\" para acrescentar variações a um produto já cadastrado.");
+// modelo e cada variação tem referência própria.
+export async function saveProductWithVariants(product: Omit<Parameters<typeof saveProduct>[0], "reference"> & { reference?: string | null }, variants: VariantInput[]) {
+  if (product.id) throw new Error("Para um produto já cadastrado, edite o modelo e acrescente as variações na lista.");
   if (!variants.length) throw new Error("Informe ao menos uma variação.");
+  const modelReference = normalizeReference(product.reference);
   // Tudo conferido antes de gravar: modelo e variações entram juntos.
-  await assertVariantInputs(variants, [normalizeReference(product.reference)]);
-  if (product.barcode && variants.some((variant) => normalizeBarcode(variant.barcode) === normalizeBarcode(product.barcode))) throw new Error("O código de barras do modelo não pode repetir o de uma variação.");
-  const rootId = await saveProduct({ ...product, attributes: null, parentId: null });
+  await assertVariantInputs(variants, { reserved: modelReference ? [modelReference] : [] });
+  const rootId = await saveProduct({ ...product, reference: modelReference || `MOD-${randomUUID().slice(0, 8)}`, barcode: null, attributes: null, parentId: null });
+  if (!modelReference) await setModelReference(rootId);
   const result = await createProductVariants(rootId, variants);
   return { rootId, created: result.created };
 }
 
-// Cada variação tem referência própria (sem informar, vira "REF-PRETO-3000K")
-// e, se quiser, código de barras.
+// Editar o modelo e todas as variações juntos: as que têm id são atualizadas
+// (referência, detalhes e código de barras) e as sem id são criadas.
+export async function saveProductFamily(model: Parameters<typeof saveProduct>[0] & { id: number }, variants: VariantInput[]) {
+  const root = await getProduct(model.id);
+  if (!root || root.parentId) throw new Error("Modelo não encontrado.");
+  await assertVariantInputs(variants, { rootId: root.id, reserved: [normalizeReference(model.reference ?? root.reference ?? root.code)] });
+  await saveProduct(model);
+  const updated: number[] = [];
+  for (const variant of variants.filter((item) => item.id)) {
+    const current = (await getProduct(variant.id!))!;
+    await saveProduct({ ...keptFields(current), id: current.id, parentId: root.id, reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, attributes: cleanAttributes(variant.attributes) });
+    updated.push(current.id);
+  }
+  const fresh = variants.filter((item) => !item.id);
+  const created = fresh.length ? (await createProductVariants(root.id, fresh)).created : [];
+  return { rootId: root.id, updated, created };
+}
+
+// Acrescenta variações a um modelo, copiando preço, fornecedor, foto e
+// descrição dele. Cada uma com a sua referência (obrigatória).
 export async function createProductVariants(productId: number, variants: VariantInput[]) {
   const base = await getProduct(productId);
   const root = base?.parentId ? await getProduct(base.parentId) : base;
   if (!root) throw new Error("Produto não encontrado.");
+  await assertVariantInputs(variants, { rootId: root.id });
   const modelName = root.modelName || root.shortDescription;
   const created: number[] = [];
-  const skipped: string[] = [];
-  const taken = await assertVariantInputs(variants);
   for (const variant of variants) {
-    const combination = variant.attributes;
-    const typed = normalizeReference(variant.reference);
-    const clean = cleanAttributes(combination);
-    const reference = typed || uniqueReference(suggestVariantReference(root.reference ?? root.code, VARIANT_FIELDS.map(({ key }) => clean[key])), taken);
-    try {
-      created.push(await saveProduct({ reference, barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: 0, active: true }));
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("já existe neste modelo")) throw error;
-      skipped.push(variantLabel(clean));
-      continue;
-    }
-    taken.push(reference);
+    created.push(await saveProduct({ reference: normalizeReference(variant.reference), barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: cleanAttributes(variant.attributes), fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: 0, active: true }));
   }
-  return { rootId: root.id, created, skipped };
+  return { rootId: root.id, created };
 }
 
 export async function getProduct(id: number) {
