@@ -11,7 +11,7 @@ describe("responsividade da administração local", () => {
     expect(authPage).toContain("max-w-md");
     expect(authPage).toContain("px-4");
     expect(adminPage).toContain("sm:grid-cols-2");
-    expect(adminPage).toContain("xl:grid-cols-4");
+    expect(adminPage).toContain("xl:grid-cols-5");
     expect(adminPage).toContain("xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]");
     expect(adminPage).toContain("flex-col");
     expect(adminPage).toContain("Administração segura");

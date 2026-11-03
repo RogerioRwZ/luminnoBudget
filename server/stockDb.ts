@@ -36,27 +36,33 @@ export async function inventoryOverview() {
   };
 }
 
-export async function recordStockMovement(input: { productId: number; type: Exclude<StockMovementType, "delivery">; quantity: number; responsible?: string | null; notes?: string | null; occurredAt: Date }) {
+export type StockMovementInput = { productId: number; type: Exclude<StockMovementType, "delivery">; quantity: number; responsible?: string | null; notes?: string | null; occurredAt: Date; quoteId?: number | null; quoteItemId?: number | null; clientName?: string | null };
+
+// Dentro de uma transação já aberta: o pós-venda grava a ocorrência e a
+// movimentação juntas.
+export async function moveStock(tx: Tx, input: StockMovementInput) {
+  // FOR UPDATE: sem a trava, duas movimentações simultâneas leem o mesmo
+  // saldo "antes" e a segunda sobrescreve a primeira.
+  await tx.execute(sql`SELECT id FROM ${products} WHERE ${eq(products.id, input.productId)} FOR UPDATE`);
+  const product = (await tx.select().from(products).where(eq(products.id, input.productId)).limit(1))[0];
+  if (!product) throw new Error("Produto não encontrado");
+  const beforeQuantity = toNumber(product.stockQuantity);
+  const afterQuantity = calculateStockAfter(beforeQuantity, input.type, input.quantity);
+  if (input.type === "adjustment" && afterQuantity < beforeQuantity) {
+    const reservations = await tx.select({ reservedQuantity: quoteItemReservations.reservedQuantity }).from(quoteItemReservations).where(eq(quoteItemReservations.productId, product.id));
+    const reserved = reservations.reduce((sum, row) => sum + toNumber(row.reservedQuantity), 0);
+    if (afterQuantity < reserved) throw new Error(`O ajuste deixaria o saldo (${afterQuantity}) abaixo da quantidade reservada para orçamentos aprovados (${reserved}).`);
+  }
+  await tx.update(products).set({ stockQuantity: money(afterQuantity) }).where(eq(products.id, product.id));
+  const inserted = await tx.insert(stockMovements).values({ productId: product.id, type: input.type, quantity: money(getStockDelta(input.type, input.quantity)), beforeQuantity: money(beforeQuantity), afterQuantity: money(afterQuantity), responsible: input.responsible || null, notes: input.notes || null, occurredAt: input.occurredAt, quoteId: input.quoteId ?? null, quoteItemId: input.quoteItemId ?? null, clientName: input.clientName || null }).$returningId();
+  // Mercadoria que chegou vai primeiro para os aprovados que esperavam por ela.
+  if (afterQuantity > beforeQuantity) await allocatePendingReservations(tx, [product.id]);
+  return { movementId: inserted[0]!.id, beforeQuantity, afterQuantity };
+}
+
+export async function recordStockMovement(input: StockMovementInput) {
   const db = await database();
-  return db.transaction(async (tx) => {
-    // FOR UPDATE: sem a trava, duas movimentações simultâneas leem o mesmo
-    // saldo "antes" e a segunda sobrescreve a primeira.
-    await tx.execute(sql`SELECT id FROM ${products} WHERE ${eq(products.id, input.productId)} FOR UPDATE`);
-    const product = (await tx.select().from(products).where(eq(products.id, input.productId)).limit(1))[0];
-    if (!product) throw new Error("Produto não encontrado");
-    const beforeQuantity = toNumber(product.stockQuantity);
-    const afterQuantity = calculateStockAfter(beforeQuantity, input.type, input.quantity);
-    if (input.type === "adjustment" && afterQuantity < beforeQuantity) {
-      const reservations = await tx.select({ reservedQuantity: quoteItemReservations.reservedQuantity }).from(quoteItemReservations).where(eq(quoteItemReservations.productId, product.id));
-      const reserved = reservations.reduce((sum, row) => sum + toNumber(row.reservedQuantity), 0);
-      if (afterQuantity < reserved) throw new Error(`O ajuste deixaria o saldo (${afterQuantity}) abaixo da quantidade reservada para orçamentos aprovados (${reserved}).`);
-    }
-    await tx.update(products).set({ stockQuantity: money(afterQuantity) }).where(eq(products.id, product.id));
-    const inserted = await tx.insert(stockMovements).values({ productId: product.id, type: input.type, quantity: money(getStockDelta(input.type, input.quantity)), beforeQuantity: money(beforeQuantity), afterQuantity: money(afterQuantity), responsible: input.responsible || null, notes: input.notes || null, occurredAt: input.occurredAt }).$returningId();
-    // Mercadoria que chegou vai primeiro para os aprovados que esperavam por ela.
-    if (afterQuantity > beforeQuantity) await allocatePendingReservations(tx, [product.id]);
-    return { movementId: inserted[0]!.id, beforeQuantity, afterQuantity };
-  });
+  return db.transaction((tx) => moveStock(tx, input));
 }
 
 // Reserva o estoque livre para itens de orçamentos aprovados que ainda estão

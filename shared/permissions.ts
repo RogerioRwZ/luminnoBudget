@@ -19,15 +19,17 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
 
 // Áreas do sistema. Cada página e cada rota do servidor pertence a uma ou
 // mais delas; a Visão geral e as Configurações (só leitura) são de todos.
-export type Area = "quotes" | "agenda" | "pdfs" | "finance" | "catalog" | "stock" | "purchases" | "customers" | "reports";
-const ALL: Area[] = ["quotes", "agenda", "pdfs", "finance", "catalog", "stock", "purchases", "customers", "reports"];
+export type Area = "quotes" | "agenda" | "pdfs" | "finance" | "catalog" | "stock" | "purchases" | "customers" | "reports" | "aftersales";
+const ALL: Area[] = ["quotes", "agenda", "pdfs", "finance", "catalog", "stock", "purchases", "customers", "reports", "aftersales"];
 
 const ROLE_AREAS: Record<UserRole, Area[]> = {
   admin: ALL,
   user: ALL,
-  sales: ["quotes", "agenda", "pdfs", "catalog", "customers"],
-  stock: ["agenda", "catalog", "stock", "purchases"],
-  finance: ["quotes", "pdfs", "finance", "customers", "reports"],
+  // Pós-venda é de todos: Vendas atende o cliente, a expedição recebe a
+  // peça e o Financeiro acompanha o reembolso.
+  sales: ["quotes", "agenda", "pdfs", "catalog", "customers", "aftersales"],
+  stock: ["agenda", "catalog", "stock", "purchases", "aftersales"],
+  finance: ["quotes", "pdfs", "finance", "customers", "reports", "aftersales"],
 };
 
 export function canAccess(role: string | null | undefined, ...areas: Area[]) {
@@ -48,6 +50,7 @@ export const PAGE_AREAS: Record<string, Area> = {
   "/clientes": "customers",
   "/comissoes": "finance",
   "/relatorios": "reports",
+  "/pos-venda": "aftersales",
 };
 
 // Preço de custo e margem: escondidos do perfil Vendas, que negocia com o

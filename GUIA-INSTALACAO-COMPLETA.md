@@ -493,6 +493,11 @@ mysqldump --defaults-extra-file=/root/.my-luminno-backup.cnf \
 tar -C /var/lib/luminno -czf "$BACKUP_DIR/luminno-arquivos_${STAMP}.tar.gz" uploads pdf-history
 
 find "$BACKUP_DIR" -type f -mtime +30 -delete
+
+# Registro lido pela Administração do sistema (último backup)
+mkdir -p /var/lib/luminno/backup-status
+date -Iseconds > /var/lib/luminno/backup-status/ok
+chmod 0644 /var/lib/luminno/backup-status/ok
 EOF
 sudo chmod 0700 /usr/local/sbin/luminno-backup
 ```
@@ -573,6 +578,8 @@ sudo systemctl restart luminno
 | Espaço em disco | `df -h /var/lib/luminno` (também aparece em **Administração → Status do sistema**) |
 
 O endereço `/api/health` responde **200** quando está tudo certo e **503** quando o banco está fora do ar. Dá para cadastrá-lo num monitor gratuito, como UptimeRobot ou Better Stack, para receber um alerta quando o sistema cair.
+
+Para saber se o backup da noite rodou, a **Administração** mostra o último backup (gravado pelo script do passo 10.2) e o Resumo do dia do administrador avisa quando ele passa de 36 horas. Para um alerta externo, crie uma verificação diária no [Healthchecks.io](https://healthchecks.io) e acrescente ao fim do script de backup `curl -fsS -m 10 --retry 3 https://hc-ping.com/SEU-CODIGO`. Se o aviso não chegar no dia, o Healthchecks alerta você. O instalador automático faz isso com `--healthcheck-url`.
 
 ### Problemas comuns
 

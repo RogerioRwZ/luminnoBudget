@@ -15,6 +15,7 @@ import {
   storeSettings,
   professionals,
   commissionPayments,
+  afterSalesCases,
 } from "../drizzle/schema";
 import { calculateQuote, toNumber } from "../shared/quote";
 import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate } from "../shared/dashboardMetrics";
@@ -90,6 +91,7 @@ const DEFAULT_SETTINGS = {
   maxDiscountPercent: "0",
   minMarginPercent: "0",
   defaultCommissionPercent: "0",
+  defaultWarrantyMonths: 12,
   defaultTerms: "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
 
@@ -131,6 +133,7 @@ export async function saveSettings(input: {
   maxDiscountPercent: string;
   minMarginPercent: string;
   defaultCommissionPercent: string;
+  defaultWarrantyMonths: number;
   defaultTerms: string | null;
 }) {
   const db = await database();
@@ -203,6 +206,8 @@ export async function saveProduct(input: {
   // undefined mantém o custo gravado (o perfil Vendas não envia custo).
   costPrice?: number | null;
   reorderPoint?: number;
+  // undefined mantém a garantia gravada; null volta para a padrão da loja.
+  warrantyMonths?: number | null;
   active: boolean;
   parentId?: number | null;
   modelName?: string | null;
@@ -245,6 +250,7 @@ export async function saveProduct(input: {
     unitPrice: money(input.unitPrice),
     ...(input.costPrice !== undefined ? { costPrice: input.costPrice === null ? null : money(input.costPrice) } : {}),
     reorderPoint: money(input.reorderPoint ?? 0),
+    ...(input.warrantyMonths !== undefined ? { warrantyMonths: input.warrantyMonths } : {}),
     active: input.active,
     // O campo do catálogo existia, mas o valor era descartado aqui.
     ...(input.barcode !== undefined ? { barcode: input.barcode?.trim() || null } : {}),
@@ -293,7 +299,7 @@ export async function createProductVariants(productId: number, combinations: Var
   const skipped: string[] = [];
   for (const combination of combinations) {
     try {
-      created.push(await saveProduct({ shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), reorderPoint: 0, active: true }));
+      created.push(await saveProduct({ shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: 0, active: true }));
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("já existe neste modelo")) throw error;
       skipped.push(variantLabel(cleanAttributes(combination)));
@@ -703,6 +709,8 @@ export async function deleteQuote(id: number) {
     // nenhum erro, e sem jeito de rastrear a que orçamento pertenciam.
     const receivables = await tx.select({ id: financeReceivables.id }).from(financeReceivables).where(eq(financeReceivables.quoteId, id)).limit(1);
     if (receivables.length) throw new Error("Este orçamento possui cobranças financeiras geradas e não pode ser excluído.");
+    const cases = await tx.select({ id: afterSalesCases.id }).from(afterSalesCases).where(eq(afterSalesCases.quoteId, id)).limit(1);
+    if (cases.length) throw new Error("Este orçamento tem ocorrências de pós-venda e não pode ser excluído.");
     const roomRows = await tx.select({ id: quoteRooms.id }).from(quoteRooms).where(eq(quoteRooms.quoteId, id));
     const roomIds = roomRows.map((room) => room.id);
     if (roomIds.length) {
@@ -797,7 +805,7 @@ export async function registerFollowUp(id: number, days: number) {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -813,12 +821,13 @@ export async function exportBackup() {
     db.select().from(appointments),
     db.select().from(professionals),
     db.select().from(commissionPayments),
+    db.select().from(afterSalesCases),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows },
   };
 }
 
@@ -856,6 +865,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     appointments?: Array<typeof appointments.$inferInsert>;
     professionals?: Array<typeof professionals.$inferInsert>;
     commissionPayments?: Array<typeof commissionPayments.$inferInsert>;
+    afterSalesCases?: Array<typeof afterSalesCases.$inferInsert>;
   };
   await db.transaction(async (tx) => {
     if (input.replace) {
@@ -874,6 +884,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(appointments);
       await tx.delete(professionals);
       await tx.delete(commissionPayments);
+      await tx.delete(afterSalesCases);
     }
     if (data.clients?.length) await tx.insert(clients).values(data.clients).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, professional: sql`values(professional)` } });
     if (data.products?.length) await tx.insert(products).values(data.products).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
@@ -889,6 +900,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.appointments?.length) await tx.insert(appointments).values(data.appointments).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, scheduledAt: sql`values(scheduledAt)`, notes: sql`values(notes)` } });
     if (data.professionals?.length) await tx.insert(professionals).values(data.professionals).onDuplicateKeyUpdate({ set: { commissionPercent: sql`values(commissionPercent)`, phone: sql`values(phone)` } });
     if (data.commissionPayments?.length) await tx.insert(commissionPayments).values(data.commissionPayments).onDuplicateKeyUpdate({ set: { amount: sql`values(amount)`, paidAt: sql`values(paidAt)`, notes: sql`values(notes)` } });
+    if (data.afterSalesCases?.length) await tx.insert(afterSalesCases).values(data.afterSalesCases).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, resolution: sql`values(resolution)`, resolvedAt: sql`values(resolvedAt)` } });
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };

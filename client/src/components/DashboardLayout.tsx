@@ -10,6 +10,7 @@ import {
   Files,
   Landmark,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   Moon,
   PackageSearch,
@@ -51,6 +52,7 @@ const menuItems = [
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: ShoppingCart, label: "Compras", path: "/compras" },
   { icon: UsersRound, label: "Clientes", path: "/clientes" },
+  { icon: LifeBuoy, label: "Pós-venda", path: "/pos-venda" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
   { icon: ScanLine, label: "Operação", path: "/operacao" },
 ];

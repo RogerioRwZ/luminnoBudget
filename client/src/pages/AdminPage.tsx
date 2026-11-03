@@ -27,6 +27,7 @@ import { trpc } from "@/lib/trpc";
 import { ActivityLogPanel } from "@/components/ActivityLogPanel";
 import {
   Activity,
+  DatabaseBackup,
   Database,
   HardDrive,
   KeyRound,
@@ -37,6 +38,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { plural } from "@shared/plural";
+import { BACKUP_STATE_LABELS, BACKUP_STALE_HOURS } from "@shared/backupStatus";
 
 const bytes = (value?: number | null) => {
   if (value == null) return "Indisponível";
@@ -186,7 +188,7 @@ export default function AdminPage() {
           </Button>
         </div>
       ) : null}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatusCard
           icon={Activity}
           title="Aplicação"
@@ -226,6 +228,21 @@ export default function AdminPage() {
               : "Diretório local"
           }
           tone="text-amber-600"
+        />
+        <StatusCard
+          icon={DatabaseBackup}
+          title="Backup diário"
+          value={status?.backup ? BACKUP_STATE_LABELS[status.backup.state] : "Verificando"}
+          hint={
+            !status?.backup
+              ? "Último backup"
+              : status.backup.state === "failed"
+                ? `Falhou em ${status.backup.lastFailureAt ? new Date(status.backup.lastFailureAt).toLocaleString("pt-BR") : "—"}${status.backup.error ? ` · ${status.backup.error}` : ""}`
+                : status.backup.lastSuccessAt
+                  ? `Último em ${new Date(status.backup.lastSuccessAt).toLocaleString("pt-BR")}${status.backup.state === "stale" ? ` (mais de ${BACKUP_STALE_HOURS} h)` : ""}`
+                  : "Nenhum registro: instalações pelo instalador automático registram aqui cada backup"
+          }
+          tone={status?.backup?.state === "ok" ? "text-emerald-600" : status?.backup?.state === "unknown" || !status?.backup ? "text-muted-foreground" : "text-red-600"}
         />
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">

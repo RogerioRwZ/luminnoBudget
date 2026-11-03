@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuotePdfHistoryPanel } from "@/components/QuotePdfHistoryPanel";
 import { QuoteFinancePanel } from "@/components/QuoteFinancePanel";
+import { AfterSalesQuotePanel } from "@/components/AfterSalesQuotePanel";
 import { usePermissions } from "@/hooks/usePermissions";
 import { QuoteMarginPanel, StockShortageHint } from "@/components/QuoteInsights";
 import { canSeeCost } from "@shared/permissions";
@@ -1630,6 +1631,7 @@ export default function QuoteEditorPage() {
           {can("finance") ? (
             <QuoteFinancePanel quoteId={draft.id} quoteStatus={draft.status} />
           ) : null}
+          {draft.id && draft.status === "approved" && can("aftersales") ? <AfterSalesQuotePanel quoteId={draft.id} /> : null}
           <Button
             variant="ghost"
             size="sm"

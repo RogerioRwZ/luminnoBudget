@@ -53,6 +53,8 @@ export const products = mysqlTable("products", {
   costPrice: decimal("costPrice", { precision: 12, scale: 2 }),
   stockQuantity: decimal("stockQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
   reorderPoint: decimal("reorderPoint", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Garantia em meses; nulo usa a garantia padrão das Configurações.
+  warrantyMonths: int("warrantyMonths"),
   active: boolean("active").notNull().default(true),
   // Variações (cor, temperatura de cor, potência...): cada variação é um
   // produto completo ligado ao produto principal do modelo (parentId).
@@ -267,6 +269,7 @@ export const storeSettings = mysqlTable("storeSettings", {
   minMarginPercent: decimal("minMarginPercent", { precision: 5, scale: 2 }).notNull().default("0"),
   defaultCommissionPercent: decimal("defaultCommissionPercent", { precision: 5, scale: 2 }).notNull().default("0"),
   alertThresholdDays: int("alertThresholdDays").notNull().default(7),
+  defaultWarrantyMonths: int("defaultWarrantyMonths").notNull().default(12),
   defaultTerms: text("defaultTerms"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -310,6 +313,39 @@ export const commissionPayments = mysqlTable("commissionPayments", {
   createdByUserId: int("createdByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("commissionPayments_professional_idx").on(table.professional)]);
+
+// Pós-venda: trocas, devoluções e garantias de um item vendido. Cliente,
+// produto e fornecedor são copiados na abertura para o histórico não mudar
+// quando o orçamento ou o catálogo forem editados depois.
+export const afterSalesCases = mysqlTable("afterSalesCases", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull(),
+  quoteItemId: int("quoteItemId").notNull(),
+  productId: int("productId"),
+  clientName: varchar("clientName", { length: 240 }).notNull(),
+  productDescription: varchar("productDescription", { length: 512 }).notNull(),
+  supplierName: varchar("supplierName", { length: 240 }),
+  type: mysqlEnum("type", ["return", "exchange", "warranty"]).notNull(),
+  reason: mysqlEnum("reason", ["defect", "damaged", "wrong_product", "regret", "installation", "other"]).notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
+  status: mysqlEnum("status", ["open", "supplier", "resolved", "rejected"]).notNull().default("open"),
+  description: text("description"),
+  resolution: text("resolution"),
+  refundAmount: decimal("refundAmount", { precision: 12, scale: 2 }),
+  // Movimentações geradas ao resolver: peça devolvida ao estoque e peça
+  // nova entregue na troca. Gravadas para não repetir a baixa.
+  restockMovementId: int("restockMovementId"),
+  replacementMovementId: int("replacementMovementId"),
+  openedAt: timestamp("openedAt").notNull().defaultNow(),
+  dueDate: timestamp("dueDate").notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("afterSalesCases_quoteId_idx").on(table.quoteId),
+  index("afterSalesCases_status_idx").on(table.status),
+]);
 
 // Registro de atividades: quem fez o quê e quando. O nome do usuário é
 // copiado no momento da ação para o histórico continuar legível mesmo se o

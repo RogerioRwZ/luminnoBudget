@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDailySummaryText, dailySummaryCount, type DailySummary } from "./dailySummary";
 
-const empty: DailySummary = { date: new Date(2026, 10, 2), followUps: null, expiring: null, installments: null, purchases: null, deliveries: null, appointments: null };
+const empty: DailySummary = { date: new Date(2026, 10, 2), followUps: null, expiring: null, installments: null, purchases: null, deliveries: null, appointments: null, afterSales: null, backup: null };
 
 describe("resumo do dia", () => {
   it("conta só as seções do perfil", () => {
@@ -24,6 +24,19 @@ describe("resumo do dia", () => {
     expect(text).toContain("2 parcelas vencem hoje");
     expect(text).toContain("3 produtos aguardando compra para 1 pedido aprovado");
     expect(text).not.toContain("atrasadas");
+  });
+
+  it("inclui pós-venda e backup atrasado", () => {
+    const summary: DailySummary = {
+      ...empty,
+      afterSales: { count: 2, items: [{ id: 7, quoteNumber: 12, clientName: "Ana", productDescription: "Spot Orbit", type: "exchange", overdue: true }] },
+      backup: { state: "stale", lastSuccessAt: new Date(2026, 10, 1, 2, 15), error: null },
+    };
+    expect(dailySummaryCount(summary)).toBe(3);
+    const text = buildDailySummaryText(summary, "Luminno");
+    expect(text).toContain("*Pós-venda (2)*");
+    expect(text).toContain("Troca #7 — Ana: Spot Orbit (atrasado)");
+    expect(text).toContain("Backup atrasado (último em 01/11/2026");
   });
 
   it("avisa quando não há nada", () => {

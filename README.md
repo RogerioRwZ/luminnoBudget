@@ -11,16 +11,17 @@ Roda em um único servidor (Node.js + MySQL), com login próprio e arquivos guar
 | **Visão geral** | Propostas e valores por status, evolução mensal (orçado, aprovado e recebido), taxa de conversão, ticket médio, produtos mais cotados e alertas de validade com lembrete por WhatsApp. |
 | **Orçamentos** | Itens organizados por ambiente, desconto, frete, preço no PIX e parcelamento. Também tem duplicação de orçamentos, busca, filtros por status e validade, paginação e exportação CSV. Mostra a margem (para quem vê custo), avisa quando o desconto passa do limite e, se uma variação não tem estoque livre, sugere outra do mesmo modelo para trocar com um clique. |
 | **PDF e impressão** | Proposta em PDF com a identidade da loja: dados do cliente e da proposta, destaques de valor (total, PIX e parcelado), itens por ambiente com fotos, resumo financeiro, QR Code PIX, observações e campo de aceite. Pré-visualizar, imprimir e salvar usam o mesmo documento. Histórico de PDFs gerados e lista de separação com o mesmo visual. |
-| **Catálogo** | Produtos com foto, código automático, fornecedor, preço de custo e margem, ponto de reposição e código de barras. O custo nunca é enviado ao perfil Vendas. |
+| **Catálogo** | Produtos com foto, código automático, fornecedor, preço de custo e margem, ponto de reposição, código de barras e garantia em meses. O custo nunca é enviado ao perfil Vendas. |
 | **Estoque** | Entradas, ajustes e devoluções. Ao aprovar um orçamento, o estoque fica reservado automaticamente, e as entregas podem ser parciais. Há alerta de estoque baixo e exportação CSV. |
 | **Financeiro** | Contas a receber geradas na aprovação do orçamento ou lançadas avulsas, com parcelas, recebimentos parciais, estornos, cobranças em atraso e exportação CSV. O botão de cobrança prepara a mensagem ao cliente com QR Code PIX do saldo da parcela. |
 | **Comissões** | Comissão por profissional (arquiteto, designer), gerada conforme o cliente paga e sem o frete, no percentual fixado na aprovação. Registro de pagamentos, saldo a pagar e exportação para Excel. |
 | **Relatórios** | Vendas por período por vendedor, profissional, modelo e variação, com margem bruta e exportação para Excel (resumo e itens vendidos). |
-| **Resumo do dia** | Sino no topo com o que pede atenção hoje, conforme o perfil: agenda, retornos, propostas vencendo, parcelas, pedidos prontos para retirada e mercadoria aguardando compra. Abre sozinho na primeira entrada do dia e pode ser copiado ou enviado pelo WhatsApp. |
+| **Pós-venda** | Trocas, devoluções e garantias por item vendido, com motivo, prazo e situação (em aberto, com o fornecedor, resolvido, recusado). Mostra a garantia do item (contada da retirada). Ao resolver, a peça devolvida volta ao estoque e a peça nova da troca sai dele. Relatório dos produtos, motivos e fornecedores com mais problema, com taxa sobre o vendido e exportação para Excel. |
+| **Resumo do dia** | Sino no topo com o que pede atenção hoje, conforme o perfil: agenda, retornos, propostas vencendo, parcelas, pedidos prontos para retirada e mercadoria aguardando compra, pós-venda com prazo e, para o administrador, backup atrasado. Abre sozinho na primeira entrada do dia e pode ser copiado ou enviado pelo WhatsApp. |
 | **Clientes** | Cadastro de clientes e ficha de cada um, com orçamentos, valores aprovados, recebidos e a receber, taxa de conversão e atalho para o WhatsApp. |
 | **Operação** | Para cada orçamento: versões com comparação financeira e restauração justificada, comentários internos e anexos (plantas, PDFs e imagens). Também tem o leitor de código de barras, por leitor USB ou pela câmera do celular, e os modelos de mensagem por evento (proposta enviada, aprovada, vencendo, cobrança etc.). As **mensagens do dia** listam propostas vencendo e parcelas a vencer ou em atraso, com o texto do modelo preenchido, para enviar pelo WhatsApp ou e-mail. |
-| **Configurações** | Dados da loja, logotipo, chave, favorecido e cidade do PIX, condições padrão, dias de alerta, desconto máximo, margem mínima, comissão padrão e backup/restauração em JSON. |
-| **Administração** | Usuários e perfis (usuário/administrador), status do sistema (banco, disco, tempo no ar) e **registro de atividades**: quem aprovou orçamentos, registrou recebimentos e estornos, ajustou estoque, mudou preços, configurações e usuários, e quando. |
+| **Configurações** | Dados da loja, logotipo, chave, favorecido e cidade do PIX, condições padrão, dias de alerta, desconto máximo, margem mínima, comissão padrão, garantia padrão e backup/restauração em JSON. |
+| **Administração** | Usuários e perfis (usuário/administrador), status do sistema (banco, disco, tempo no ar, último backup) e **registro de atividades**: quem aprovou orçamentos, registrou recebimentos e estornos, ajustou estoque, mudou preços, configurações e usuários, e quando. |
 
 ## Tecnologias
 
@@ -98,6 +99,15 @@ Outras formas de acesso:
 - `--cloudflare-tunnel`: Cloudflare Tunnel, sem abrir portas (o token é pedido na tela).
 
 Veja todas as opções com `--help`. O script pode ser executado de novo com segurança: mantém senhas, banco e configuração, e completa o que faltar.
+
+### Monitoramento
+
+- **Sistema no ar:** cadastre `https://seu-endereço/api/health` num monitor gratuito (UptimeRobot, Better Stack). Ele responde `200` com o banco online e `503` com ele fora do ar.
+- **Backup diário:** a **Administração** mostra quando foi o último backup e avisa no Resumo do dia se ele atrasar ou falhar. Para receber o alerta fora do sistema, crie uma verificação diária no [Healthchecks.io](https://healthchecks.io) e informe o endereço dela ao instalador (pode rodar de novo numa instalação existente):
+  ```bash
+  sudo bash install-ubuntu.sh --cloudflare-tunnel --healthcheck-url https://hc-ping.com/SEU-CODIGO
+  ```
+  Cada backup avisa o início, o fim e as falhas. Se o aviso diário não chegar, o Healthchecks manda o alerta por e-mail, Telegram ou WhatsApp.
 
 ### Instalação manual
 

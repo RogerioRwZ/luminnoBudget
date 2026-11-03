@@ -2,6 +2,8 @@ import { APPOINTMENT_TYPE_LABELS } from "./agenda";
 
 type AppointmentType = keyof typeof APPOINTMENT_TYPE_LABELS;
 import { plural } from "./plural";
+import { AFTER_SALES_TYPE_LABELS, type AfterSalesType } from "./afterSales";
+import type { BackupState } from "./backupStatus";
 
 // Cada seção é null quando o perfil não tem acesso à área correspondente.
 export type DailySummary = {
@@ -16,6 +18,9 @@ export type DailySummary = {
   purchases: { products: number; quotesWaiting: number; items: Array<{ productId: number; shortDescription: string; unit: string; quantity: number; supplierName: string | null }> } | null;
   deliveries: { count: number; items: Array<{ quoteId: number; quoteNumber: number; clientName: string; lines: number }> } | null;
   appointments: { count: number; items: Array<{ id: number; type: AppointmentType; clientName: string; scheduledAt: Date; responsible: string | null; quoteNumber: number | null }> } | null;
+  afterSales: { count: number; items: Array<{ id: number; quoteNumber: number | null; clientName: string; productDescription: string; type: AfterSalesType; overdue: boolean }> } | null;
+  // Só para administradores e só quando o backup atrasou ou falhou.
+  backup: { state: BackupState; lastSuccessAt: Date | null; error: string | null } | null;
 };
 
 export function dailySummaryCount(summary: DailySummary | null | undefined) {
@@ -25,7 +30,9 @@ export function dailySummaryCount(summary: DailySummary | null | undefined) {
     + (summary.installments ? summary.installments.dueToday.count + summary.installments.overdue.count : 0)
     + (summary.purchases?.products ?? 0)
     + (summary.deliveries?.count ?? 0)
-    + (summary.appointments?.count ?? 0);
+    + (summary.appointments?.count ?? 0)
+    + (summary.afterSales?.count ?? 0)
+    + (summary.backup ? 1 : 0);
 }
 
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -49,6 +56,8 @@ export function buildDailySummaryText(summary: DailySummary, brand: string) {
   }
   if (summary.deliveries) section(`Pedidos prontos para retirada (${summary.deliveries.count})`, summary.deliveries.items.map((item) => `#${item.quoteNumber} ${item.clientName}`));
   if (summary.purchases && summary.purchases.products) section("Compras", [`${plural(summary.purchases.products, "produto aguardando", "produtos aguardando")} compra para ${plural(summary.purchases.quotesWaiting, "pedido aprovado", "pedidos aprovados")}`]);
+  if (summary.backup) section("Sistema", [summary.backup.state === "failed" ? "O último backup falhou" : `Backup atrasado${summary.backup.lastSuccessAt ? ` (último em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(summary.backup.lastSuccessAt))})` : ""}`]);
+  if (summary.afterSales) section(`Pós-venda (${summary.afterSales.count})`, summary.afterSales.items.map((item) => `${AFTER_SALES_TYPE_LABELS[item.type]} #${item.id} — ${item.clientName}: ${item.productDescription}${item.overdue ? " (atrasado)" : ""}`));
   if (lines.length === 1) lines.push("", "Nada pendente para hoje. ✅");
   return lines.join("\n");
 }

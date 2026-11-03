@@ -26,6 +26,7 @@ TIMEZONE="America/Sao_Paulo"
 FIREWALL=1
 SWAP=1
 ASSUME_YES=0
+HEALTHCHECK_URL=""
 
 APP_USER="luminno"
 APP_HOME="/opt/luminno"
@@ -33,6 +34,7 @@ APP_DIR="$APP_HOME/app"
 DATA_DIR="/var/lib/luminno"
 ETC_DIR="/etc/luminno"
 ENV_FILE="$ETC_DIR/luminno.env"
+MONITOR_ENV="$ETC_DIR/monitor.env"
 BACKUP_DIR="/var/backups/luminno"
 BACKUP_CNF="/root/.my-luminno-backup.cnf"
 COREPACK_DIR="/var/cache/luminno-corepack"
@@ -64,6 +66,8 @@ Outras opções:
   --timezone ZONA        Fuso do servidor (padrão: America/Sao_Paulo).
   --no-firewall          Não mexe no firewall (ufw).
   --no-swap              Não cria swap em servidores com pouca memória.
+  --healthcheck-url URL  Avisa um monitor externo (ex.: https://hc-ping.com/...)
+                         a cada backup; sem o aviso diário, o monitor alerta.
   -y, --yes              Não pede confirmação.
   -h, --help             Mostra esta ajuda.
 EOF
@@ -81,6 +85,7 @@ while [ $# -gt 0 ]; do
     --timezone) TIMEZONE="${2:-}"; shift 2 ;;
     --no-firewall) FIREWALL=0; shift ;;
     --no-swap) SWAP=0; shift ;;
+    --healthcheck-url) HEALTHCHECK_URL="${2:-}"; shift 2 ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Opção desconhecida: $1"; echo; usage; exit 1 ;;
@@ -113,6 +118,9 @@ esac
 command -v systemctl >/dev/null && [ -d /run/systemd/system ] || fail "O systemd não está ativo neste sistema."
 [[ "$PORT" =~ ^[0-9]+$ ]] && [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail "Porta inválida: $PORT"
 [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Nome de branch inválido: $BRANCH"
+# Caracteres restritos: o endereço vai para um arquivo lido pelo script de backup.
+HC_RE='^https://[A-Za-z0-9._~/?=&%:-]+$'
+[ -z "$HEALTHCHECK_URL" ] || [[ "$HEALTHCHECK_URL" =~ $HC_RE ]] || fail "Endereço do monitor inválido (use https://...): $HEALTHCHECK_URL"
 MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
 info "Memória: ${MEM_MB} MB · disco livre: ${FREE_GB} GB"
@@ -429,7 +437,8 @@ esac
 # ---------------------------------------------------------------- firewall
 if [ "$FIREWALL" -eq 1 ]; then
   step "Configurando o firewall (ufw)"
-  SSH_PORTS="$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' | sort -u)"
+  # Sem o OpenSSH instalado, libera a porta padrão.
+  SSH_PORTS="$( { command -v sshd >/dev/null && sshd -T 2>/dev/null; } | awk '$1 == "port" {print $2}' | sort -u || true)"
   for p in ${SSH_PORTS:-22}; do ufw allow "$p/tcp" comment 'SSH' >/dev/null; done
   case "$PROXY" in
     caddy-https) ufw allow 80/tcp comment 'HTTP (certificado)' >/dev/null; ufw allow 443/tcp comment 'HTTPS' >/dev/null ;;
@@ -441,16 +450,47 @@ fi
 
 # ------------------------------------------------------------------ backup
 step "Configurando o backup diário"
+if [ -n "$HEALTHCHECK_URL" ]; then
+  umask 077
+  printf 'HEALTHCHECK_URL=%q\n' "$HEALTHCHECK_URL" > "$MONITOR_ENV"
+  umask 022
+  info "Monitor externo: avisado a cada backup ($MONITOR_ENV)."
+elif [ -f "$MONITOR_ENV" ]; then
+  info "Monitor externo: mantido o de $MONITOR_ENV."
+fi
 cat > /usr/local/sbin/luminno-backup <<EOF
 #!/usr/bin/env bash
 # Backup diário do Luminno: banco + imagens, anexos e PDFs. Guarda 30 dias.
-set -euo pipefail
+# Grava em $DATA_DIR/backup-status o horário do último sucesso ou da falha
+# (a Administração do sistema mostra) e avisa o monitor de $MONITOR_ENV.
+set -Eeuo pipefail
+STATUS_DIR="$DATA_DIR/backup-status"
+HEALTHCHECK_URL=""
+[ -f "$MONITOR_ENV" ] && . "$MONITOR_ENV"
+mkdir -p "\$STATUS_DIR" && chmod 0755 "\$STATUS_DIR"
+ping_monitor() { [ -z "\$HEALTHCHECK_URL" ] || curl -fsS -m 10 --retry 3 -o /dev/null "\$HEALTHCHECK_URL\$1" || true; }
+# Etapa atual: num pipe, o comando que falha nem sempre é o que aparece.
+STAGE="preparação"
+on_error() {
+  echo "\$(date -Iseconds)|falhou na etapa: \$STAGE" > "\$STATUS_DIR/erro"
+  chmod 0644 "\$STATUS_DIR/erro"
+  ping_monitor /fail
+}
+trap on_error ERR
+ping_monitor /start
 STAMP=\$(date +%F_%H-%M-%S)
 mkdir -p "$BACKUP_DIR"
+STAGE="cópia do banco de dados (mysqldump)"
 mysqldump --defaults-extra-file=$BACKUP_CNF --single-transaction --routines --triggers --no-tablespaces $DB_NAME \\
   | gzip > "$BACKUP_DIR/luminno-db_\${STAMP}.sql.gz"
+STAGE="cópia das imagens, anexos e PDFs (tar)"
 tar -C "$DATA_DIR" -czf "$BACKUP_DIR/luminno-arquivos_\${STAMP}.tar.gz" uploads pdf-history
+STAGE="limpeza dos backups antigos"
 find "$BACKUP_DIR" -type f -name 'luminno-*' -mtime +30 -delete
+date -Iseconds > "\$STATUS_DIR/ok"
+chmod 0644 "\$STATUS_DIR/ok"
+rm -f "\$STATUS_DIR/erro"
+ping_monitor ""
 echo "\$(date '+%F %T') backup ok: $BACKUP_DIR/luminno-db_\${STAMP}.sql.gz"
 EOF
 chmod 0700 /usr/local/sbin/luminno-backup
@@ -503,6 +543,8 @@ Backups:         $BACKUP_DIR (todo dia às 02:15, guarda 30 dias)
 Logs:            journalctl -u $SERVICE -f
 Atualizar:       sudo luminno-update confirm
 Backup manual:   sudo luminno-backup
+Monitor:         $( [ -f "$MONITOR_ENV" ] && echo "avisado a cada backup ($MONITOR_ENV)" || echo "nenhum (veja --healthcheck-url)" )
+                 Situação do backup: Administração do sistema
 Reiniciar:       sudo systemctl restart $SERVICE
 EOF
 chmod 600 "$SUMMARY"

@@ -56,6 +56,7 @@ type SettingsForm = {
   maxDiscountPercent: number;
   minMarginPercent: number;
   defaultCommissionPercent: number;
+  defaultWarrantyMonths: number;
   defaultTerms: string;
 };
 
@@ -78,6 +79,7 @@ const emptySettings: SettingsForm = {
   maxDiscountPercent: 0,
   minMarginPercent: 0,
   defaultCommissionPercent: 0,
+  defaultWarrantyMonths: 12,
   defaultTerms:
     "Valores válidos conforme prazo indicado. Parcelamento sem juros sujeito à análise.",
 };
@@ -102,6 +104,7 @@ function formFromSettings(data: inferRouterOutputs<AppRouter>["settings"]["get"]
     maxDiscountPercent: Number(data.maxDiscountPercent ?? 0),
     minMarginPercent: Number(data.minMarginPercent ?? 0),
     defaultCommissionPercent: Number(data.defaultCommissionPercent ?? 0),
+    defaultWarrantyMonths: data.defaultWarrantyMonths ?? 12,
     defaultTerms: data.defaultTerms ?? "",
   };
 }
@@ -641,6 +644,29 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border p-3">
+              <Label htmlFor="setting-defaultWarrantyMonths">Garantia padrão</Label>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Vale para os produtos sem garantia própria no Catálogo. É
+                contada da retirada e aparece ao abrir um pós-venda. Use 0 para
+                não ter garantia padrão.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <Input
+                  id="setting-defaultWarrantyMonths"
+                  type="number"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={form.defaultWarrantyMonths}
+                  onChange={event =>
+                    setForm({ ...form, defaultWarrantyMonths: Math.min(120, Math.max(0, Math.round(parseFiniteNumber(event.target.value) || 0))) })
+                  }
+                  className="w-24 bg-background"
+                />
+                <span className="text-sm font-medium">meses</span>
               </div>
             </div>
           </CardContent>

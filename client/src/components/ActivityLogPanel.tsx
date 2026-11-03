@@ -21,6 +21,7 @@ const ENTITY_LABELS = {
   stock: "Estoque",
   product: "Catálogo",
   customer: "Clientes",
+  aftersales: "Pós-venda",
   message: "Mensagens",
   settings: "Configurações",
   user: "Usuários",
