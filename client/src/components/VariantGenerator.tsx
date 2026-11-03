@@ -11,13 +11,14 @@ import { trpc } from "@/lib/trpc";
 import { useVariantRows, VariantRowsFields } from "@/components/VariantRows";
 import { plural } from "@shared/plural";
 import { attributesKey, parseAttributes, variantLabel } from "@shared/variants";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type Member = { id: number; code: string; attributes: string | null };
-type Taken = { reference: string | null; barcode: string | null };
+type Taken = { id: number; reference: string | null; barcode: string | null };
 
-// Cria várias variações de uma vez num modelo que já existe.
+// Acrescenta variações a um modelo que já existe; cada uma com a sua
+// referência (obrigatória) e, se quiser, detalhes e código de barras.
 export function VariantGenerator({
   open,
   onOpenChange,
@@ -35,47 +36,46 @@ export function VariantGenerator({
   const utils = trpc.useUtils();
   const [error, setError] = useState("");
   const modelName = root ? root.modelName || root.shortDescription : "";
-  const existingKeys = useMemo(() => new Set(members.map(member => attributesKey(parseAttributes(member.attributes)))), [members]);
-  const variants = useVariantRows({ baseReference: root?.reference ?? root?.code ?? "", existingKeys, taken });
+  const existingCombos = useMemo(
+    () => new Set(members.map(member => parseAttributes(member.attributes)).filter(attributes => variantLabel(attributes)).map(attributesKey)),
+    [members]
+  );
+  const variants = useVariantRows({ taken, reserved: root?.reference ? [root.reference] : [], existingCombos });
+  // Abre com uma linha em branco.
+  useEffect(() => {
+    if (open) {
+      variants.reset();
+      variants.addRow();
+    }
+  }, [open]);
   const create = trpc.product.createVariants.useMutation({
     onSuccess: result => {
       utils.product.list.invalidate();
       utils.inventory.invalidate();
-      toast.success(
-        `${plural(result.created.length, "variação criada", "variações criadas")}${result.skipped.length ? `; ${plural(result.skipped.length, "já existia", "já existiam")}` : ""}.`
-      );
-      variants.reset();
+      toast.success(`${plural(result.created.length, "variação criada", "variações criadas")}.`);
       onOpenChange(false);
     },
     onError: err => setError(getFormErrorMessage(err, "Não foi possível criar as variações.")),
   });
-  const rootHasVariant = Boolean(variantLabel(parseAttributes(root?.attributes)));
 
   return (
     <Dialog
       open={open}
       onOpenChange={value => {
         setError("");
-        if (!value) variants.reset();
         onOpenChange(value);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Criar variações de {modelName}</DialogTitle>
+          <DialogTitle>Novas variações de {modelName}</DialogTitle>
           <DialogDescription>
-            Separe as opções por vírgula. Cada variação vira um produto com
-            referência, estoque e código de barras próprios, copiando preço,
-            fornecedor, foto e descrição do produto principal.
+            Cada variação tem referência própria (obrigatória). Cor, temperatura,
+            potência e código de barras são opcionais. Preço, fornecedor, foto e
+            descrição vêm do modelo.
           </DialogDescription>
         </DialogHeader>
         <FormError message={error} />
-        {!rootHasVariant ? (
-          <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-            O produto principal (Ref. {root?.reference ?? root?.code}) fica como modelo: no orçamento
-            entram só as variações, cada uma com a sua referência.
-          </p>
-        ) : null}
         <VariantRowsFields state={variants} modelName={modelName} />
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -84,8 +84,13 @@ export function VariantGenerator({
           <AsyncButton
             pending={create.isPending}
             loadingLabel="Criando…"
-            disabled={!root || !variants.rows.length || variants.hasProblem}
-            onClick={() => root && create.mutate({ productId: root.id, variants: variants.payload() })}
+            disabled={!root || !variants.rows.length}
+            onClick={() => {
+              variants.markAttempted();
+              if (!root || variants.invalid) return setError("Confira as variações marcadas: a referência é obrigatória e não pode repetir.");
+              setError("");
+              create.mutate({ productId: root.id, variants: variants.payload() });
+            }}
           >
             {variants.rows.length ? `Criar ${plural(variants.rows.length, "variação", "variações")}` : "Criar variações"}
           </AsyncButton>

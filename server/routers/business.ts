@@ -27,6 +27,7 @@ import {
   saveProduct,
   createProductVariants,
   saveProductWithVariants,
+  saveProductFamily,
   saveQuote,
   saveSettings,
 } from "../quoteDb";
@@ -112,7 +113,13 @@ const appointmentInput = z.object({
 
 const variantAttributes = z.object(Object.fromEntries(VARIANT_FIELDS.map((field) => [field.key, z.string().trim().max(80).optional()])) as Record<VariantKey, z.ZodOptional<z.ZodString>>);
 
-const variantList = z.array(z.object({ attributes: variantAttributes, reference: z.string().trim().max(64).nullable().optional(), barcode: z.string().trim().max(64).nullable().optional() })).min(1).max(100);
+// Variação: só a referência é obrigatória; detalhes e código de barras, não.
+const variantList = z.array(z.object({
+  id: z.number().int().positive().optional(),
+  attributes: variantAttributes.nullable().optional(),
+  reference: z.string().trim().min(1, "Informe a referência de cada variação").max(64, "A referência pode ter no máximo 64 caracteres"),
+  barcode: z.string().trim().max(64).nullable().optional(),
+})).min(1).max(100);
 
 const productInput = z.object({
   id: z.number().int().positive().optional(),
@@ -242,12 +249,21 @@ export const businessRouter = router({
       return id;
     }),
     // Produto novo já com as variações (cada uma com referência própria).
-    saveWithVariants: areaProcedure("catalog").input(z.object({ product: productInput, variants: variantList })).mutation(async ({ ctx, input }) => {
+    saveWithVariants: areaProcedure("catalog").input(z.object({ product: productInput.extend({ reference: z.string().trim().max(64).optional() }), variants: variantList })).mutation(async ({ ctx, input }) => {
       const result = await saveProductWithVariants({ ...input.product, costPrice: canSeeCost(ctx.user.role) ? input.product.costPrice : undefined, imageUrl: input.product.imageUrl || null }, input.variants).catch((error) => {
         if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Uma referência ou código de barras acabou de ser usado em outro produto." });
         throw error;
       });
       await log(ctx, { action: "product.create", entityType: "product", entityId: result.rootId, summary: `Cadastrou o produto ${input.product.shortDescription} com ${plural(result.created.length, "variação", "variações")}` });
+      return result;
+    }),
+    // Modelo e todas as variações (as já gravadas e as novas) salvos juntos.
+    saveFamily: areaProcedure("catalog").input(z.object({ model: productInput.extend({ id: z.number().int().positive() }), variants: variantList })).mutation(async ({ ctx, input }) => {
+      const result = await saveProductFamily({ ...input.model, costPrice: canSeeCost(ctx.user.role) ? input.model.costPrice : undefined, imageUrl: input.model.imageUrl || null }, input.variants).catch((error) => {
+        if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Uma referência ou código de barras acabou de ser usado em outro produto." });
+        throw error;
+      });
+      await log(ctx, { action: "product.update", entityType: "product", entityId: result.rootId, summary: `Alterou o modelo ${input.model.shortDescription} e ${plural(result.updated.length + result.created.length, "variação", "variações")}${result.created.length ? ` (${plural(result.created.length, "nova", "novas")})` : ""}` });
       return result;
     }),
     createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), variants: variantList })).mutation(async ({ ctx, input }) => {

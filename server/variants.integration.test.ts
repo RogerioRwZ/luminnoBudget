@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { inArray, or } from "drizzle-orm";
 import { products } from "../drizzle/schema";
 import { getDb } from "./db";
-import { createProductVariants, getProduct, saveProduct } from "./quoteDb";
+import { createProductVariants, getProduct, saveProduct, saveProductFamily, saveProductWithVariants } from "./quoteDb";
 
 const roots: number[] = [];
 afterEach(async () => {
@@ -11,42 +11,84 @@ afterEach(async () => {
   roots.length = 0;
 });
 
+const tag = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+
 describe("variações de produto", () => {
-  it("cria variações em lote copiando o principal, pula repetidas e renomeia junto com o modelo", async () => {
+  it("cada variação tem a sua referência; detalhes e código de barras são opcionais", async () => {
     const model = `Spot teste ${Date.now()}`;
-    const rootId = await saveProduct({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: model, unit: "UN", supplierName: "Fornecedor", unitPrice: 59.9, reorderPoint: 2, active: true });
+    const t = tag();
+    const rootId = await saveProduct({ reference: `T-${t}`, shortDescription: model, unit: "UN", supplierName: "Fornecedor", unitPrice: 59.9, reorderPoint: 2, active: true });
     roots.push(rootId);
 
-    const rootReference = (await getProduct(rootId))!.reference!;
-    const first = await createProductVariants(rootId, [{ attributes: { color: "Preto", colorTemperature: "3000" } }, { attributes: { color: "Branco", colorTemperature: "3000K" }, reference: `${rootReference}/BR`, barcode: ` 789 ${String(Date.now()).slice(-10)} ` }]);
-    expect(first.created).toHaveLength(2);
-    // Sem referência digitada, vira "REF-PRETO-3000K"; a digitada e o código de barras ficam como vieram (sem espaços).
-    expect((await getProduct(first.created[0]!))!).toMatchObject({ reference: `${rootReference}-PRETO-3000K`, barcode: null });
-    expect((await getProduct(first.created[1]!))!).toMatchObject({ reference: `${rootReference}/BR`, barcode: expect.stringMatching(/^789\d{10}$/) });
-    const variant = (await getProduct(first.created[0]!))!;
-    expect(variant).toMatchObject({ parentId: rootId, modelName: model, shortDescription: `${model} — Preto · 3000K`, unitPrice: "59.90", supplierName: "Fornecedor", stockQuantity: "0.00" });
-    expect(variant.code).not.toBe((await getProduct(rootId))!.code);
+    // Sem referência, nada é criado.
+    await expect(createProductVariants(rootId, [{ attributes: { color: "Preto" }, reference: `A-${t}` }, { attributes: { color: "Branco" }, reference: " " }])).rejects.toThrow(/informe a referência/);
+    expect((await getProduct(rootId))!.modelName).toBeNull();
 
-    // Referência repetida: nada é criado.
-    await expect(createProductVariants(rootId, [{ attributes: { color: "Dourado" } }, { attributes: { color: "Prata" }, reference: rootReference.toLowerCase() }])).rejects.toThrow(/já está em uso/);
-    const again = await createProductVariants(first.created[1]!, [{ attributes: { color: "branco", colorTemperature: "3000K" } }, { attributes: { color: "Dourado" } }]);
-    expect(again).toMatchObject({ rootId, skipped: ["branco · 3000K"] });
-    expect(again.created).toHaveLength(1);
+    const first = await createProductVariants(rootId, [
+      { attributes: { color: "Preto", colorTemperature: "3000" }, reference: `PT-${t}` },
+      { attributes: { color: "Branco", colorTemperature: "3000K" }, reference: `BR-${t}`, barcode: ` 789 ${String(Date.now()).slice(-10)} ` },
+      // Sem nenhum detalhe: a referência diferencia no nome.
+      { attributes: {}, reference: `LISO-${t}` },
+    ]);
+    expect(first.created).toHaveLength(3);
+    expect(await getProduct(first.created[0]!)).toMatchObject({ parentId: rootId, modelName: model, reference: `PT-${t}`, barcode: null, shortDescription: `${model} — Preto · 3000K`, unitPrice: "59.90", supplierName: "Fornecedor", stockQuantity: "0.00" });
+    expect((await getProduct(first.created[1]!))!.barcode).toMatch(/^789\d{10}$/);
+    expect(await getProduct(first.created[2]!)).toMatchObject({ attributes: null, shortDescription: `${model} — Ref. LISO-${t}` });
 
-    await saveProduct({ id: rootId, shortDescription: model, modelName: `${model} novo`, attributes: { color: "Cinza" }, unit: "UN", unitPrice: 59.9, active: true });
-    expect((await getProduct(rootId))!.shortDescription).toBe(`${model} novo — Cinza`);
+    // Mesmos detalhes de uma variação existente: bloqueado, sem criar nada.
+    await expect(createProductVariants(first.created[1]!, [{ attributes: { color: "Dourado" }, reference: `DR-${t}` }, { attributes: { color: "branco", colorTemperature: "3000K" }, reference: `BR2-${t}` }])).rejects.toThrow(/já existe neste modelo/);
+    // Outra variação sem detalhes é aceita (a referência é diferente).
+    expect((await createProductVariants(rootId, [{ reference: `LISO2-${t}` }])).created).toHaveLength(1);
+
+    await saveProduct({ id: rootId, shortDescription: model, modelName: `${model} novo`, unit: "UN", unitPrice: 59.9, active: true });
     expect((await getProduct(first.created[1]!))!.shortDescription).toBe(`${model} novo — Branco · 3000K`);
-
+    expect((await getProduct(first.created[2]!))!.shortDescription).toBe(`${model} novo — Ref. LISO-${t}`);
     await expect(saveProduct({ id: first.created[1]!, shortDescription: "x", attributes: { color: "Preto", colorTemperature: "3000K" }, unit: "UN", unitPrice: 1, active: true })).rejects.toThrow(/já existe neste modelo/);
   }, 20_000);
 
+  it("cadastro com variações: modelo sem referência ganha uma interna e cada variação a sua", async () => {
+    const t = tag();
+    const result = await saveProductWithVariants({ shortDescription: `Arandela ${t}`, unit: "UN", unitPrice: 80, active: true }, [
+      { attributes: { color: "Preto" }, reference: `AR-PT-${t}` },
+      { reference: `AR-${t}` },
+    ]);
+    roots.push(result.rootId);
+    const root = (await getProduct(result.rootId))!;
+    expect(root.reference).toBe(`MOD-${root.code}`);
+    expect(root.barcode).toBeNull();
+    expect((await getProduct(result.created[1]!))!.shortDescription).toBe(`Arandela ${t} — Ref. AR-${t}`);
+  });
+
+  it("editar o modelo atualiza referência e código de barras de cada variação e cria as novas", async () => {
+    const t = tag();
+    const { rootId, created } = await saveProductWithVariants({ shortDescription: `Plafon ${t}`, unit: "UN", unitPrice: 120, active: true }, [
+      { attributes: { color: "Preto" }, reference: `PL-PT-${t}` },
+      { attributes: { color: "Branco" }, reference: `PL-BR-${t}` },
+    ]);
+    roots.push(rootId);
+    const root = (await getProduct(rootId))!;
+    const model = { id: rootId, reference: root.reference!, shortDescription: `Plafon ${t}`, modelName: `Plafon ${t}`, unit: "UN", unitPrice: 130, active: true };
+    // Trocar para uma referência já usada por outra variação: nada muda.
+    await expect(saveProductFamily(model, [{ id: created[0]!, attributes: { color: "Preto" }, reference: `PL-BR-${t}` }, { id: created[1]!, attributes: { color: "Branco" }, reference: `PL-BR-${t}` }])).rejects.toThrow(/já está em uso/);
+    const barcode = `78${String(Date.now()).slice(-11)}`;
+    const result = await saveProductFamily(model, [
+      { id: created[0]!, attributes: { color: "Preto", power: "18" }, reference: `PL/PT18-${t}`, barcode },
+      { id: created[1]!, attributes: { color: "Branco" }, reference: `PL-BR-${t}` },
+      { attributes: { color: "Cobre" }, reference: `PL-CB-${t}` },
+    ]);
+    expect(result).toMatchObject({ updated: [created[0], created[1]], created: [expect.any(Number)] });
+    expect(await getProduct(created[0]!)).toMatchObject({ reference: `PL/PT18-${t}`, barcode, shortDescription: `Plafon ${t} — Preto · 18W` });
+    expect(await getProduct(result.created[0]!)).toMatchObject({ reference: `PL-CB-${t}`, parentId: rootId, unitPrice: "130.00" });
+    expect((await getProduct(rootId))!.unitPrice).toBe("130.00");
+  });
+
   it("produto sem variação continua como antes e principal não vira variação de outro", async () => {
-    const plain = await saveProduct({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Fita ${Date.now()}`, unit: "M", unitPrice: 10, active: true });
+    const plain = await saveProduct({ reference: `T-${tag()}`, shortDescription: `Fita ${Date.now()}`, unit: "M", unitPrice: 10, active: true });
     roots.push(plain);
     expect(await getProduct(plain)).toMatchObject({ parentId: null, modelName: null, attributes: null });
-    const other = await saveProduct({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Outro ${Date.now()}`, unit: "UN", unitPrice: 10, active: true });
+    const other = await saveProduct({ reference: `T-${tag()}`, shortDescription: `Outro ${Date.now()}`, unit: "UN", unitPrice: 10, active: true });
     roots.push(other);
-    await createProductVariants(other, [{ attributes: { power: "10" } }]);
+    await createProductVariants(other, [{ attributes: { power: "10" }, reference: `T-${tag()}` }]);
     await expect(saveProduct({ id: other, shortDescription: "Outro", parentId: plain, unit: "UN", unitPrice: 10, active: true })).rejects.toThrow(/já é o principal/);
   });
 });

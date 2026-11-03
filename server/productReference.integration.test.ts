@@ -54,7 +54,7 @@ describe("produto cadastrado já com variações", () => {
     const barcode = `79${String(Date.now()).slice(-11)}`;
     const result = await admin.product.saveWithVariants({ product, variants: [
       { attributes: { color: "Preto", colorTemperature: "3000" }, reference: `DUO/PT-${stamp}`, barcode },
-      { attributes: { color: "Branco", colorTemperature: "3000" } },
+      { attributes: { color: "Branco", colorTemperature: "3000" }, reference: `DUO/BR-${stamp}` },
     ] });
     created.push(result.rootId, ...result.created);
     expect(result.created).toHaveLength(2);
@@ -62,6 +62,6 @@ describe("produto cadastrado já com variações", () => {
     const byId = new Map(family.map((row) => [row.id, row]));
     expect(byId.get(result.rootId)).toMatchObject({ reference: `MOD-${stamp}`, attributes: null, barcode: null, modelName: `Pendente Duo ${stamp}` });
     expect(byId.get(result.created[0]!)).toMatchObject({ reference: `DUO/PT-${stamp}`, barcode, parentId: result.rootId, unitPrice: "250.00", supplierName: "Lumi", shortDescription: `Pendente Duo ${stamp} — Preto · 3000K` });
-    expect(byId.get(result.created[1]!)).toMatchObject({ reference: `MOD-${stamp}-BRANCO-3000K`, barcode: null });
+    expect(byId.get(result.created[1]!)).toMatchObject({ reference: `DUO/BR-${stamp}`, barcode: null });
   });
 });
