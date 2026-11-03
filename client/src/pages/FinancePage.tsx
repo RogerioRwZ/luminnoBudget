@@ -28,7 +28,7 @@ import {
   CalendarClock,
   CircleDollarSign,
   Landmark,
-  MessageCircle,
+  QrCode,
   Plus,
   RotateCcw,
   Search,
@@ -461,13 +461,14 @@ export default function FinancePage() {
                             {row.status !== "paid" &&
                             row.status !== "cancelled" ? (
                               <Button
-                                aria-label="Cobrar cliente"
+                                aria-label="Cobrar com PIX"
                                 size="sm"
                                 variant="outline"
                                 onClick={() => setChargeId(row.id)}
-                                title="Cobrar pelo WhatsApp ou e-mail, com PIX"
+                                title="Cobrar pelo WhatsApp ou e-mail, com o PIX desta parcela"
                               >
-                                <MessageCircle className="h-3.5 w-3.5" />
+                                <QrCode className="mr-1.5 h-3.5 w-3.5" />
+                                PIX
                               </Button>
                             ) : null}
                             {row.receivedAmount > 0 &&
