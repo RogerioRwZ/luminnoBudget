@@ -109,4 +109,26 @@ describe("pós-venda", () => {
     await db.delete(financeReceivables).where(eq(financeReceivables.quoteId, quote.id));
     await expect(admin.quote.delete({ id: quote.id })).rejects.toThrow(/pós-venda/);
   });
+
+  it("impede tirar de Aprovado um orçamento com pós-venda", async () => {
+    const admin = caller("user");
+    created.productId = await admin.product.save({ shortDescription: `Fita pós-venda ${Date.now()}`, unit: "UN", unitPrice: 30, reorderPoint: 0, active: true });
+    const quote = (await admin.quote.create())!;
+    created.quoteId = quote.id;
+    const draft = {
+      id: quote.id, clientName: "Cliente PV 2", status: "approved" as const, issueDate: new Date(),
+      discountMode: "percentage" as const, discountValue: 0, shipping: 0, pixDiscountMode: "percentage" as const, pixDiscountValue: 0, installments: 1,
+      rooms: [{ name: "Sala", items: [{ productId: created.productId, code: "F", shortDescription: "Fita", unit: "UN", quantity: 2, unitPrice: 30 }] }],
+    };
+    await admin.quote.save(draft);
+    const item = (await admin.afterSales.items({ quoteId: quote.id })).items[0]!;
+    await admin.afterSales.create({ quoteId: quote.id, quoteItemId: item.quoteItemId, type: "return", reason: "regret", quantity: 1, dueDate: new Date() });
+
+    await expect(admin.quote.save({ ...draft, status: "open" })).rejects.toThrow(/pós-venda/);
+    // Continua aprovado e com o mesmo item.
+    expect((await admin.afterSales.items({ quoteId: quote.id })).items[0]!.quoteItemId).toBe(item.quoteItemId);
+    // Dados do cliente seguem editáveis.
+    const renamed = await admin.quote.save({ ...draft, clientName: "Cliente PV 2 (novo nome)" });
+    expect(renamed?.clientName).toBe("Cliente PV 2 (novo nome)");
+  });
 });

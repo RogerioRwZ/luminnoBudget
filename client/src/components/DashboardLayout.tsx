@@ -185,7 +185,7 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
       </Sidebar>
       <SidebarInset className="min-h-screen min-w-0 bg-background">
         <header className="sticky top-0 z-30 flex h-[74px] items-center gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur-xl md:px-8">
-          <SidebarTrigger className="h-9 w-9 rounded-lg border border-border bg-card" aria-label="Abrir ou recolher o menu" />
+          <SidebarTrigger className="h-9 w-9 rounded-lg border border-border bg-card" />
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Luminno Iluminação</p>
             <h1 className="truncate font-display text-lg font-bold tracking-tight">{activeItem?.label ?? "Página não encontrada"}</h1>

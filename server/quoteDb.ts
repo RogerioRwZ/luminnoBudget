@@ -652,6 +652,10 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
         await tx.update(quotes).set(header).where(eq(quotes.id, quoteId));
         return quoteId;
       }
+      // Sair de Aprovado regrava todos os itens com novos ids, e as
+      // ocorrências de pós-venda perderiam o item a que se referem.
+      const cases = await tx.select({ id: afterSalesCases.id }).from(afterSalesCases).where(eq(afterSalesCases.quoteId, quoteId)).limit(1);
+      if (cases.length) throw new Error("Este orçamento tem ocorrências de pós-venda: itens e status não podem mais ser alterados. Para corrigir a venda, abra uma devolução ou troca no Pós-venda.");
       if (deliveries.length) throw new Error("Este orçamento já tem retiradas registradas e não pode sair do status Aprovado.");
       if (reservations.length) {
         await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds));
