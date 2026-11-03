@@ -25,11 +25,11 @@ const newKey = () => `nova-${++nextKey}`;
 
 // Uma variação na tela: `id` só nas já gravadas. Só a referência é
 // obrigatória; detalhes e código de barras são opcionais.
-export type VariantRowForm = { key: string; id?: number; attributes: Record<VariantKey, string>; reference: string; barcode: string };
+export type VariantRowForm = { key: string; id?: number; attributes: Record<VariantKey, string>; reference: string; barcode: string; reorderPoint: string };
 type Taken = { id: number; reference: string | null; barcode: string | null };
 
-export function variantRowFromProduct(product: { id: number; reference: string | null; code: string; barcode: string | null; attributes: string | null }, parse: (text: string | null) => Partial<Record<VariantKey, string>>): VariantRowForm {
-  return { key: `produto-${product.id}`, id: product.id, attributes: { ...emptyAttributes(), ...parse(product.attributes) }, reference: product.reference ?? product.code, barcode: product.barcode ?? "" };
+export function variantRowFromProduct(product: { id: number; reference: string | null; code: string; barcode: string | null; attributes: string | null; reorderPoint: string | number }, parse: (text: string | null) => Partial<Record<VariantKey, string>>): VariantRowForm {
+  return { key: `produto-${product.id}`, id: product.id, attributes: { ...emptyAttributes(), ...parse(product.attributes) }, reference: product.reference ?? product.code, barcode: product.barcode ?? "", reorderPoint: String(Number(product.reorderPoint) || 0) };
 }
 
 export function useVariantRows({
@@ -80,14 +80,14 @@ export function useVariantRows({
     update,
     setAttributes: (key: string, field: VariantKey, value: string) =>
       setRows(current => current.map(row => (row.key === key ? { ...row, attributes: { ...row.attributes, [field]: value } } : row))),
-    addRow: () => setRows(current => [...current, { key: newKey(), attributes: emptyAttributes(), reference: "", barcode: "" }]),
+    addRow: () => setRows(current => [...current, { key: newKey(), attributes: emptyAttributes(), reference: "", barcode: "", reorderPoint: "" }]),
     removeRow: (key: string) => setRows(current => current.filter(row => row.key !== key || row.id)),
     // Gera uma linha por combinação ainda não listada (cores × temperaturas...).
     addCombinations: (lists: Record<VariantKey, string>) => {
       const present = new Set([...rows.map(row => attributesKey(cleanAttributes(row.attributes))), ...Array.from(existingCombos ?? [])]);
       const combos = variantCombinations(Object.fromEntries(VARIANT_FIELDS.map(field => [field.key, splitList(lists[field.key])])))
         .filter(combo => !present.has(attributesKey(combo)));
-      setRows(current => [...current, ...combos.map(combo => ({ key: newKey(), attributes: { ...emptyAttributes(), ...combo }, reference: "", barcode: "" }))]);
+      setRows(current => [...current, ...combos.map(combo => ({ key: newKey(), attributes: { ...emptyAttributes(), ...combo }, reference: "", barcode: "", reorderPoint: "" }))]);
       return combos.length;
     },
     // Atalho opcional: preenche só as referências vazias a partir de um prefixo.
@@ -112,7 +112,13 @@ export function useVariantRows({
     },
     markAttempted: () => setAttempted(true),
     // Formato que o servidor recebe.
-    payload: () => rows.map(row => ({ ...(row.id ? { id: row.id } : {}), attributes: cleanAttributes(row.attributes), reference: row.reference.trim(), barcode: row.barcode || null })),
+    payload: () => rows.map(row => ({
+      ...(row.id ? { id: row.id } : {}),
+      attributes: cleanAttributes(row.attributes),
+      reference: row.reference.trim(),
+      barcode: row.barcode || null,
+      ...(row.reorderPoint.trim() !== "" ? { reorderPoint: Math.max(0, Number(row.reorderPoint.replace(",", ".")) || 0) } : {}),
+    })),
   };
 }
 
@@ -188,7 +194,7 @@ export function VariantRowsFields({ state, modelName, allowCombinations = true }
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   {VARIANT_FIELDS.map(field => (
                     <Input
                       key={field.key}
@@ -199,6 +205,18 @@ export function VariantRowsFields({ state, modelName, allowCombinations = true }
                       placeholder={`${field.label} (opcional)`}
                     />
                   ))}
+                  <Input
+                    className="h-8 text-xs"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputMode="decimal"
+                    aria-label={`Ponto de reposição da variação ${number}`}
+                    title="Ponto de reposição: abaixo disso, a variação vai para Compras"
+                    value={row.reorderPoint}
+                    onChange={event => update(row.key, { reorderPoint: event.target.value })}
+                    placeholder="Reposição (opcional)"
+                  />
                 </div>
                 {problem ? <p className="text-xs text-destructive">{problem}</p> : null}
               </li>

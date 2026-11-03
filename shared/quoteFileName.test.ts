@@ -14,3 +14,20 @@ describe("quotePdfFileName", () => {
     expect(quotePdfFileName({ quoteNumber: 3, clientName: "Ana/Cia: \"Loja\"", professional: null })).toBe("Orçamento 0003 - Ana Cia Loja.pdf");
   });
 });
+
+import { isLocalImage, sanitizePdfSnapshot } from "./quoteFileName";
+
+describe("dados do PDF do histórico", () => {
+  it("mantém só imagens do próprio sistema", () => {
+    expect(isLocalImage("/uploads/products/a.webp")).toBe(true);
+    expect(isLocalImage("https://rastreador.example/pixel.gif")).toBe(false);
+    expect(isLocalImage("/uploads/../segredo")).toBe(false);
+    expect(isLocalImage("javascript:alert(1)")).toBe(false);
+    const clean = sanitizePdfSnapshot({
+      rooms: [{ name: "SALA", items: [{ shortDescription: "A", imageUrl: "/uploads/products/a.webp" }, { shortDescription: "B", imageUrl: "http://192.168.0.1/admin" }] }],
+      settings: { companyName: "Loja", logoUrl: "https://fora.example/logo.png" },
+    });
+    expect(clean.rooms).toEqual([{ name: "SALA", items: [{ shortDescription: "A", imageUrl: "/uploads/products/a.webp" }, { shortDescription: "B", imageUrl: null }] }]);
+    expect(clean.settings).toEqual({ companyName: "Loja", logoUrl: null });
+  });
+});

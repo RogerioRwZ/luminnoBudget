@@ -1,5 +1,5 @@
 import { buildPixPayload } from "@shared/pix";
-import { quotePdfFileName } from "@shared/quoteFileName";
+import { quotePdfFileName, sanitizePdfSnapshot } from "@shared/quoteFileName";
 import { pixQrDataUrl } from "./pixQr";
 import { jsPDF } from "jspdf";
 import { entryOfferValues, type EntryOffer } from "@shared/paymentPlan";
@@ -665,7 +665,9 @@ export function toPdfSnapshot(input: QuotePdfInput) {
 }
 
 export function fromPdfSnapshot(text: string): QuotePdfInput {
-  const value = JSON.parse(text) as QuotePdfInput & { issueDate: string; validUntil: string | null; generatedAt?: string };
+  // Também aqui: só imagens do próprio sistema (dados gravados antes da
+  // conferência no servidor).
+  const value = sanitizePdfSnapshot(JSON.parse(text)) as QuotePdfInput & { issueDate: string; validUntil: string | null; generatedAt?: string };
   return {
     ...value,
     issueDate: new Date(value.issueDate),

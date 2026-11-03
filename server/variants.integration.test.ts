@@ -3,6 +3,8 @@ import { inArray, or } from "drizzle-orm";
 import { products } from "../drizzle/schema";
 import { getDb } from "./db";
 import { createProductVariants, getProduct, saveProduct, saveProductFamily, saveProductWithVariants } from "./quoteDb";
+import { findProductByBarcode } from "./advancedDb";
+import { inventoryOverview, purchaseSuggestions } from "./stockDb";
 
 const roots: number[] = [];
 afterEach(async () => {
@@ -80,6 +82,35 @@ describe("variações de produto", () => {
     expect(await getProduct(created[0]!)).toMatchObject({ reference: `PL/PT18-${t}`, barcode, shortDescription: `Plafon ${t} — Preto · 18W` });
     expect(await getProduct(result.created[0]!)).toMatchObject({ reference: `PL-CB-${t}`, parentId: rootId, unitPrice: "130.00" });
     expect((await getProduct(rootId))!.unitPrice).toBe("130.00");
+  });
+
+  it("o modelo não entra em estoque, compras nem leitura; aplicar às variações e reposição por variação", async () => {
+    const t = tag();
+    // Modelo antigo com ponto de reposição: antes aparecia em Compras.
+    const rootId = await saveProduct({ reference: `MODX-${t}`, shortDescription: `Trilho ${t}`, unit: "UN", unitPrice: 50, reorderPoint: 5, active: true, supplierName: "Antigo" });
+    roots.push(rootId);
+    const { created } = await createProductVariants(rootId, [{ attributes: { color: "Preto" }, reference: `TR-PT-${t}`, reorderPoint: 2 }, { attributes: { color: "Branco" }, reference: `TR-BR-${t}` }]);
+    expect((await getProduct(created[0]!))!.reorderPoint).toBe("2.00");
+    expect((await getProduct(created[1]!))!.reorderPoint).toBe("0.00");
+
+    const lines = (await purchaseSuggestions()).flatMap((group) => group.lines.map((line) => line.productId));
+    expect(lines).not.toContain(rootId);
+    expect(lines).toContain(created[0]);
+    const overview = await inventoryOverview();
+    expect(overview.products.some((product) => product.id === rootId)).toBe(false);
+    expect(overview.lowStock.some((product) => product.id === rootId)).toBe(false);
+    expect(await findProductByBarcode(`MODX-${t}`)).toBeNull();
+    expect((await findProductByBarcode(`TR-PT-${t}`))?.id).toBe(created[0]);
+
+    const model = { id: rootId, reference: `MODX-${t}`, shortDescription: `Trilho ${t}`, modelName: `Trilho ${t}`, unit: "UN", unitPrice: 75, costPrice: 30, supplierName: "Novo", imageUrl: "/uploads/products/trilho.webp", imageKey: "products/trilho.webp", active: true, reorderPoint: 0 };
+    const variants = [{ id: created[0]!, attributes: { color: "Preto" }, reference: `TR-PT-${t}` }, { id: created[1]!, attributes: { color: "Branco" }, reference: `TR-BR-${t}`, reorderPoint: 4 }];
+    // Desligado: as variações mantêm preço e fornecedor (e a reposição não enviada).
+    await saveProductFamily(model, variants);
+    expect(await getProduct(created[0]!)).toMatchObject({ unitPrice: "50.00", supplierName: "Antigo", reorderPoint: "2.00" });
+    expect((await getProduct(created[1]!))!.reorderPoint).toBe("4.00");
+    // Ligado: preço, custo, fornecedor e foto do modelo vão para as variações.
+    await saveProductFamily(model, variants, { applyToVariants: true });
+    expect(await getProduct(created[0]!)).toMatchObject({ unitPrice: "75.00", costPrice: "30.00", supplierName: "Novo", imageUrl: "/uploads/products/trilho.webp", reference: `TR-PT-${t}` });
   });
 
   it("produto sem variação continua como antes e principal não vira variação de outro", async () => {

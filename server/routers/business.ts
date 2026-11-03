@@ -47,7 +47,7 @@ import { messageForQuote, messageForReceivable, pendingMessages } from "../messa
 import { MESSAGE_EVENT_LABELS } from "../../shared/messages";
 import { adminProcedure, areaProcedure, protectedProcedure, router } from "../_core/trpc";
 import { plural } from "../../shared/plural";
-import { quotePdfFileName } from "../../shared/quoteFileName";
+import { quotePdfFileName, sanitizePdfSnapshot } from "../../shared/quoteFileName";
 import { MAX_PLAN_INSTALLMENTS, MAX_PLAN_PARTS, parseEntryOffer, PLAN_METHODS } from "../../shared/paymentPlan";
 
 const nullableText = z.string().trim().max(2000).nullable().optional();
@@ -119,6 +119,7 @@ const variantList = z.array(z.object({
   attributes: variantAttributes.nullable().optional(),
   reference: z.string().trim().min(1, "Informe a referência de cada variação").max(64, "A referência pode ter no máximo 64 caracteres"),
   barcode: z.string().trim().max(64).nullable().optional(),
+  reorderPoint: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
 })).min(1).max(100);
 
 const productInput = z.object({
@@ -258,8 +259,8 @@ export const businessRouter = router({
       return result;
     }),
     // Modelo e todas as variações (as já gravadas e as novas) salvos juntos.
-    saveFamily: areaProcedure("catalog").input(z.object({ model: productInput.extend({ id: z.number().int().positive() }), variants: variantList })).mutation(async ({ ctx, input }) => {
-      const result = await saveProductFamily({ ...input.model, costPrice: canSeeCost(ctx.user.role) ? input.model.costPrice : undefined, imageUrl: input.model.imageUrl || null }, input.variants).catch((error) => {
+    saveFamily: areaProcedure("catalog").input(z.object({ model: productInput.extend({ id: z.number().int().positive() }), variants: variantList, applyToVariants: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+      const result = await saveProductFamily({ ...input.model, costPrice: canSeeCost(ctx.user.role) ? input.model.costPrice : undefined, imageUrl: input.model.imageUrl || null }, input.variants, { applyToVariants: input.applyToVariants }).catch((error) => {
         if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Uma referência ou código de barras acabou de ser usado em outro produto." });
         throw error;
       });
@@ -418,16 +419,18 @@ export const businessRouter = router({
       clientName: z.string().max(240).optional(),
       professional: z.string().max(240).optional(),
     })).mutation(async ({ ctx, input }) => {
+      let snapshot: string;
       try {
-        const parsed = JSON.parse(input.snapshot) as { rooms?: unknown; summary?: unknown };
-        if (!Array.isArray(parsed.rooms) || typeof parsed.summary !== "object") throw new Error();
+        const parsed = JSON.parse(input.snapshot) as { rooms?: unknown; summary?: unknown; settings?: unknown };
+        if (!parsed || !Array.isArray(parsed.rooms) || !parsed.summary || typeof parsed.summary !== "object") throw new Error();
+        snapshot = JSON.stringify(sanitizePdfSnapshot(parsed));
       } catch {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Dados do PDF inválidos." });
       }
       const quote = await getQuote(input.quoteId);
       if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
       const fileName = quotePdfFileName({ quoteNumber: quote.quoteNumber, clientName: input.clientName ?? quote.clientName, professional: input.professional ?? quote.professional });
-      return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, snapshot: input.snapshot, fileSize: input.fileSize });
+      return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, snapshot, fileSize: input.fileSize });
     }),
   }),
   finance: router({

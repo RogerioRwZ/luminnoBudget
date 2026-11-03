@@ -217,11 +217,16 @@ export default function ProductsPage() {
   // o cadastro novo ("Este produto tem variações") e para editar um modelo.
   const [withVariants, setWithVariants] = useState(false);
   const variantList = useVariantRows({ taken: data, reserved: form.id && form.reference.trim() ? [form.reference] : [] });
+  // Editar o modelo: copiar preço, custo, fornecedor e foto para as variações.
+  const [applyToVariants, setApplyToVariants] = useState(false);
   const resetVariantList = (rows: VariantRowForm[] = []) => {
     setWithVariants(rows.length > 0);
+    setApplyToVariants(false);
     variantList.reset(rows);
   };
-  const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
+  // O rascunho guarda também a lista de variações.
+  const draftValue = useMemo(() => ({ ...form, variantRows: withVariants ? variantList.rows : null }), [form, withVariants, variantList.rows]);
+  const productDraft = useDraftAutosave<ProductForm & { variantRows?: VariantRowForm[] | null }>(`product-${form.id ?? "new"}`, draftValue, {
     enabled: open,
   });
   // Modelos com variações aparecem agrupados; o resto, como antes.
@@ -303,12 +308,13 @@ export default function ProductsPage() {
       setFormError("");
       if (form.id) {
         saveFamily.mutate({
-          model: { ...form, id: form.id, shortDescription: familyMode ? previewName : form.shortDescription, modelName: form.modelName || form.shortDescription, attributes: form.attributes, parentId: null, costPrice, warrantyMonths },
+          model: { ...form, id: form.id, shortDescription: familyMode ? previewName : form.shortDescription, modelName: form.modelName || form.shortDescription, attributes: form.attributes, parentId: null, costPrice, warrantyMonths, reorderPoint: modelOnly ? 0 : form.reorderPoint },
           variants: variantList.payload(),
+          applyToVariants,
         });
       } else {
         saveWithVariants.mutate({
-          product: { ...form, reference: undefined, barcode: null, attributes: null, parentId: null, modelName: null, costPrice, warrantyMonths },
+          product: { ...form, reference: undefined, barcode: null, attributes: null, parentId: null, modelName: null, costPrice, warrantyMonths, reorderPoint: 0 },
           variants: variantList.payload(),
         });
       }
@@ -443,8 +449,11 @@ export default function ProductsPage() {
                     size="sm"
                     onClick={() => {
                       const restored = productDraft.restore();
+                      if (!restored) return;
                       // Rascunhos antigos não têm os campos de variação.
-                      if (restored) setForm({ ...emptyProduct, ...restored, attributes: { ...emptyAttributes, ...restored.attributes } });
+                      const { variantRows, ...restoredForm } = restored;
+                      setForm({ ...emptyProduct, ...restoredForm, attributes: { ...emptyAttributes, ...restoredForm.attributes } });
+                      resetVariantList((variantRows ?? []).map(row => ({ ...row, reorderPoint: row.reorderPoint ?? "" })));
                     }}
                   >
                     Recuperar
@@ -700,6 +709,7 @@ export default function ProductsPage() {
                   </p>
                 </div>
               ) : null}
+              {modelOnly ? null : (
               <div className="space-y-2">
                 <Label>Ponto de reposição</Label>
                 <Input
@@ -713,6 +723,21 @@ export default function ProductsPage() {
                   }
                 />
               </div>
+              )}
+              {form.id && withVariants ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 sm:col-span-2">
+                  <div>
+                    <Label htmlFor="product-apply-variants" className="text-sm font-semibold">
+                      Aplicar às variações
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Copia o preço{showCost ? ", o custo" : ""}, o fornecedor e a foto deste modelo
+                      para todas as variações ao salvar. Desligado, cada variação mantém os seus.
+                    </p>
+                  </div>
+                  <Switch id="product-apply-variants" checked={applyToVariants} onCheckedChange={setApplyToVariants} />
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="product-warranty">Garantia (meses)</Label>
                 <Input

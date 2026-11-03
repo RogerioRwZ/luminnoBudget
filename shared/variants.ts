@@ -51,6 +51,13 @@ export function variantDisplayName(modelName: string, attributes: VariantAttribu
   return reference ? `${modelName.trim()} — Ref. ${reference}` : modelName.trim();
 }
 
+// Modelo: o principal de um produto com variações, sem cor/temperatura/
+// potência próprias. Não é vendido nem estocado; quem vende são as variações.
+export function modelProductIds(rows: Array<{ id: number; parentId: number | null; attributes: string | null }>) {
+  const parents = new Set(rows.map((row) => row.parentId).filter((id): id is number => Boolean(id)));
+  return new Set(rows.filter((row) => !row.parentId && parents.has(row.id) && !variantLabel(parseAttributes(row.attributes))).map((row) => row.id));
+}
+
 // Chave para não repetir a mesma variação dentro do modelo.
 export function attributesKey(attributes: VariantAttributes) {
   return VARIANT_FIELDS.map(({ key }) => (attributes[key] ?? "").toLocaleLowerCase("pt-BR")).join("|");

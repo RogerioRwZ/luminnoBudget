@@ -7,7 +7,7 @@ type PickingDocument = {
   issuedAt: string;
   brand?: { tradingName?: string | null; companyName?: string | null; phone?: string | null } | null;
 };
-type PrintWindow = { document: { write: (html: string) => void; close: () => void } };
+type PrintWindow = { document: { write: (html: string) => void; close: () => void }; focus?: () => void; print?: () => void };
 const escape = (value: string | number | null | undefined) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]!);
 const quantity = (value: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
 
@@ -67,7 +67,7 @@ export function buildPickingPrintDocument(data: PickingDocument) {
     + `<table><thead><tr><th>#</th><th>Produto</th><th>Ambientes</th>${partial ? `<th style="text-align:right">Já entregue</th>` : ""}<th style="text-align:right">Separar</th><th style="text-align:center">OK</th></tr></thead><tbody>${rows || `<tr><td colspan="${partial ? 6 : 5}" class="empty">${partial ? "Tudo já foi entregue." : "Nenhum item para separar."}</td></tr>`}</tbody></table>`
     + `<section class="sign"><div>Separado por</div><div>Conferido por</div><div>Data</div></section>`
     + `<footer><span>${escape(plural(toPick.length, "produto", "produtos"))}${toPick.length ? ` · ${escape(totalsByUnit(toPick))}` : ""}, consolidados por produto.</span><span>Documento operacional — não é comprovante fiscal.</span></footer>`
-    + `</div><script>window.onload=()=>window.print()<\/script></body></html>`;
+    + `</div></body></html>`;
 }
 
 export function openPickingPrintDocument(data: PickingDocument, openWindow: () => PrintWindow | null) {
@@ -75,5 +75,9 @@ export function openPickingPrintDocument(data: PickingDocument, openWindow: () =
   if (!popup) return false;
   popup.document.write(buildPickingPrintDocument(data));
   popup.document.close();
+  // A impressão é pedida daqui: a política de segurança do sistema não deixa
+  // a janela nova rodar script próprio.
+  popup.focus?.();
+  popup.print?.();
   return true;
 }

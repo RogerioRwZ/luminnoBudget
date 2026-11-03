@@ -132,8 +132,9 @@ A rota `GET /api/health` responde `200` com o banco online e `503` com ele fora 
 - Trocar ou redefinir a senha encerra as outras sessões do usuário.
 - Limite de tentativas de login por usuário e por IP.
 - Todas as rotas de negócio exigem login. Backup, configurações da loja e usuários exigem perfil de administrador.
-- Anexos e PDFs só são baixados com login. Os uploads têm o tipo do arquivo conferido pelo conteúdo.
-- Cabeçalhos de segurança (`nosniff`, `X-Frame-Options`, HSTS em produção etc.).
+- Anexos e PDFs só são baixados com login e pelo perfil que tem acesso a Orçamentos ou ao Histórico de PDFs. Os uploads têm o tipo do arquivo conferido pelo conteúdo, e envios acima de 1 MB só são aceitos de quem está logado.
+- Os dados de PDF do histórico só guardam imagens do próprio sistema.
+- Cabeçalhos de segurança (`nosniff`, `X-Frame-Options`, HSTS e Content-Security-Policy em produção etc.).
 
 Para relatar uma vulnerabilidade, entre em contato diretamente com o mantenedor em vez de abrir uma issue pública.
 
