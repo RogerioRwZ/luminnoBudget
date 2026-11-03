@@ -24,9 +24,9 @@ import { aggregateDashboardStatuses, aggregateMonthlyPerformance, conversionRate
 import { getExpirationAlerts, matchesExpirationQuickFilter, type ExpirationQuickFilter } from "../shared/quoteAlerts";
 import { matchesQuoteStatusFilter, type QuoteStatusFilter } from "../shared/quoteStatus";
 import { buildPickingList } from "../shared/picking";
-import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, variantLabel, type VariantAttributes } from "../shared/variants";
+import { attributesKey, cleanAttributes, composeVariantName, parseAttributes, VARIANT_FIELDS, variantLabel, type VariantAttributes } from "../shared/variants";
 import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
-import { nextProductCode } from "../shared/productCodes";
+import { barcodeProblem, matchesProductSearch, nextProductCode, normalizeBarcode, normalizeReference, referenceProblem, suggestVariantReference, uniqueReference } from "../shared/productCodes";
 import { professionalKey } from "../shared/commission";
 import { getDb } from "./db";
 import { commissionRateFor } from "./reportsDb";
@@ -197,13 +197,15 @@ export async function listProducts(search?: string) {
   const all = await db.select().from(products).orderBy(desc(products.updatedAt));
   const needle = search?.trim().toLocaleLowerCase("pt-BR");
   return needle
-    ? all.filter((product) => `${product.code} ${product.shortDescription} ${product.supplierName ?? ""}`.toLocaleLowerCase("pt-BR").includes(needle))
+    ? all.filter((product) => matchesProductSearch(product, needle))
     : all;
 }
 
 export async function saveProduct(input: {
   id?: number;
   code?: string;
+  // Obrigatória ao criar; ao editar, undefined mantém a gravada.
+  reference?: string;
   shortDescription: string;
   fullDescription?: string | null;
   imageUrl?: string | null;
@@ -246,7 +248,17 @@ export async function saveProduct(input: {
     const twin = (await db.select().from(products).where(or(eq(products.id, rootId), eq(products.parentId, rootId)))).find((member) => member.id !== input.id && attributesKey(parseAttributes(member.attributes)) === key);
     if (twin) throw new Error(variantLabel(attributes) ? `A variação ${variantLabel(attributes)} já existe neste modelo (#${twin.code}).` : `Informe cor, temperatura, potência ou outro detalhe: sem isso a variação fica igual a #${twin.code}.`);
   }
+  const reference = input.reference !== undefined ? normalizeReference(input.reference) : current?.reference ?? current?.code ?? "";
+  const referenceError = referenceProblem(reference);
+  if (referenceError) throw new Error(referenceError);
+  const barcode = input.barcode !== undefined ? normalizeBarcode(input.barcode) || null : undefined;
+  const barcodeError = barcodeProblem(barcode);
+  if (barcodeError) throw new Error(barcodeError);
+  // A comparação segue o banco: maiúsculas, minúsculas e acentos contam como iguais.
+  const referenceOwner = (await db.select({ id: products.id, shortDescription: products.shortDescription }).from(products).where(eq(products.reference, reference)).limit(1))[0];
+  if (referenceOwner && referenceOwner.id !== input.id) throw new Error(`A referência ${reference} já está no produto "${referenceOwner.shortDescription}".`);
   const values = {
+    reference,
     shortDescription: modelName ? composeVariantName(modelName, attributes) : input.shortDescription,
     parentId,
     modelName,
@@ -262,10 +274,10 @@ export async function saveProduct(input: {
     ...(input.warrantyMonths !== undefined ? { warrantyMonths: input.warrantyMonths } : {}),
     active: input.active,
     // O campo do catálogo existia, mas o valor era descartado aqui.
-    ...(input.barcode !== undefined ? { barcode: input.barcode?.trim() || null } : {}),
+    ...(barcode !== undefined ? { barcode } : {}),
   };
-  if (input.barcode) {
-    const owner = (await db.select({ id: products.id, shortDescription: products.shortDescription }).from(products).where(eq(products.barcode, input.barcode.trim())).limit(1))[0];
+  if (barcode) {
+    const owner = (await db.select({ id: products.id, shortDescription: products.shortDescription }).from(products).where(eq(products.barcode, barcode)).limit(1))[0];
     if (owner && owner.id !== input.id) throw new Error(`Este código de barras já está no produto "${owner.shortDescription}".`);
   }
   // O principal passa a ter nome de modelo, e renomear o modelo renomeia as variações.
@@ -299,20 +311,45 @@ export async function saveProduct(input: {
 // os dados do produto principal; as que já existem são puladas. O ponto de
 // reposição começa zerado: senão cada variação nova, sem estoque, já iria
 // para Compras.
-export async function createProductVariants(productId: number, combinations: VariantAttributes[]) {
+// Cada variação tem referência própria (sem informar, vira "REF-PRETO-3000K")
+// e, se quiser, código de barras.
+export async function createProductVariants(productId: number, variants: Array<{ attributes: VariantAttributes; reference?: string | null; barcode?: string | null }>) {
   const base = await getProduct(productId);
   const root = base?.parentId ? await getProduct(base.parentId) : base;
   if (!root) throw new Error("Produto não encontrado.");
   const modelName = root.modelName || root.shortDescription;
   const created: number[] = [];
   const skipped: string[] = [];
-  for (const combination of combinations) {
+  const db = await database();
+  const existing = await db.select({ reference: products.reference, barcode: products.barcode }).from(products);
+  const taken = existing.map((row) => row.reference);
+  // Confere tudo antes de criar: um erro no meio deixaria só parte das variações.
+  const seen = { references: new Set<string>(), barcodes: new Set<string>() };
+  for (const variant of variants) {
+    const typed = normalizeReference(variant.reference);
+    const barcode = normalizeBarcode(variant.barcode);
+    const problem = (typed ? referenceProblem(typed) : null) ?? barcodeProblem(barcode);
+    if (problem) throw new Error(`${variantLabel(cleanAttributes(variant.attributes))}: ${problem}`);
+    const referenceKey = typed.toLocaleLowerCase("pt-BR");
+    if (typed && (seen.references.has(referenceKey) || taken.some((value) => value?.toLocaleLowerCase("pt-BR") === referenceKey))) throw new Error(`A referência ${typed} já está em uso.`);
+    if (barcode && (seen.barcodes.has(barcode) || existing.some((row) => row.barcode === barcode))) throw new Error(`O código de barras ${barcode} já está em uso.`);
+    if (typed) seen.references.add(referenceKey);
+    if (barcode) seen.barcodes.add(barcode);
+  }
+  taken.push(...Array.from(seen.references));
+  for (const variant of variants) {
+    const combination = variant.attributes;
+    const typed = normalizeReference(variant.reference);
+    const clean = cleanAttributes(combination);
+    const reference = typed || uniqueReference(suggestVariantReference(root.reference ?? root.code, VARIANT_FIELDS.map(({ key }) => clean[key])), taken);
     try {
-      created.push(await saveProduct({ shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: 0, active: true }));
+      created.push(await saveProduct({ reference, barcode: variant.barcode ?? null, shortDescription: modelName, modelName, parentId: root.id, attributes: combination, fullDescription: root.fullDescription, imageUrl: root.imageUrl, imageKey: root.imageKey, unit: root.unit, supplierName: root.supplierName, unitPrice: toNumber(root.unitPrice), costPrice: root.costPrice === null ? null : toNumber(root.costPrice), warrantyMonths: root.warrantyMonths, reorderPoint: 0, active: true }));
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("já existe neste modelo")) throw error;
-      skipped.push(variantLabel(cleanAttributes(combination)));
+      skipped.push(variantLabel(clean));
+      continue;
     }
+    taken.push(reference);
   }
   return { rootId: root.id, created, skipped };
 }
@@ -514,7 +551,7 @@ export async function getPickingList(quoteId: number) {
   const lines = await fulfillmentLines([quoteId]);
   return {
     quote: { id: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, professional: quote.professional, status: quote.status, issueDate: quote.issueDate, validUntil: quote.validUntil },
-    items: buildPickingList(lines.map((line) => ({ quoteItemId: line.quoteItemId, productId: line.productId, barcode: line.barcode, code: line.code, shortDescription: line.shortDescription, fullDescription: line.fullDescription, unit: line.unit, quantity: line.pendingQuantity, orderedQuantity: line.orderedQuantity, deliveredQuantity: line.deliveredQuantity, deliverableQuantity: line.deliverableQuantity, roomName: line.roomName }))),
+    items: buildPickingList(lines.map((line) => ({ quoteItemId: line.quoteItemId, productId: line.productId, barcode: line.barcode, reference: line.reference, code: line.code, shortDescription: line.shortDescription, fullDescription: line.fullDescription, unit: line.unit, quantity: line.pendingQuantity, orderedQuantity: line.orderedQuantity, deliveredQuantity: line.deliveredQuantity, deliverableQuantity: line.deliverableQuantity, roomName: line.roomName }))),
   };
 }
 
@@ -924,7 +961,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(stockLoans);
     }
     if (data.clients?.length) await tx.insert(clients).values(data.clients).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, professional: sql`values(professional)` } });
-    if (data.products?.length) await tx.insert(products).values(data.products).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
+    // Backups anteriores à referência: o produto recebe o próprio código.
+    if (data.products?.length) await tx.insert(products).values(data.products.map((product) => ({ ...product, reference: product.reference ?? product.code }))).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, unitPrice: sql`values(unitPrice)`, active: sql`values(active)` } });
     if (data.quotes?.length) await tx.insert(quotes).values(data.quotes).onDuplicateKeyUpdate({ set: { clientName: sql`values(clientName)`, professional: sql`values(professional)`, status: sql`values(status)` } });
     if (data.quoteRooms?.length) await tx.insert(quoteRooms).values(data.quoteRooms).onDuplicateKeyUpdate({ set: { name: sql`values(name)`, sortOrder: sql`values(sortOrder)` } });
     if (data.quoteItems?.length) await tx.insert(quoteItems).values(data.quoteItems).onDuplicateKeyUpdate({ set: { shortDescription: sql`values(shortDescription)`, quantity: sql`values(quantity)`, unitPrice: sql`values(unitPrice)` } });

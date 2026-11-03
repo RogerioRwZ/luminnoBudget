@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 async function product(stock: number) {
-  const id = await saveProduct({ shortDescription: `Separação ${Date.now()}-${Math.random()}`, fullDescription: "Produto de teste", unit: "UN", supplierName: "Fornecedor teste", unitPrice: 10, reorderPoint: 0, active: true });
+  const id = await saveProduct({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Separação ${Date.now()}-${Math.random()}`, fullDescription: "Produto de teste", unit: "UN", supplierName: "Fornecedor teste", unitPrice: 10, reorderPoint: 0, active: true });
   productIds.push(id);
   if (stock) await recordStockMovement({ productId: id, type: "entry", quantity: stock, occurredAt: new Date() });
   return id;
@@ -109,11 +109,11 @@ describe("separação e retiradas", () => {
 describe("código de barras do catálogo", () => {
   it("salva o código informado no cadastro e recusa repetido", async () => {
     const barcode = `789${Date.now()}`.slice(0, 13);
-    const id = await saveProduct({ shortDescription: `Com EAN ${Date.now()}`, unit: "UN", unitPrice: 1, active: true, barcode });
+    const id = await saveProduct({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Com EAN ${Date.now()}`, unit: "UN", unitPrice: 1, active: true, barcode });
     productIds.push(id);
     const db = (await getDb())!;
     expect((await db.select().from(products).where(eq(products.id, id)))[0]).toMatchObject({ barcode });
-    await expect(saveProduct({ shortDescription: "Outro", unit: "UN", unitPrice: 1, active: true, barcode })).rejects.toThrow(/já está no produto/);
+    await expect(saveProduct({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: "Outro", unit: "UN", unitPrice: 1, active: true, barcode })).rejects.toThrow(/já está no produto/);
     await saveProduct({ id, shortDescription: "Com EAN", unit: "UN", unitPrice: 1, active: true });
     expect((await db.select().from(products).where(eq(products.id, id)))[0]).toMatchObject({ barcode });
   });

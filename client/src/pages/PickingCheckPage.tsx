@@ -1,5 +1,6 @@
 import { AsyncButton, getFormErrorMessage } from "@/components/FormFeedback";
 import { CameraBarcodeScanner } from "@/components/CameraBarcodeScanner";
+import { findProductByScan } from "@shared/productCodes";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,11 +116,10 @@ export default function PickingCheckPage() {
   const processCode = (value: string) => {
     if (!value) return;
     const normalized = value.toLocaleLowerCase("pt-BR");
-    const item = items.find(
-      candidate =>
-        (candidate.barcode && candidate.barcode.toLocaleLowerCase("pt-BR") === normalized) ||
-        candidate.code.toLocaleLowerCase("pt-BR") === normalized
-    );
+    // Código de barras, referência ou código interno.
+    const item =
+      findProductByScan(items, value) ??
+      items.find(candidate => candidate.code.toLocaleLowerCase("pt-BR") === normalized);
     if (!item) {
       beep(false);
       setFeedback({ tone: "error", message: `Código ${value} não pertence a este orçamento (ou já foi entregue). Separe o produto de volta.` });
@@ -275,7 +275,7 @@ export default function PickingCheckPage() {
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           Cód. {item.code}
-                          {item.barcode ? ` · EAN ${item.barcode}` : " · sem código de barras, use os botões"}
+                          {item.reference ? ` · Ref. ${item.reference}` : ""}{item.barcode ? ` · Cód. barras ${item.barcode}` : " · sem código de barras, use os botões"}
                           {" · "}
                           {item.rooms.join(", ")}
                         </p>

@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Camera, CameraOff } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Camera, CameraOff, ScanLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 type Detector = { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> };
@@ -36,10 +37,13 @@ export function CameraBarcodeScanner({
   onDetected,
   continuous = false,
   label = "Ler pela câmera",
+  autoStart = false,
 }: {
   onDetected: (value: string) => void;
   continuous?: boolean;
   label?: string;
+  // Abre a câmera assim que aparece (usado na janela do botão de leitura).
+  autoStart?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -50,14 +54,21 @@ export function CameraBarcodeScanner({
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Cada abertura tem um número: se a janela fechar enquanto a câmera ainda
+  // está abrindo, a câmera que chegar atrasada é desligada na hora.
+  const attemptRef = useRef(0);
   const stop = () => {
+    attemptRef.current += 1;
     runningRef.current = false;
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setActive(false);
   };
-  useEffect(() => stop, []);
+  useEffect(() => {
+    if (autoStart) void start();
+    return stop;
+  }, []);
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -66,12 +77,17 @@ export function CameraBarcodeScanner({
     }
     setStarting(true);
     setMessage("");
+    const attempt = ++attemptRef.current;
     try {
       const [DetectorClass, stream] = await Promise.all([
         loadDetector(),
         navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false }),
       ]);
-      const video = videoRef.current!;
+      if (attempt !== attemptRef.current || !videoRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      const video = videoRef.current;
       streamRef.current = stream;
       video.srcObject = stream;
       await video.play();
@@ -134,5 +150,43 @@ export function CameraBarcodeScanner({
         </p>
       ) : null}
     </div>
+  );
+}
+
+// Botão de câmera ao lado de um campo: abre uma janela com a câmera ligada,
+// lê um código e fecha, entregando o valor lido.
+export function ScanButton({
+  onDetected,
+  title = "Ler código de barras",
+  className,
+}: {
+  onDetected: (value: string) => void;
+  title?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button type="button" variant="outline" size="icon" className={className} title={title} aria-label={title} onClick={() => setOpen(true)}>
+        <ScanLine className="h-4 w-4" />
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>Aponte a câmera para o código de barras. A leitura é automática.</DialogDescription>
+          </DialogHeader>
+          {open ? (
+            <CameraBarcodeScanner
+              autoStart
+              onDetected={value => {
+                setOpen(false);
+                onDetected(value);
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

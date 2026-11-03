@@ -19,9 +19,11 @@ describe("purchaseQuantity", () => {
 
 describe("buildPurchaseOrderText", () => {
   it("lista só itens com quantidade", () => {
-    const text = buildPurchaseOrderText({ supplierName: "Lumi", storeName: "Luminno", date: new Date(2026, 10, 2), lines: [{ ...line, quantity: 3.5 }, { ...line, shortDescription: "Fita", quantity: 0 }] });
+    const text = buildPurchaseOrderText({ supplierName: "Lumi", storeName: "Luminno", date: new Date(2026, 10, 2), lines: [{ ...line, quantity: 3.5 }, { ...line, reference: "SP-7W/PT", shortDescription: "Spot preto", quantity: 2 }, { ...line, shortDescription: "Fita", quantity: 0 }] });
     expect(text).toContain("Fornecedor: Lumi");
-    expect(text).toContain("• 3,5 UN — Spot LED (cód. 12)");
+    // O fornecedor conhece o produto pela referência; sem ela, vai o código.
+    expect(text).toContain("• 3,5 UN — Spot LED (ref. 12)");
+    expect(text).toContain("• 2 UN — Spot preto (ref. SP-7W/PT)");
     expect(text).not.toContain("Fita");
   });
 });

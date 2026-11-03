@@ -112,9 +112,10 @@ describe("mensagens, PIX e registro de atividades", () => {
     await caller.quote.save({ ...base, status: "open", discountValue: 1 }); // edição comum: não registra
     await caller.quote.save({ ...base, status: "lost", lostReason: "price" });
 
-    const productId = await caller.product.save({ shortDescription: "Spot teste atividade", unitPrice: 100, unit: "UN", reorderPoint: 0, active: true });
+    const reference = `T-${Math.random().toString(36).slice(2, 10)}`;
+    const productId = await caller.product.save({ reference, shortDescription: "Spot teste atividade", unitPrice: 100, unit: "UN", reorderPoint: 0, active: true });
     created.products.push(productId);
-    await caller.product.save({ id: productId, shortDescription: "Spot teste atividade", unitPrice: 129.9, unit: "UN", reorderPoint: 0, active: true });
+    await caller.product.save({ id: productId, reference, shortDescription: "Spot teste atividade", unitPrice: 129.9, unit: "UN", reorderPoint: 0, active: true });
 
     const log = await admin().activity.list({ userId: OPERATOR_ID });
     const summaries = log.entries.map((entry) => plain(entry.summary));

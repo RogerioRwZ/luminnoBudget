@@ -63,7 +63,8 @@ export default function PurchasesPage() {
   };
   const exportCsv = (supplier: (typeof suppliers)[number]) =>
     downloadCsv(`compras-${supplier.supplierName || "sem-fornecedor"}`.replace(/[^\w-]+/g, "-"), supplier.lines, [
-      { header: "Código", value: line => line.code },
+      { header: "Referência", value: line => line.reference ?? line.code },
+      { header: "Código de barras", value: line => line.barcode ?? "" },
       { header: "Produto", value: line => line.shortDescription },
       { header: "Unidade", value: line => line.unit },
       { header: "Comprar", value: line => line.quantity },
@@ -164,7 +165,7 @@ export default function PurchasesPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold">{line.shortDescription}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Cód. {line.code} · estoque livre {quantity(line.freeQuantity)}{" "}
+                        Ref. {line.reference ?? line.code} · estoque livre {quantity(line.freeQuantity)}{" "}
                         {line.unit}
                         {line.reorderPoint > 0
                           ? ` · ponto de pedido ${quantity(line.reorderPoint)}`

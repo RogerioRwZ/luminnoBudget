@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { MessageCircle, Send } from "lucide-react";
 import { CameraBarcodeScanner } from "@/components/CameraBarcodeScanner";
+import { useUnknownCode } from "@/hooks/useUnknownCode";
 import { MessageDialog, type DialogMessage } from "@/components/MessageDialog";
 import { dateOnly } from "@/lib/format";
 import { MESSAGE_VARIABLES, type MessageEvent } from "@shared/messages";
@@ -252,6 +253,7 @@ export default function OperationsPage() {
     { enabled: false }
   );
   const utils = trpc.useUtils();
+  const unknownCode = useUnknownCode();
   const createVersion = trpc.quote.createVersion.useMutation({
     onSuccess: () => {
       setOperationError("");
@@ -382,12 +384,10 @@ export default function OperationsPage() {
     }
     if (result.data) {
       setOperationError("");
-      toast.success(`${result.data.code} — ${result.data.shortDescription}`);
+      toast.success(`Ref. ${result.data.reference ?? result.data.code} — ${result.data.shortDescription}`);
     } else {
-      const message =
-        "Produto não encontrado. Confira o código ou cadastre o produto no catálogo.";
-      setOperationError(message);
-      toast.error(message);
+      setOperationError("Produto não encontrado. Confira o código ou cadastre o produto no catálogo.");
+      unknownCode(barcode.trim());
     }
   }
   function onCameraDetected(value: string) {

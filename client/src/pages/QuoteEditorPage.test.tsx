@@ -190,7 +190,7 @@ describe("QuoteEditorPage", () => {
     render(<QuoteEditorPage />);
     const searchInputs = () =>
       screen.getAllByPlaceholderText(
-        "Buscar e adicionar um produto do catálogo"
+        "Buscar por referência, descrição ou código de barras"
       ) as HTMLInputElement[];
 
     // Cria um segundo ambiente, ficando: [0] SALA, [1] NOVO AMBIENTE.

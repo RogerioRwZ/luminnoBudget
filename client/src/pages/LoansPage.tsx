@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { dateOnly, formatDateInput } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { useUnknownCode } from "@/hooks/useUnknownCode";
 import { BORROWER_KIND_LABELS, BORROWER_KINDS, type BorrowerKind } from "@shared/loans";
 import { canOpenPage } from "@shared/permissions";
 import { plural } from "@shared/plural";
@@ -37,6 +39,7 @@ const emptyNew = (): NewForm => ({ borrowerName: "", borrowerKind: "professional
 
 export default function LoansPage() {
   const utils = trpc.useUtils();
+  const unknownCode = useUnknownCode();
   const { data: me } = trpc.auth.me.useQuery();
   const canOpenQuote = canOpenPage(me?.role, "/orcamentos");
   const loans = trpc.loans.list.useQuery();
@@ -235,16 +238,33 @@ export default function LoansPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="loan-product">Peças</Label>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input id="loan-product" className="pl-9" placeholder="Buscar produto do catálogo" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input id="loan-product" className="pl-9" placeholder="Referência, descrição ou código de barras" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
+                  </div>
+                  <ScanButton
+                    title="Adicionar peça pelo código de barras"
+                    onDetected={async value => {
+                      const product = await utils.product.findByBarcode.fetch({ barcode: value }).catch(() => null);
+                      if (product?.active) addProduct(product);
+                      else if (product) toast.error(`${product.shortDescription} está arquivado no catálogo.`);
+                      else {
+                        setProductQuery(value);
+                        unknownCode(value);
+                      }
+                    }}
+                  />
                 </div>
                 {productQuery.trim().length >= 2 ? (
                   <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-xl border border-border text-sm">
                     {(productSearch.data ?? []).filter(product => product.active).slice(0, 20).map(product => (
                       <li key={product.id}>
                         <button className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/60" onClick={() => addProduct(product)}>
-                          <span className="truncate">{product.shortDescription}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate">{product.shortDescription}</span>
+                            <span className="block font-mono text-[11px] text-muted-foreground">Ref. {product.reference ?? product.code}</span>
+                          </span>
                           <span className="shrink-0 text-xs text-muted-foreground">saldo {quantityText(Number(product.stockQuantity))} {product.unit}</span>
                         </button>
                       </li>

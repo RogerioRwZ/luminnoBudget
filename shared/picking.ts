@@ -3,6 +3,7 @@ export type PickingSourceItem = {
   quoteItemId?: number;
   productId?: number | null;
   barcode?: string | null;
+  reference?: string | null;
   code: string;
   shortDescription: string;
   fullDescription?: string | null;
@@ -18,6 +19,7 @@ export type PickingItem = {
   key: string;
   productId: number | null;
   barcode: string | null;
+  reference: string | null;
   code: string;
   shortDescription: string;
   fullDescription: string;
@@ -36,7 +38,7 @@ export function buildPickingList(items: PickingSourceItem[]): PickingItem[] {
   const grouped = new Map<string, PickingItem>();
   items.forEach((item) => {
     const key = item.productId ? `product-${item.productId}` : `manual-${item.code}-${item.shortDescription}`;
-    const current = grouped.get(key) ?? { key, productId: item.productId ?? null, barcode: item.barcode || null, code: item.code, shortDescription: item.shortDescription, fullDescription: item.fullDescription?.trim() || item.shortDescription, unit: item.unit, quantity: 0, orderedQuantity: 0, deliveredQuantity: 0, deliverableQuantity: 0, rooms: [], lines: [] };
+    const current = grouped.get(key) ?? { key, productId: item.productId ?? null, barcode: item.barcode || null, reference: item.reference || null, code: item.code, shortDescription: item.shortDescription, fullDescription: item.fullDescription?.trim() || item.shortDescription, unit: item.unit, quantity: 0, orderedQuantity: 0, deliveredQuantity: 0, deliverableQuantity: 0, rooms: [], lines: [] };
     current.quantity = round(current.quantity + item.quantity);
     current.orderedQuantity = round(current.orderedQuantity + (item.orderedQuantity ?? item.quantity));
     current.deliveredQuantity = round(current.deliveredQuantity + (item.deliveredQuantity ?? 0));
