@@ -41,6 +41,7 @@ import {
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { VariantGenerator } from "@/components/VariantGenerator";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX } from "@shared/productCodes";
 import { plural } from "@shared/plural";
 import {
@@ -278,25 +279,21 @@ export default function ProductsPage() {
     });
     setOpen(true);
   };
-  const handleImage = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024)
-      return toast.error("A imagem deve ter até 5 MB");
-    if (
-      !(["image/jpeg", "image/png", "image/webp"] as string[]).includes(
-        file.type
-      )
-    )
+    if (!isSupportedImage(file.type))
       return toast.error("Use uma imagem JPG, PNG ou WEBP");
-    const reader = new FileReader();
-    reader.onload = () =>
-      upload.mutate({
-        fileName: file.name,
-        mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
-        dataUrl: String(reader.result),
-      });
-    reader.readAsDataURL(file);
+    // A foto é reduzida no aparelho antes de enviar (até 1600 px).
+    const image = await prepareImage(file);
+    if (image.size > 5 * 1024 * 1024)
+      return toast.error("A imagem deve ter até 5 MB");
+    upload.mutate({
+      fileName: renameForType(file.name, image.mimeType),
+      mimeType: image.mimeType,
+      dataUrl: image.dataUrl,
+    });
   };
   // Código lido que não está no catálogo: abre o cadastro já com ele.
   const startWithBarcode = (value: string) => {
@@ -620,8 +617,8 @@ export default function ProductsPage() {
                   )}
                   <div className="flex-1">
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      Envie um arquivo local JPG, PNG ou WEBP de até 5 MB. A
-                      imagem será armazenada no servidor da Luminno.
+                      Envie uma foto JPG, PNG ou WEBP. Ela é reduzida no
+                      aparelho antes de ir para o servidor da Luminno.
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button

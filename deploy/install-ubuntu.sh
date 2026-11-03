@@ -460,7 +460,8 @@ elif [ -f "$MONITOR_ENV" ]; then
 fi
 cat > /usr/local/sbin/luminno-backup <<EOF
 #!/usr/bin/env bash
-# Backup diário do Luminno: banco + imagens, anexos e PDFs. Guarda 30 dias.
+# Backup diário do Luminno: banco + imagens, anexos e PDFs. Guarda os 7
+# últimos dias e, das 4 semanas anteriores, só o backup de domingo.
 # Grava em $DATA_DIR/backup-status o horário do último sucesso ou da falha
 # (a Administração do sistema mostra) e avisa o monitor de $MONITOR_ENV.
 set -Eeuo pipefail
@@ -486,7 +487,16 @@ mysqldump --defaults-extra-file=$BACKUP_CNF --single-transaction --routines --tr
 STAGE="cópia das imagens, anexos e PDFs (tar)"
 tar -C "$DATA_DIR" -czf "$BACKUP_DIR/luminno-arquivos_\${STAMP}.tar.gz" uploads pdf-history
 STAGE="limpeza dos backups antigos"
-find "$BACKUP_DIR" -type f -name 'luminno-*' -mtime +30 -delete
+TODAY=\$(date -d "\$(date +%F)" +%s)
+for FILE in "$BACKUP_DIR"/luminno-*; do
+  [ -f "\$FILE" ] || continue
+  DAY=\$(basename "\$FILE" | sed -nE 's/^luminno-[a-z]+_([0-9]{4}-[0-9]{2}-[0-9]{2})_.*/\1/p')
+  [ -n "\$DAY" ] || continue
+  AGE=\$(( (TODAY - \$(date -d "\$DAY" +%s)) / 86400 ))
+  [ "\$AGE" -lt 7 ] && continue
+  [ "\$AGE" -le 35 ] && [ "\$(date -d "\$DAY" +%u)" = 7 ] && continue
+  rm -f "\$FILE"
+done
 date -Iseconds > "\$STATUS_DIR/ok"
 chmod 0644 "\$STATUS_DIR/ok"
 rm -f "\$STATUS_DIR/erro"
@@ -539,7 +549,7 @@ Endereço:        $PUBLIC_URL
 Código:          $APP_DIR ($BRANCH, $(sudo -u "$APP_USER" -H git -C "$APP_DIR" log -1 --format='%h'))
 Configuração:    $ENV_FILE  (senha do banco e JWT_SECRET; não compartilhe)
 Dados:           $DATA_DIR/uploads e $DATA_DIR/pdf-history
-Backups:         $BACKUP_DIR (todo dia às 02:15, guarda 30 dias)
+Backups:         $BACKUP_DIR (todo dia às 02:15; guarda 7 dias + 4 domingos)
 Logs:            journalctl -u $SERVICE -f
 Atualizar:       sudo luminno-update confirm
 Backup manual:   sudo luminno-backup

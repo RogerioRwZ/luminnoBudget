@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { saveLocalAttachment, saveLocalImage, saveLocalPdf } from "../localStorage";
+import { saveLocalAttachment, saveLocalImage } from "../localStorage";
 import { addAttachment, addComment, createQuoteVersion, findProductByBarcode, listAttachments, listComments, listMessageTemplates, listQuoteVersions, resolveComment, restoreQuoteVersion, saveMessageTemplate, updateProductBarcode } from "../advancedDb";
 import {
   createQuote,
   createQuotePdfHistory,
+  getQuotePdfSnapshot,
   customerStatement,
   dashboardMetrics,
   deleteProduct,
@@ -351,6 +352,11 @@ export const businessRouter = router({
     }),
     pdfHistory: areaProcedure("quotes", "pdfs").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuotePdfHistory(input.quoteId)),
     pdfHistoryAll: areaProcedure("quotes", "pdfs").query(listAllQuotePdfHistory),
+    pdfSnapshot: areaProcedure("quotes", "pdfs").input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+      const entry = await getQuotePdfSnapshot(input.id);
+      if (!entry) throw new TRPCError({ code: "NOT_FOUND", message: "PDF não encontrado no histórico." });
+      return entry;
+    }),
     versions: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => listQuoteVersions(input.quoteId)),
     createVersion: areaProcedure("quotes").input(z.object({ quoteId: z.number().int().positive(), changeNote: z.string().trim().max(512).nullable().optional() })).mutation(async ({ ctx, input }) => {
       const quote = await getQuote(input.quoteId);
@@ -374,29 +380,26 @@ export const businessRouter = router({
       try { const stored = await saveLocalAttachment(input.fileName, input.mimeType, bytes); const attachment = await addAttachment({ quoteId: input.quoteId, fileName: input.fileName, mimeType: input.mimeType, storageKey: stored.key, fileSize: stored.fileSize, userId: ctx.user.id }); await log(ctx, { action: "quote.attachment", entityType: "quote", entityId: input.quoteId, summary: `Anexou ${input.fileName} ao orçamento` }); return attachment; }
       catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o anexo." }); }
     }),
+    // Guarda os dados do PDF, não o arquivo: o PDF é montado de novo ao baixar.
     savePdf: areaProcedure("quotes").input(z.object({
       quoteId: z.number().int().positive(),
-      dataUrl: z.string().min(32).max(12_000_000),
+      snapshot: z.string().min(2).max(2_000_000),
+      fileSize: z.number().int().min(0).max(50_000_000),
       // Valores da tela no momento da geração: o salvamento automático pode
       // ainda não ter gravado uma edição recente do nome.
       clientName: z.string().max(240).optional(),
       professional: z.string().max(240).optional(),
     })).mutation(async ({ ctx, input }) => {
-      const separator = input.dataUrl.indexOf(",");
-      if (!input.dataUrl.startsWith("data:application/pdf") || separator === -1) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo PDF inválido." });
+      try {
+        const parsed = JSON.parse(input.snapshot) as { rooms?: unknown; summary?: unknown };
+        if (!Array.isArray(parsed.rooms) || typeof parsed.summary !== "object") throw new Error();
+      } catch {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Dados do PDF inválidos." });
       }
-      const bytes = Buffer.from(input.dataUrl.slice(separator + 1), "base64");
-      if (bytes.length > 8 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "O PDF deve ter no máximo 8 MB." });
       const quote = await getQuote(input.quoteId);
       if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado." });
       const fileName = quotePdfFileName({ quoteNumber: quote.quoteNumber, clientName: input.clientName ?? quote.clientName, professional: input.professional ?? quote.professional });
-      try {
-        const stored = await saveLocalPdf(fileName, bytes);
-        return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, storageKey: stored.key, fileSize: stored.fileSize });
-      } catch (error) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível salvar o PDF." });
-      }
+      return createQuotePdfHistory({ quoteId: quote.id, createdByUserId: ctx.user.id, fileName, snapshot: input.snapshot, fileSize: input.fileSize });
     }),
   }),
   finance: router({

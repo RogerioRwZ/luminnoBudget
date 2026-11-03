@@ -118,6 +118,36 @@ STEP="compilar servidor"; asowner "corepack pnpm exec esbuild server/_core/index
 STEP="migrações do banco"
 sudo -u "$OWNER" -H env COREPACK_HOME="$CPH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash -c "set -a; . '$ENVF'; set +a; cd '$APP' && corepack pnpm exec drizzle-kit migrate"
 
+STEP="retenção dos backups"
+# Instalações antigas guardavam 30 backups diários; passam a guardar os 7
+# últimos dias e, das semanas anteriores, só os de domingo (até 35 dias).
+BK_SCRIPT=/usr/local/sbin/luminno-backup
+if [ -f "$BK_SCRIPT" ] && grep -q -- "-mtime +30 -delete" "$BK_SCRIPT"; then
+  BK_DIR="$(sed -nE 's/^find "([^"]+)" .*-mtime \+30 -delete$/\1/p' "$BK_SCRIPT" | head -1)"
+  if [ -n "$BK_DIR" ]; then
+    BLOCK="$(mktemp)"
+    cat > "$BLOCK" <<'RETENCAO'
+TODAY=$(date -d "$(date +%F)" +%s)
+for FILE in "__DIR__"/luminno-*; do
+  [ -f "$FILE" ] || continue
+  DAY=$(basename "$FILE" | sed -nE 's/^luminno-[a-z]+_([0-9]{4}-[0-9]{2}-[0-9]{2})_.*/\1/p')
+  [ -n "$DAY" ] || continue
+  AGE=$(( (TODAY - $(date -d "$DAY" +%s)) / 86400 ))
+  [ "$AGE" -lt 7 ] && continue
+  [ "$AGE" -le 35 ] && [ "$(date -d "$DAY" +%u)" = 7 ] && continue
+  rm -f "$FILE"
+done
+RETENCAO
+    sed -i "s|__DIR__|$BK_DIR|" "$BLOCK"
+    cp -p "$BK_SCRIPT" "$BK_SCRIPT.antes-$STAMP"
+    awk -v block="$BLOCK" '/-mtime \+30 -delete$/ { while ((getline line < block) > 0) print line; next } { print }' "$BK_SCRIPT.antes-$STAMP" > "$BK_SCRIPT"
+    sed -i 's/Guarda 30 dias\./Guarda 7 dias + os domingos das semanas anteriores./' "$BK_SCRIPT"
+    bash -n "$BK_SCRIPT"
+    rm -f "$BLOCK"
+    echo "Backups: agora guarda 7 dias + os domingos das 4 semanas anteriores (cópia anterior do script: $BK_SCRIPT.antes-$STAMP)."
+  fi
+fi
+
 STEP="reiniciar"
 systemctl restart "$SERVICE"
 for i in $(seq 1 30); do curl -sf -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null && break; sleep 1; done

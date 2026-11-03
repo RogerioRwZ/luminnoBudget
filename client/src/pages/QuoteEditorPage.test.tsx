@@ -83,17 +83,28 @@ describe("QuoteEditorPage", () => {
         throw new Error("network down");
       })
     );
+    const createObjectURL = vi.fn(() => "blob:pdf");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const downloads: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download); });
     render(<QuoteEditorPage />);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Gerar e salvar PDF" }));
+      fireEvent.click(screen.getByRole("button", { name: "Gerar PDF" }));
     });
 
     expect(mocks.toastWarning).toHaveBeenCalledOnce();
     expect(mocks.toastWarning.mock.calls[0]?.[0]).toContain(
       "não pôde ser incluída no PDF"
     );
+    // O arquivo vai para quem gerou; o servidor recebe só os dados do PDF.
+    expect(downloads.filter(name => name.startsWith("Orçamento"))).toHaveLength(1);
     expect(mocks.mutate).toHaveBeenCalledOnce();
+    const sent = mocks.mutate.mock.calls[0]?.[0] as { snapshot: string; fileSize: number; dataUrl?: string };
+    expect(sent.dataUrl).toBeUndefined();
+    expect(sent.fileSize).toBeGreaterThan(1000);
+    expect(JSON.parse(sent.snapshot)).toMatchObject({ rooms: [expect.objectContaining({ name: "SALA" })], generatedAt: expect.any(String) });
+    click.mockRestore();
     vi.unstubAllGlobals();
   });
 

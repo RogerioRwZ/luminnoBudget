@@ -35,6 +35,7 @@ import {
   useId,
   useState,
 } from "react";
+import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { toast } from "sonner";
 import { EMPTY_CARD_FEES, parseCardFees, type CardFees } from "@shared/paymentPlan";
 
@@ -192,25 +193,21 @@ export default function SettingsPage() {
     document.getElementById("backup")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [data, isAdmin]);
 
-  const logoFile = (event: ChangeEvent<HTMLInputElement>) => {
+  const logoFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024)
-      return toast.error("O logotipo deve ter até 5 MB");
-    if (
-      !(["image/jpeg", "image/png", "image/webp"] as string[]).includes(
-        file.type
-      )
-    )
+    if (!isSupportedImage(file.type))
       return toast.error("Use um arquivo JPG, PNG ou WEBP");
-    const reader = new FileReader();
-    reader.onload = () =>
-      uploadLogo.mutate({
-        fileName: file.name,
-        mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
-        dataUrl: String(reader.result),
-      });
-    reader.readAsDataURL(file);
+    // Logotipo não precisa de mais que 800 px; a transparência é mantida.
+    const image = await prepareImage(file, 800);
+    if (image.size > 5 * 1024 * 1024)
+      return toast.error("O logotipo deve ter até 5 MB");
+    uploadLogo.mutate({
+      fileName: renameForType(file.name, image.mimeType),
+      mimeType: image.mimeType,
+      dataUrl: image.dataUrl,
+    });
   };
   const download = async () => {
     const result = await exportBackup.refetch();
