@@ -19,6 +19,7 @@ vi.mock("@/lib/trpc", () => ({
       save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       uploadImage: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       createVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      saveWithVariants: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
     auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
     settings: { get: { useQuery: () => ({ data: { defaultWarrantyMonths: 12 } }) } },
@@ -61,6 +62,28 @@ describe("ProductsPage", () => {
     fireEvent.change(screen.getByLabelText("Descrição curta (vai para o orçamento)"), { target: { value: "Spot novo" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ reference: "LM-2/PT", barcode: "7890000000017" }));
+  });
+
+  it("cadastra o produto já com as variações, cada uma com a sua referência", () => {
+    mocks.list.data = [];
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo produto" }));
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "ARCO" } });
+    fireEvent.change(screen.getByLabelText("Descrição curta (vai para o orçamento)"), { target: { value: "Pendente Arco" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Este produto tem variações" }));
+    expect(screen.getByText(/Referência do modelo/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Cor / acabamento"), { target: { value: "Preto, Branco" } });
+    expect((screen.getByLabelText("Referência de Preto") as HTMLInputElement).value).toBe("ARCO-PRETO");
+    fireEvent.change(screen.getByLabelText("Referência de Branco"), { target: { value: "ARCO/BR" } });
+    fireEvent.change(screen.getByLabelText("Código de barras de Branco"), { target: { value: "789 100" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar com 2 variações" }));
+    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      product: expect.objectContaining({ reference: "ARCO", shortDescription: "Pendente Arco", attributes: null, barcode: null }),
+      variants: [
+        { attributes: { color: "Preto" }, reference: "ARCO-PRETO", barcode: null },
+        { attributes: { color: "Branco" }, reference: "ARCO/BR", barcode: "789100" },
+      ],
+    }));
   });
 
   it("informa carregamento e catálogo vazio", () => {
