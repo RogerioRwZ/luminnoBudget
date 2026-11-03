@@ -18,6 +18,7 @@ import { AlertTriangle, CalendarClock, Lightbulb, PackageOpen, Plus, Search, Tra
 import { useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { PhoneInput } from "@/components/ContactInputs";
 
 type NewLine = { productId: number; label: string; unit: string; stock: number; quantity: string };
 type NewForm = { borrowerName: string; borrowerKind: BorrowerKind; phone: string; dueDate: string; notes: string; responsible: string; lines: NewLine[] };
@@ -229,7 +230,7 @@ export default function LoansPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="loan-phone">Telefone</Label>
-                  <Input id="loan-phone" value={newForm.phone} onChange={event => setNewForm({ ...newForm, phone: event.target.value })} />
+                  <PhoneInput id="loan-phone" value={newForm.phone} onValueChange={phone => setNewForm(current => (current ? { ...current, phone } : current))} />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="loan-due">Devolver até</Label>

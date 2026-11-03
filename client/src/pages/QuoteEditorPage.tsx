@@ -90,6 +90,8 @@ import {
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
+import { ClientPicker } from "@/components/ClientPicker";
+import { DocumentInput, PhoneInput } from "@/components/ContactInputs";
 
 type DraftItem = {
   productId?: number | null;
@@ -1094,25 +1096,8 @@ export default function QuoteEditorPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
-                <Label>Selecionar cliente cadastrado</Label>
-                <Select
-                  value={draft.clientId ? String(draft.clientId) : "manual"}
-                  onValueChange={value =>
-                    value !== "manual" && selectCustomer(value)
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Buscar cliente cadastrado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="manual">Preenchimento manual</SelectItem>
-                    {customers.map(customer => (
-                      <SelectItem key={customer.id} value={String(customer.id)}>
-                        {customer.professional ? `${customer.name} — ${customer.professional}` : customer.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Cliente cadastrado</Label>
+                <ClientPicker clients={customers} selectedId={draft.clientId ?? null} onSelect={customer => selectCustomer(String(customer.id))} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quote-client-name">Nome do cliente</Label>
@@ -1141,18 +1126,18 @@ export default function QuoteEditorPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quote-document">CPF/CNPJ</Label>
-                <Input
+                <DocumentInput
                   id="quote-document"
                   value={draft.document}
-                  onChange={e => changeDraft({ document: e.target.value })}
+                  onValueChange={document => changeDraft({ document })}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quote-phone">Telefone</Label>
-                <Input
+                <PhoneInput
                   id="quote-phone"
                   value={draft.phone}
-                  onChange={e => changeDraft({ phone: e.target.value })}
+                  onValueChange={phone => changeDraft({ phone })}
                 />
               </div>
               <div className="space-y-2 md:col-span-2">

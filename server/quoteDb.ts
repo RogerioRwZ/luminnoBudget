@@ -35,6 +35,7 @@ import { commissionRateFor } from "./reportsDb";
 import { createReceivablesFromQuote, financeOverview, releaseQuoteReceivables } from "./financeDb";
 import { parseEntryOffer, parsePaymentPlan, validatePaymentPlan, type EntryOffer, type PaymentPlan } from "../shared/paymentPlan";
 import { allocatePendingReservations, fulfillmentLines } from "./stockDb";
+import { matchesClientSearch } from "../shared/contact";
 
 export type QuoteDraft = {
   id?: number;
@@ -159,7 +160,7 @@ export async function listClients(search?: string) {
   const all = await db.select().from(clients).orderBy(desc(clients.updatedAt));
   const needle = search?.trim().toLocaleLowerCase("pt-BR");
   const filtered = needle
-    ? all.filter((client) => `${client.name} ${client.professional}`.toLocaleLowerCase("pt-BR").includes(needle))
+    ? all.filter((client) => matchesClientSearch(client, needle))
     : all;
   const counts = await db.select({ clientId: quotes.clientId, count: sql<number>`count(*)` }).from(quotes).groupBy(quotes.clientId);
   const countMap = new Map(counts.map((row) => [row.clientId, Number(row.count)]));
