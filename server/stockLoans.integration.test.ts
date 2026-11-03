@@ -52,7 +52,7 @@ describe("mostruário e consignação", () => {
   it("empresta sem usar o reservado e acerta devolução, venda e perda", async () => {
     const stamp = Date.now();
     const admin = caller("user");
-    const productId = await admin.product.save({ shortDescription: `Pendente mostruário ${stamp}`, unit: "UN", unitPrice: 200, costPrice: 80, reorderPoint: 0, active: true });
+    const productId = await admin.product.save({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Pendente mostruário ${stamp}`, unit: "UN", unitPrice: 200, costPrice: 80, reorderPoint: 0, active: true });
     created.productIds.push(productId);
     await admin.inventory.move({ productId, type: "entry", quantity: 5, occurredAt: new Date() });
 
@@ -108,8 +108,8 @@ describe("giro de estoque", () => {
   it("aponta parados pelo tempo sem venda e monta a curva ABC", async () => {
     const stamp = Date.now();
     const admin = caller("user");
-    const idle = await admin.product.save({ shortDescription: `Parado giro ${stamp}`, unit: "UN", unitPrice: 50, costPrice: 20, reorderPoint: 0, active: true });
-    const seller = await admin.product.save({ shortDescription: `Vendido giro ${stamp}`, unit: "UN", unitPrice: 100, costPrice: 40, reorderPoint: 0, active: true });
+    const idle = await admin.product.save({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Parado giro ${stamp}`, unit: "UN", unitPrice: 50, costPrice: 20, reorderPoint: 0, active: true });
+    const seller = await admin.product.save({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Vendido giro ${stamp}`, unit: "UN", unitPrice: 100, costPrice: 40, reorderPoint: 0, active: true });
     created.productIds.push(idle, seller);
     const old = new Date(Date.now() - 200 * 24 * 60 * 60_000);
     await admin.inventory.move({ productId: idle, type: "entry", quantity: 4, occurredAt: old });

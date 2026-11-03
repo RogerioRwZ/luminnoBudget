@@ -22,6 +22,8 @@ import { DEFAULT_ENTRY_OFFER, describeEntryOffer, describePart, parseEntryOffer,
 import { PaymentPlanDialog } from "@/components/PaymentPlanDialog";
 import { Switch } from "@/components/ui/switch";
 import { parseAttributes, variantLabel } from "@shared/variants";
+import { findProductByScan, matchesProductSearch } from "@shared/productCodes";
+import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -531,6 +533,14 @@ export default function QuoteEditorPage() {
       next[index] = value;
       return next;
     });
+  // Código lido (câmera ou leitor USB) que bate com um produto: entra direto.
+  const addScanned = (roomIndex: number, value: string) => {
+    const product = findProductByScan(activeProducts, value);
+    if (!product) return false;
+    addProduct(roomIndex, product.id);
+    toast.success(`${product.shortDescription} adicionado.`);
+    return true;
+  };
   const addProduct = (roomIndex: number, productId: number) => {
     const product = products.find(entry => entry.id === productId);
     if (!product) return;
@@ -1147,11 +1157,7 @@ export default function QuoteEditorPage() {
                 ? Array.from(
                     new Set(
                       activeProducts
-                        .filter(product =>
-                          `${product.code} ${product.shortDescription} ${product.barcode ?? ""}`
-                            .toLocaleLowerCase("pt-BR")
-                            .includes(query.toLocaleLowerCase("pt-BR"))
-                        )
+                        .filter(product => matchesProductSearch(product, query))
                         .map(product => product.parentId ?? product.id)
                     )
                   )
@@ -1223,14 +1229,30 @@ export default function QuoteEditorPage() {
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="border-b border-border p-4">
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                          value={query}
-                          onChange={e => setSearchAt(roomIndex, e.target.value)}
-                          placeholder="Buscar e adicionar um produto do catálogo"
-                          aria-label={`Buscar produto no ambiente ${roomIndex + 1}`}
-                          className="h-10 pl-9"
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            value={query}
+                            onChange={e => setSearchAt(roomIndex, e.target.value)}
+                            // Leitor USB: o código chega seguido de Enter e o produto entra direto.
+                            onKeyDown={e => {
+                              if (e.key === "Enter" && addScanned(roomIndex, query)) e.preventDefault();
+                            }}
+                            placeholder="Buscar por referência, descrição ou código de barras"
+                            aria-label={`Buscar produto no ambiente ${roomIndex + 1}`}
+                            className="h-10 pl-9"
+                          />
+                        </div>
+                        <ScanButton
+                          className="h-10 w-10"
+                          title={`Adicionar pelo código de barras no ambiente ${roomIndex + 1}`}
+                          onDetected={value => {
+                            if (!addScanned(roomIndex, value)) {
+                              setSearchAt(roomIndex, value);
+                              toast.error(`Nenhum produto ativo com o código ${value}.`);
+                            }
+                          }}
                         />
                       </div>
                       {matches.length ? (
@@ -1268,7 +1290,7 @@ export default function QuoteEditorPage() {
                                     <small className="font-mono text-[10px] text-muted-foreground">
                                       {isFamily
                                         ? `${members.length} variações · a partir de ${money(Math.min(...members.map(member => Number(member.unitPrice))))}`
-                                        : `${product.code} · ${money(product.unitPrice)}`}
+                                        : `Ref. ${product.reference ?? product.code} · ${money(product.unitPrice)}`}
                                     </small>
                                   </span>
                                   {isFamily ? (
@@ -1293,7 +1315,7 @@ export default function QuoteEditorPage() {
                                             {variantLabel(parseAttributes(member.attributes)) || member.shortDescription}
                                           </b>
                                           <small className="font-mono text-[10px] text-muted-foreground">
-                                            {member.code} · {money(member.unitPrice)} · estoque {Number(member.stockQuantity)}
+                                            Ref. {member.reference ?? member.code} · {money(member.unitPrice)} · estoque {Number(member.stockQuantity)}
                                           </small>
                                         </span>
                                         <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />

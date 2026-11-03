@@ -1,4 +1,4 @@
-export type PurchaseLineInput = { code: string; shortDescription: string; unit: string; freeQuantity: number; reorderPoint: number; shortageQuantity: number; openDemandQuantity: number };
+export type PurchaseLineInput = { code: string; reference?: string | null; shortDescription: string; unit: string; freeQuantity: number; reorderPoint: number; shortageQuantity: number; openDemandQuantity: number };
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const quantity = (value: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
@@ -11,6 +11,6 @@ export function purchaseQuantity(line: PurchaseLineInput, includeOpenQuotes: boo
 }
 
 export function buildPurchaseOrderText(input: { supplierName: string; storeName?: string | null; date: Date; lines: Array<PurchaseLineInput & { quantity: number }> }) {
-  const items = input.lines.filter((line) => line.quantity > 0).map((line) => `• ${quantity(line.quantity)} ${line.unit} — ${line.shortDescription}${line.code ? ` (cód. ${line.code})` : ""}`);
+  const items = input.lines.filter((line) => line.quantity > 0).map((line) => `• ${quantity(line.quantity)} ${line.unit} — ${line.shortDescription}${line.reference || line.code ? ` (ref. ${line.reference || line.code})` : ""}`);
   return [`Pedido de compra${input.storeName ? ` — ${input.storeName}` : ""}`, `Fornecedor: ${input.supplierName || "não informado"}`, `Data: ${new Intl.DateTimeFormat("pt-BR").format(input.date)}`, "", ...items, "", "Por favor, confirme disponibilidade, valores e prazo de entrega."].join("\n");
 }

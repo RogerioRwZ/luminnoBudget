@@ -34,14 +34,14 @@ describe("custo, margem, comissão e relatórios", () => {
     const stamp = Date.now();
     const admin = caller("user");
     const sales = caller("sales");
-    created.productId = await admin.product.save({ shortDescription: `Pendente custo ${stamp}`, unit: "UN", unitPrice: 100, costPrice: 40, reorderPoint: 0, active: true });
+    created.productId = await admin.product.save({ reference: `T-${stamp}`, shortDescription: `Pendente custo ${stamp}`, unit: "UN", unitPrice: 100, costPrice: 40, reorderPoint: 0, active: true });
 
     const forSales = (await sales.product.list({ search: `Pendente custo ${stamp}` }))[0]!;
     expect(forSales).not.toHaveProperty("costPrice");
     expect((await admin.product.list({ search: `Pendente custo ${stamp}` }))[0]).toMatchObject({ costPrice: "40.00" });
 
     // Vendas edita o produto, mas o custo não muda.
-    await sales.product.save({ id: created.productId, shortDescription: `Pendente custo ${stamp}`, unit: "UN", unitPrice: 110, costPrice: 1, reorderPoint: 0, active: true });
+    await sales.product.save({ id: created.productId, reference: `T-${stamp}`, shortDescription: `Pendente custo ${stamp}`, unit: "UN", unitPrice: 110, costPrice: 1, reorderPoint: 0, active: true });
     expect((await admin.product.list({ search: `Pendente custo ${stamp}` }))[0]).toMatchObject({ costPrice: "40.00", unitPrice: "110.00" });
 
     created.professional = `Arq. Teste ${stamp}`;

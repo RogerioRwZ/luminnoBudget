@@ -20,6 +20,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { findProductByScan, matchesProductSearch } from "@shared/productCodes";
 import { downloadCsv } from "@/lib/csvDownload";
 import { filterInventoryProducts } from "@shared/stockFilters";
 import {
@@ -109,6 +111,7 @@ export default function InventoryPage() {
     (typeof fulfillments)[number] | null
   >(null);
   const [supplierFilter, setSupplierFilter] = useState("all");
+  const [productSearch, setProductSearch] = useState("");
   const [maximumStock, setMaximumStock] = useState("");
   const [availabilityFilter, setAvailabilityFilter] = useState<
     "all" | "reserved" | "low"
@@ -239,8 +242,8 @@ export default function InventoryPage() {
         supplier: supplierFilter,
         maximumStock,
         availability: availabilityFilter,
-      }),
-    [products, supplierFilter, maximumStock, availabilityFilter]
+      }).filter(product => matchesProductSearch(product, productSearch)),
+    [products, supplierFilter, maximumStock, availabilityFilter, productSearch]
   );
   const openMovement = () => {
     setMovementForm({
@@ -385,6 +388,21 @@ export default function InventoryPage() {
           </CardHeader>
           <CardContent>
             <div className="mb-4 grid grid-cols-1 gap-2 rounded-xl bg-muted/50 p-3 sm:grid-cols-3">
+              <div className="space-y-1 sm:col-span-3">
+                <Label htmlFor="inventory-search" className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Produto
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="inventory-search"
+                    className="h-9"
+                    placeholder="Referência, descrição ou código de barras"
+                    value={productSearch}
+                    onChange={e => setProductSearch(e.target.value)}
+                  />
+                  <ScanButton className="h-9 w-9 shrink-0" title="Buscar no estoque pelo código de barras" onDetected={setProductSearch} />
+                </div>
+              </div>
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   Fornecedor
@@ -477,7 +495,7 @@ export default function InventoryPage() {
                         {product.shortDescription}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {product.code} ·{" "}
+                        Ref. {product.reference ?? product.code} ·{" "}
                         {product.supplierName || "Sem fornecedor"} · reposição:{" "}
                         {product.reorderPoint} {product.unit}
                       </p>
@@ -857,23 +875,34 @@ export default function InventoryPage() {
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
               <Label>Produto</Label>
-              <select
-                aria-label="Produto da movimentação"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={movementForm.productId}
-                onChange={e =>
-                  setMovementForm({
-                    ...movementForm,
-                    productId: Number(e.target.value),
-                  })
-                }
-              >
-                {products.map(product => (
-                  <option key={product.id} value={product.id}>
-                    {product.code} · {product.shortDescription}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  aria-label="Produto da movimentação"
+                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+                  value={movementForm.productId}
+                  onChange={e =>
+                    setMovementForm({
+                      ...movementForm,
+                      productId: Number(e.target.value),
+                    })
+                  }
+                >
+                  {products.map(product => (
+                    <option key={product.id} value={product.id}>
+                      {product.reference ?? product.code} · {product.shortDescription}
+                    </option>
+                  ))}
+                </select>
+                <ScanButton
+                  className="h-10 w-10 shrink-0"
+                  title="Escolher o produto pelo código de barras"
+                  onDetected={value => {
+                    const found = findProductByScan(products, value);
+                    if (found) setMovementForm(current => ({ ...current, productId: found.id }));
+                    else toast.error(`Nenhum produto com o código ${value}.`);
+                  }}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">

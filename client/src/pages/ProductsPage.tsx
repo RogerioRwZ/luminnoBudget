@@ -40,6 +40,8 @@ import {
 } from "lucide-react";
 import { ChangeEvent, useMemo, useState } from "react";
 import { VariantGenerator } from "@/components/VariantGenerator";
+import { ScanButton } from "@/components/CameraBarcodeScanner";
+import { barcodeProblem, findProductByScan, matchesProductSearch, normalizeBarcode, referenceProblem, REFERENCE_MAX } from "@shared/productCodes";
 import { plural } from "@shared/plural";
 import {
   cleanAttributes,
@@ -54,6 +56,7 @@ import { toast } from "sonner";
 type ProductForm = {
   id?: number;
   code: string;
+  reference: string;
   shortDescription: string;
   fullDescription: string;
   imageUrl: string;
@@ -75,6 +78,7 @@ type ProductForm = {
 const emptyAttributes = Object.fromEntries(VARIANT_FIELDS.map(field => [field.key, ""])) as Record<VariantKey, string>;
 const emptyProduct: ProductForm = {
   code: "",
+  reference: "",
   shortDescription: "",
   fullDescription: "",
   imageUrl: "",
@@ -94,6 +98,7 @@ const emptyProduct: ProductForm = {
 type Product = {
   id: number;
   code: string;
+  reference: string | null;
   shortDescription: string;
   fullDescription: string | null;
   imageUrl: string | null;
@@ -177,11 +182,7 @@ export default function ProductsPage() {
   });
   // Modelos com variações aparecem agrupados; o resto, como antes.
   const { families, standalone } = useMemo(() => {
-    const needle = search.toLocaleLowerCase("pt-BR");
-    const matches = (product: Product) =>
-      `${product.code} ${product.shortDescription} ${product.supplierName ?? ""} ${product.barcode ?? ""}`
-        .toLocaleLowerCase("pt-BR")
-        .includes(needle);
+    const matches = (product: Product) => matchesProductSearch(product, search);
     const childrenOf = new Map<number, Product[]>();
     data.forEach(product => {
       if (product.parentId) childrenOf.set(product.parentId, [...(childrenOf.get(product.parentId) ?? []), product]);
@@ -225,7 +226,24 @@ export default function ProductsPage() {
     });
     setOpen(true);
   };
-  const submit = () =>
+  // Avisa antes de salvar: referência e código de barras não podem repetir.
+  const others = data.filter(product => product.id !== form.id);
+  const referenceTwin = form.reference.trim() ? others.find(product => product.reference && findProductByScan([product], form.reference)) : undefined;
+  const barcodeTwin = form.barcode ? others.find(product => product.barcode === form.barcode) : undefined;
+  const [triedSave, setTriedSave] = useState(false);
+  const referenceError = referenceTwin
+    ? `Já usada em "${referenceTwin.shortDescription}".`
+    : triedSave || form.reference
+      ? referenceProblem(form.reference)
+      : null;
+  const barcodeError = barcodeTwin ? `Já está em "${barcodeTwin.shortDescription}".` : barcodeProblem(form.barcode);
+  const submit = () => {
+    setTriedSave(true);
+    if (referenceProblem(form.reference) || referenceTwin || barcodeError) {
+      const message = referenceError ?? referenceProblem(form.reference) ?? barcodeError ?? "";
+      setFormError(message);
+      return;
+    }
     save.mutate({
       ...form,
       shortDescription: familyMode ? previewName : form.shortDescription,
@@ -236,10 +254,12 @@ export default function ProductsPage() {
       costPrice: showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined,
       warrantyMonths: form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths),
     });
+  };
   const edit = (product: Product) => {
     setForm({
       id: product.id,
       code: product.code,
+      reference: product.reference ?? product.code,
       shortDescription: product.shortDescription,
       fullDescription: product.fullDescription ?? "",
       imageUrl: product.imageUrl ?? "",
@@ -281,6 +301,7 @@ export default function ProductsPage() {
   const handleOpen = (value: boolean) => {
     setOpen(value);
     setFormError("");
+    setTriedSave(false);
     if (!value) setForm(emptyProduct);
   };
   return (
@@ -290,8 +311,8 @@ export default function ProductsPage() {
           <p className="eyebrow">Base de produtos</p>
           <h2 className="page-title">Catálogo</h2>
           <p className="page-description">
-            Cadastre os produtos com fornecedor, preço e ponto de reposição.
-            O código de cada produto é criado automaticamente.
+            Cadastre os produtos com referência, fornecedor, preço e ponto de
+            reposição. O código interno de cada produto é criado automaticamente.
           </p>
         </div>
         <Dialog open={open} onOpenChange={handleOpen}>
@@ -341,34 +362,45 @@ export default function ProductsPage() {
               </div>
             ) : null}
             <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
-              <div className="rounded-xl border border-dashed border-border bg-muted/30 p-3 sm:col-span-2">
-                <div className="flex items-center gap-2">
-                  <Hash className="h-4 w-4 text-primary" />
-                  <div>
-                    <p className="text-sm font-semibold">Código automático</p>
-                    <p className="text-xs text-muted-foreground">
-                      {form.id
-                        ? `Este produto usa o código #${form.code}.`
-                        : "O próximo código será atribuído ao salvar."}
-                    </p>
-                  </div>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-reference">
+                  Referência <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="product-reference"
+                  required
+                  aria-required="true"
+                  aria-invalid={Boolean(referenceError) || undefined}
+                  maxLength={REFERENCE_MAX}
+                  autoCapitalize="characters"
+                  value={form.reference}
+                  onChange={e => setForm({ ...form, reference: e.target.value })}
+                  placeholder="Ex.: LM-100/PT"
+                />
+                {referenceError ? (
+                  <p className="text-xs text-destructive">{referenceError}</p>
+                ) : (
+                  <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Hash className="h-3 w-3" />
+                    {form.id ? `Código interno #${form.code}` : "O código interno é criado ao salvar."}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="product-barcode">Código de barras</Label>
-                <Input
-                  id="product-barcode"
-                  aria-label="Código de barras do produto"
-                  inputMode="numeric"
-                  value={form.barcode}
-                  onChange={e =>
-                    setForm({
-                      ...form,
-                      barcode: e.target.value.replace(/\D/g, ""),
-                    })
-                  }
-                  placeholder="EAN ou código interno"
-                />
+                <Label htmlFor="product-barcode">
+                  Código de barras <span className="text-muted-foreground">(opcional)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="product-barcode"
+                    aria-invalid={Boolean(barcodeError) || undefined}
+                    value={form.barcode}
+                    onChange={e => setForm({ ...form, barcode: normalizeBarcode(e.target.value) })}
+                    placeholder="EAN, leitor USB ou câmera"
+                  />
+                  <ScanButton onDetected={value => setForm(current => ({ ...current, barcode: normalizeBarcode(value) }))} />
+                </div>
+                {barcodeError ? <p className="text-xs text-destructive">{barcodeError}</p> : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="product-unit">Unidade</Label>
@@ -635,15 +667,24 @@ export default function ProductsPage() {
       </div>
       <Card className="border-border/70 shadow-sm">
         <CardContent className="p-0">
-          <div className="relative border-b border-border p-4">
-            <Search className="pointer-events-none absolute left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Buscar por código, descrição ou fornecedor"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar por código, descrição ou fornecedor"
-              className="max-w-md pl-9"
-            />
+          <div className="border-b border-border p-4">
+          <div className="flex max-w-xl gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Buscar por referência, descrição ou código de barras"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar por referência, descrição ou código de barras"
+                className="pl-9"
+              />
+            </div>
+            <ScanButton title="Buscar pelo código de barras" onDetected={value => {
+              setSearch(value);
+              const found = findProductByScan(data, value);
+              if (!found) toast.error(`Nenhum produto com o código ${value}.`);
+            }} />
+          </div>
           </div>
           {isLoading ? (
             <p className="p-8 text-center text-sm text-muted-foreground">
@@ -713,8 +754,8 @@ export default function ProductsPage() {
                           {label || <span className="text-amber-700 dark:text-amber-300">Principal sem variação definida</span>}
                           {member.id === root.id ? <Badge variant="outline" className="ml-2 text-[10px]">principal</Badge> : null}
                         </span>
-                        <span className="font-mono text-muted-foreground">#{member.code}</span>
-                        <span className="font-mono text-muted-foreground">{member.barcode ? `EAN ${member.barcode}` : "sem EAN"}</span>
+                        <span className="font-mono text-muted-foreground">Ref. {member.reference ?? member.code} · #{member.code}</span>
+                        <span className="font-mono text-muted-foreground">{member.barcode ? `Cód. barras ${member.barcode}` : "sem código de barras"}</span>
                         <span className="font-semibold">{money(member.unitPrice)}</span>
                         {showCost ? <CostLine price={member.unitPrice} cost={member.costPrice} /> : null}
                         <Badge variant="secondary" className={point > 0 && stock <= point ? "bg-red-500/10 text-red-700" : "bg-emerald-500/10 text-emerald-700"}>
@@ -761,8 +802,11 @@ export default function ProductsPage() {
                         </button>
                       </div>
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                        #{product.code} · {product.unit}
+                        Ref. {product.reference ?? product.code} · #{product.code} · {product.unit}
                       </p>
+                      {product.barcode ? (
+                        <p className="font-mono text-[11px] text-muted-foreground">Cód. barras {product.barcode}</p>
+                      ) : null}
                       {product.supplierName ? (
                         <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                           <Truck className="h-3 w-3" />
@@ -813,7 +857,9 @@ export default function ProductsPage() {
           ) : (
             <div className="p-12 text-center">
               <PackagePlus className="mx-auto h-8 w-8 text-muted-foreground" />
-              <p className="mt-3 text-sm font-bold">Seu catálogo está vazio.</p>
+              <p className="mt-3 text-sm font-bold">
+                {data.length ? `Nenhum produto encontrado para "${search}".` : "Seu catálogo está vazio."}
+              </p>
             </div>
           )}
         </CardContent>
@@ -823,6 +869,7 @@ export default function ProductsPage() {
         onOpenChange={value => !value && setGeneratorFor(null)}
         root={generatorFor}
         members={generatorFor ? familyMembers(generatorFor.id) : []}
+        taken={data}
       />
     </div>
   );

@@ -39,7 +39,7 @@ describe("pós-venda", () => {
   it("abre, limita a quantidade, resolve com estoque e entra no relatório", async () => {
     const stamp = Date.now();
     const admin = caller("user");
-    created.productId = await admin.product.save({ shortDescription: `Spot pós-venda ${stamp}`, unit: "UN", supplierName: "Fornecedor PV", unitPrice: 50, reorderPoint: 0, warrantyMonths: 24, active: true });
+    created.productId = await admin.product.save({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Spot pós-venda ${stamp}`, unit: "UN", supplierName: "Fornecedor PV", unitPrice: 50, reorderPoint: 0, warrantyMonths: 24, active: true });
     await admin.inventory.move({ productId: created.productId, type: "entry", quantity: 10, occurredAt: new Date() });
 
     const quote = (await admin.quote.create())!;
@@ -112,7 +112,7 @@ describe("pós-venda", () => {
 
   it("impede tirar de Aprovado um orçamento com pós-venda", async () => {
     const admin = caller("user");
-    created.productId = await admin.product.save({ shortDescription: `Fita pós-venda ${Date.now()}`, unit: "UN", unitPrice: 30, reorderPoint: 0, active: true });
+    created.productId = await admin.product.save({ reference: `T-${Math.random().toString(36).slice(2, 10)}`, shortDescription: `Fita pós-venda ${Date.now()}`, unit: "UN", unitPrice: 30, reorderPoint: 0, active: true });
     const quote = (await admin.quote.create())!;
     created.quoteId = quote.id;
     const draft = {

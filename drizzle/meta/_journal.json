@@ -134,6 +134,13 @@
       "when": 1793706021217,
       "tag": "0018_entrada_crediario",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1793714741443,
+      "tag": "0019_referencia_produtos",
+      "breakpoints": true
     }
   ]
 }

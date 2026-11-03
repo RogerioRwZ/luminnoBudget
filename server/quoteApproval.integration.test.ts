@@ -50,6 +50,7 @@ describe("aprovação integrada de orçamento", () => {
   it("reserva estoque, permite entrega parcial e mantém parcelas e estornos rastreáveis", async () => {
     const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
     productId = await saveProduct({
+      reference: `T-${suffix}`,
       shortDescription: `Produto integrado ${suffix}`,
       fullDescription: "Descrição completa de validação para separação.",
       unit: "UN",

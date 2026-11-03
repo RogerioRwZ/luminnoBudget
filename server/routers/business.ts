@@ -113,6 +113,7 @@ const variantAttributes = z.object(Object.fromEntries(VARIANT_FIELDS.map((field)
 const productInput = z.object({
   id: z.number().int().positive().optional(),
   code: z.string().trim().max(64).optional(),
+  reference: z.string().trim().min(1, "Informe a referência do produto").max(64, "A referência pode ter no máximo 64 caracteres"),
   shortDescription: z.string().trim().min(1, "Informe a descrição curta").max(512),
   fullDescription: nullableText,
   imageUrl: imageLocation.nullable().optional().or(z.literal("")),
@@ -219,12 +220,16 @@ export const businessRouter = router({
     save: areaProcedure("catalog").input(productInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getProduct(input.id) : null;
       // Quem não vê o custo também não pode alterá-lo.
-      const id = await saveProduct({ ...input, costPrice: canSeeCost(ctx.user.role) ? input.costPrice : undefined, imageUrl: input.imageUrl || null });
+      const id = await saveProduct({ ...input, costPrice: canSeeCost(ctx.user.role) ? input.costPrice : undefined, imageUrl: input.imageUrl || null }).catch((error) => {
+        // Dois cadastros ao mesmo tempo com a mesma referência ou código de barras.
+        if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Esta referência ou código de barras acabou de ser usado em outro produto." });
+        throw error;
+      });
       const saved = (await getProduct(id))!;
       if (!before) {
         await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})` });
       } else {
-        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["shortDescription", "unitPrice", "costPrice", "reorderPoint", "warrantyMonths", "supplierName", "unit", "active"]);
+        const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["reference", "barcode", "shortDescription", "unitPrice", "costPrice", "reorderPoint", "warrantyMonths", "supplierName", "unit", "active"]);
         if (Object.keys(changes).length) {
           const price = changes.unitPrice ? `: preço ${brl(Number(changes.unitPrice.de))} → ${brl(Number(changes.unitPrice.para))}` : "";
           await log(ctx, { action: changes.unitPrice ? "product.price" : "product.update", entityType: "product", entityId: id, summary: `Alterou o produto #${before.code} ${input.shortDescription}${price}`, details: changes });
@@ -232,8 +237,8 @@ export const businessRouter = router({
       }
       return id;
     }),
-    createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), combinations: z.array(variantAttributes).min(1).max(100) })).mutation(async ({ ctx, input }) => {
-      const result = await createProductVariants(input.productId, input.combinations);
+    createVariants: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), variants: z.array(z.object({ attributes: variantAttributes, reference: z.string().trim().max(64).nullable().optional(), barcode: z.string().trim().max(64).nullable().optional() })).min(1).max(100) })).mutation(async ({ ctx, input }) => {
+      const result = await createProductVariants(input.productId, input.variants);
       const root = await getProduct(result.rootId);
       if (result.created.length) await log(ctx, { action: "product.variants", entityType: "product", entityId: result.rootId, summary: `Criou ${plural(result.created.length, "variação", "variações")} do modelo ${root?.modelName ?? root?.shortDescription ?? `#${result.rootId}`}` });
       return result;

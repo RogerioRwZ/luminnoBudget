@@ -154,7 +154,7 @@ export async function fulfillmentLines(quoteIds: number[]) {
     const approved = quote.status === "approved";
     return {
       quoteId: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, phone: quote.phone, approved,
-      quoteItemId: item.id, roomName: room.name, productId: item.productId, barcode: product?.barcode ?? null,
+      quoteItemId: item.id, roomName: room.name, productId: item.productId, barcode: product?.barcode ?? null, reference: product?.reference ?? null,
       code: item.code, shortDescription: item.shortDescription, fullDescription: product?.fullDescription ?? null, unit: item.unit, supplierName: product?.supplierName ?? null,
       orderedQuantity: ordered, deliveredQuantity: delivered, pendingQuantity: status.pending, reservedQuantity: reserved,
       deliverableQuantity: approved ? status.deliverable : 0, shortageQuantity: approved ? status.shortage : 0,
@@ -239,7 +239,7 @@ export async function deliverAllAvailable(input: { quoteId: number } & DeliveryM
 }
 
 export type PurchaseLine = {
-  productId: number; code: string; shortDescription: string; unit: string;
+  productId: number; code: string; reference: string | null; barcode: string | null; shortDescription: string; unit: string;
   stockQuantity: number; reservedQuantity: number; freeQuantity: number; reorderPoint: number;
   shortageQuantity: number; reorderQuantity: number; openDemandQuantity: number; openGapQuantity: number;
   waitingQuotes: Array<{ quoteId: number; quoteNumber: number; clientName: string; quantity: number }>;
@@ -279,7 +279,7 @@ export async function purchaseSuggestions() {
     const openGapQuantity = Math.max(0, round2(openDemandQuantity - freeQuantity));
     if (shortageQuantity <= 0 && reorderQuantity <= 0 && openGapQuantity <= 0) continue;
     const supplier = product.supplierName?.trim() || "";
-    suppliers.set(supplier, [...(suppliers.get(supplier) ?? []), { productId: product.id, code: product.code, shortDescription: product.shortDescription, unit: product.unit, stockQuantity, reservedQuantity, freeQuantity, reorderPoint, shortageQuantity, reorderQuantity, openDemandQuantity, openGapQuantity, waitingQuotes }]);
+    suppliers.set(supplier, [...(suppliers.get(supplier) ?? []), { productId: product.id, code: product.code, reference: product.reference, barcode: product.barcode, shortDescription: product.shortDescription, unit: product.unit, stockQuantity, reservedQuantity, freeQuantity, reorderPoint, shortageQuantity, reorderQuantity, openDemandQuantity, openGapQuantity, waitingQuotes }]);
   }
   return Array.from(suppliers.entries())
     .map(([supplierName, lines]) => ({ supplierName, lines: lines.sort((first, second) => second.shortageQuantity - first.shortageQuantity || first.shortDescription.localeCompare(second.shortDescription, "pt-BR")) }))

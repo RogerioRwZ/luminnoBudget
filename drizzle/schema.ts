@@ -41,6 +41,9 @@ export const clients = mysqlTable("clients", {
 export const products = mysqlTable("products", {
   id: int("id").autoincrement().primaryKey(),
   code: varchar("code", { length: 64 }).notNull(),
+  // Referência do produto (letras, números e símbolos), única. Obrigatória no
+  // cadastro; nula só em backups antigos, que recebem o código ao restaurar.
+  reference: varchar("reference", { length: 64 }).unique(),
   shortDescription: varchar("shortDescription", { length: 512 }).notNull(),
   fullDescription: text("fullDescription"),
   imageUrl: text("imageUrl"),
