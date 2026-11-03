@@ -120,6 +120,7 @@ const variantList = z.array(z.object({
   reference: z.string().trim().min(1, "Informe a referência de cada variação").max(64, "A referência pode ter no máximo 64 caracteres"),
   barcode: z.string().trim().max(64).nullable().optional(),
   reorderPoint: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
+  unitPrice: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
 })).min(1).max(100);
 
 const productInput = z.object({

@@ -28,7 +28,7 @@ export function VariantGenerator({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  root: { id: number; code: string; reference: string | null; modelName: string | null; shortDescription: string; attributes: string | null } | null;
+  root: { id: number; code: string; reference: string | null; modelName: string | null; shortDescription: string; attributes: string | null; unitPrice: string | number } | null;
   members: Member[];
   // Referências e códigos de barras de todo o catálogo, para não repetir.
   taken: Taken[];
@@ -71,12 +71,12 @@ export function VariantGenerator({
           <DialogTitle>Novas variações de {modelName}</DialogTitle>
           <DialogDescription>
             Cada variação tem referência própria (obrigatória). Cor, temperatura,
-            potência e código de barras são opcionais. Preço, fornecedor, foto e
-            descrição vêm do modelo.
+            potência, preço e código de barras são opcionais; sem preço, vale o do
+            modelo. Fornecedor, foto e descrição vêm do modelo.
           </DialogDescription>
         </DialogHeader>
         <FormError message={error} />
-        <VariantRowsFields state={variants} modelName={modelName} />
+        <VariantRowsFields state={variants} modelName={modelName} modelPrice={root ? Number(root.unitPrice) : undefined} />
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar

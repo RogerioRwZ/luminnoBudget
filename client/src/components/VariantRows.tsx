@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { parseDecimalInput } from "@/components/MoneyInput";
 import { CameraBarcodeScanner, ScanButton } from "@/components/CameraBarcodeScanner";
 import { barcodeProblem, foldText, normalizeBarcode, referenceProblem, REFERENCE_MAX, suggestVariantReference, uniqueReference } from "@shared/productCodes";
 import { plural } from "@shared/plural";
@@ -25,11 +26,11 @@ const newKey = () => `nova-${++nextKey}`;
 
 // Uma variação na tela: `id` só nas já gravadas. Só a referência é
 // obrigatória; detalhes e código de barras são opcionais.
-export type VariantRowForm = { key: string; id?: number; attributes: Record<VariantKey, string>; reference: string; barcode: string; reorderPoint: string };
+export type VariantRowForm = { key: string; id?: number; attributes: Record<VariantKey, string>; reference: string; barcode: string; reorderPoint: string; unitPrice: string };
 type Taken = { id: number; reference: string | null; barcode: string | null };
 
-export function variantRowFromProduct(product: { id: number; reference: string | null; code: string; barcode: string | null; attributes: string | null; reorderPoint: string | number }, parse: (text: string | null) => Partial<Record<VariantKey, string>>): VariantRowForm {
-  return { key: `produto-${product.id}`, id: product.id, attributes: { ...emptyAttributes(), ...parse(product.attributes) }, reference: product.reference ?? product.code, barcode: product.barcode ?? "", reorderPoint: String(Number(product.reorderPoint) || 0) };
+export function variantRowFromProduct(product: { id: number; reference: string | null; code: string; barcode: string | null; attributes: string | null; reorderPoint: string | number; unitPrice: string | number }, parse: (text: string | null) => Partial<Record<VariantKey, string>>): VariantRowForm {
+  return { key: `produto-${product.id}`, id: product.id, attributes: { ...emptyAttributes(), ...parse(product.attributes) }, reference: product.reference ?? product.code, barcode: product.barcode ?? "", reorderPoint: String(Number(product.reorderPoint) || 0), unitPrice: Number(product.unitPrice).toFixed(2).replace(".", ",") };
 }
 
 export function useVariantRows({
@@ -80,14 +81,14 @@ export function useVariantRows({
     update,
     setAttributes: (key: string, field: VariantKey, value: string) =>
       setRows(current => current.map(row => (row.key === key ? { ...row, attributes: { ...row.attributes, [field]: value } } : row))),
-    addRow: () => setRows(current => [...current, { key: newKey(), attributes: emptyAttributes(), reference: "", barcode: "", reorderPoint: "" }]),
+    addRow: () => setRows(current => [...current, { key: newKey(), attributes: emptyAttributes(), reference: "", barcode: "", reorderPoint: "", unitPrice: "" }]),
     removeRow: (key: string) => setRows(current => current.filter(row => row.key !== key || row.id)),
     // Gera uma linha por combinação ainda não listada (cores × temperaturas...).
     addCombinations: (lists: Record<VariantKey, string>) => {
       const present = new Set([...rows.map(row => attributesKey(cleanAttributes(row.attributes))), ...Array.from(existingCombos ?? [])]);
       const combos = variantCombinations(Object.fromEntries(VARIANT_FIELDS.map(field => [field.key, splitList(lists[field.key])])))
         .filter(combo => !present.has(attributesKey(combo)));
-      setRows(current => [...current, ...combos.map(combo => ({ key: newKey(), attributes: { ...emptyAttributes(), ...combo }, reference: "", barcode: "", reorderPoint: "" }))]);
+      setRows(current => [...current, ...combos.map(combo => ({ key: newKey(), attributes: { ...emptyAttributes(), ...combo }, reference: "", barcode: "", reorderPoint: "", unitPrice: "" }))]);
       return combos.length;
     },
     // Atalho opcional: preenche só as referências vazias a partir de um prefixo.
@@ -118,13 +119,20 @@ export function useVariantRows({
       reference: row.reference.trim(),
       barcode: row.barcode || null,
       ...(row.reorderPoint.trim() !== "" ? { reorderPoint: Math.max(0, Number(row.reorderPoint.replace(",", ".")) || 0) } : {}),
+      // Em branco: a variação nova usa o preço do modelo.
+      ...(row.unitPrice.trim() !== "" ? { unitPrice: parsePrice(row.unitPrice) } : {}),
     })),
   };
 }
 
 export type VariantRowsState = ReturnType<typeof useVariantRows>;
 
-export function VariantRowsFields({ state, modelName, allowCombinations = true }: { state: VariantRowsState; modelName: string; allowCombinations?: boolean }) {
+// "1.234,56", "149,9" ou "149.90" → número com 2 casas.
+export const parsePrice = (text: string) => Math.max(0, Math.round(parseDecimalInput(text) * 100) / 100);
+
+// `modelPrice`: preço que a variação usa quando o campo fica em branco.
+// `priceLocked`: "Aplicar às variações" ligado (o preço vem do modelo).
+export function VariantRowsFields({ state, modelName, allowCombinations = true, modelPrice, priceLocked = false }: { state: VariantRowsState; modelName: string; allowCombinations?: boolean; modelPrice?: number; priceLocked?: boolean }) {
   const { rows, problems, update, setAttributes, addRow, removeRow, addCombinations, fillReferences } = state;
   const [lists, setLists] = useState(emptyAttributes);
   const [showCombos, setShowCombos] = useState(false);
@@ -159,7 +167,7 @@ export function VariantRowsFields({ state, modelName, allowCombinations = true }
                     </Button>
                   )}
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_minmax(0,1fr)]">
                   <div className="space-y-1">
                     <Label htmlFor={`variant-${row.key}-reference`} className="text-[11px]">
                       Referência <span className="text-destructive">*</span>
@@ -175,6 +183,22 @@ export function VariantRowsFields({ state, modelName, allowCombinations = true }
                       value={row.reference}
                       onChange={event => update(row.key, { reference: event.target.value })}
                       placeholder="Ex.: ARC-01/PT"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`variant-${row.key}-price`} className="text-[11px]">
+                      Preço (R$)
+                    </Label>
+                    <Input
+                      id={`variant-${row.key}-price`}
+                      className="h-8 text-xs"
+                      inputMode="decimal"
+                      aria-label={`Preço da variação ${number}`}
+                      disabled={priceLocked}
+                      value={priceLocked ? (modelPrice ?? 0).toFixed(2).replace(".", ",") : row.unitPrice}
+                      // Aceita vírgula ou ponto (149,90 ou 149.90).
+                      onChange={event => update(row.key, { unitPrice: event.target.value.replace(/[^\d.,]/g, "") })}
+                      placeholder={modelPrice !== undefined ? `${modelPrice.toFixed(2).replace(".", ",")} (modelo)` : "Do modelo"}
                     />
                   </div>
                   <div className="space-y-1">
