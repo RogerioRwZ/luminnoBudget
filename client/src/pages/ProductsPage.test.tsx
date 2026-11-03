@@ -74,6 +74,25 @@ describe("ProductsPage", () => {
     expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("");
   });
 
+  it("duplica o produto com tudo, inclusive a foto, pedindo nova referência", () => {
+    mocks.list.data = [{ id: 9, code: "9", reference: "LM-1", shortDescription: "Spot Lumi", fullDescription: "Spot embutir", imageUrl: "/uploads/products/spot.webp", imageKey: "products/spot.webp", barcode: "111", unit: "CX", supplierName: "Lumi", unitPrice: "89.90", costPrice: "40", stockQuantity: "7", reorderPoint: "2", warrantyMonths: 24, active: true }];
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar Spot Lumi" }));
+    expect(screen.getByText("Duplicar produto")).toBeTruthy();
+    expect(screen.queryByText("Rascunho local encontrado")).toBeNull();
+    expect((screen.getByLabelText(/Referência/) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/Código de barras/) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Descrição curta (vai para o orçamento)") as HTMLInputElement).value).toBe("Spot Lumi");
+    // Sem a nova referência não salva; a igual à do original também não.
+    fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "LM-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
+    const sent = mocks.mutate.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ reference: "LM-2", barcode: "", shortDescription: "Spot Lumi", fullDescription: "Spot embutir", imageUrl: "/uploads/products/spot.webp", imageKey: "products/spot.webp", unit: "CX", supplierName: "Lumi", unitPrice: 89.9, costPrice: 40, reorderPoint: 2, warrantyMonths: 24, active: true });
+    expect(sent.id).toBeUndefined();
+  });
+
   it("informa carregamento e catálogo vazio", () => {
     mocks.list.isLoading = true;
     const { rerender } = render(<ProductsPage />);

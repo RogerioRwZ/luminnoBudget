@@ -122,6 +122,7 @@ const productInput = z.object({
   supplierName: z.string().trim().max(240).nullable().optional().or(z.literal("")),
   unitPrice: money,
   costPrice: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
+  copyCostFrom: z.number().int().positive().optional(),
   reorderPoint: money,
   warrantyMonths: z.coerce.number().int().min(0).max(120).nullable().optional(),
   active: z.boolean().default(true),
@@ -215,8 +216,12 @@ export const businessRouter = router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProducts(input?.search)),
     save: areaProcedure("catalog").input(productInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getProduct(input.id) : null;
-      // Quem não vê o custo também não pode alterá-lo.
-      const id = await saveProduct({ ...input, costPrice: canSeeCost(ctx.user.role) ? input.costPrice : undefined, imageUrl: input.imageUrl || null }).catch((error) => {
+      // Quem não vê o custo também não pode alterá-lo. Ao duplicar um produto,
+      // a cópia leva o custo do original mesmo assim.
+      const { copyCostFrom, ...fields } = input;
+      const copied = copyCostFrom && !input.id && !canSeeCost(ctx.user.role) ? await getProduct(copyCostFrom) : null;
+      const costPrice = canSeeCost(ctx.user.role) ? input.costPrice : copied?.costPrice != null ? Number(copied.costPrice) : undefined;
+      const id = await saveProduct({ ...fields, costPrice, imageUrl: input.imageUrl || null }).catch((error) => {
         // Dois cadastros ao mesmo tempo com a mesma referência ou código de barras.
         if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Esta referência ou código de barras acabou de ser usado em outro produto." });
         throw error;

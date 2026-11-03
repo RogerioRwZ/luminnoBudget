@@ -164,6 +164,7 @@ export default function ProductsPage() {
   const referenceTwin = form.reference.trim() ? others.find(product => product.reference && findProductByScan([product], form.reference)) : undefined;
   const barcodeTwin = form.barcode ? others.find(product => product.barcode === form.barcode) : undefined;
   const [triedSave, setTriedSave] = useState(false);
+  const [duplicateOf, setDuplicateOf] = useState<Product | null>(null);
   const referenceError = referenceTwin
     ? `Já usada em "${referenceTwin.shortDescription}".`
     : triedSave || form.reference
@@ -179,12 +180,15 @@ export default function ProductsPage() {
     }
     save.mutate({
       ...form,
+      // Quem não vê o custo não o recebe na tela: o servidor copia do original.
+      ...(duplicateOf && !showCost ? { copyCostFrom: duplicateOf.id } : {}),
       // Quem não vê o custo não envia o campo, e o custo gravado é mantido.
       costPrice: showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined,
       warrantyMonths: form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths),
     });
   };
   const edit = (product: Product) => {
+    setDuplicateOf(null);
     setForm({
       id: product.id,
       code: product.code,
@@ -201,6 +205,27 @@ export default function ProductsPage() {
       reorderPoint: Number(product.reorderPoint),
       warrantyMonths: product.warrantyMonths == null ? "" : String(product.warrantyMonths),
       active: product.active,
+    });
+    setOpen(true);
+  };
+  // Abre o cadastro de um produto novo com os dados e a foto deste. Referência e
+  // código de barras não podem repetir, e o estoque da cópia começa em zero.
+  const duplicate = (product: Product) => {
+    setFormError("");
+    setTriedSave(false);
+    setDuplicateOf(product);
+    setForm({
+      ...emptyProduct,
+      shortDescription: product.shortDescription,
+      fullDescription: product.fullDescription ?? "",
+      imageUrl: product.imageUrl ?? "",
+      imageKey: product.imageKey ?? "",
+      unit: product.unit,
+      supplierName: product.supplierName ?? "",
+      unitPrice: Number(product.unitPrice),
+      costPrice: costText(product.costPrice),
+      reorderPoint: Number(product.reorderPoint),
+      warrantyMonths: product.warrantyMonths == null ? "" : String(product.warrantyMonths),
     });
     setOpen(true);
   };
@@ -238,6 +263,7 @@ export default function ProductsPage() {
   }, []);
   const handleOpen = (value: boolean) => {
     setOpen(value);
+    setDuplicateOf(null);
     setFormError("");
     setTriedSave(false);
     // Editar abre direto, com setOpen: aqui é sempre um produto novo ou o fechamento.
@@ -264,7 +290,7 @@ export default function ProductsPage() {
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                {form.id ? `Editar produto #${form.code}` : "Novo produto"}
+                {form.id ? `Editar produto #${form.code}` : duplicateOf ? "Duplicar produto" : "Novo produto"}
                 <DraftAutosaveStatus status={productDraft.status} />
               </DialogTitle>
               <DialogDescription className="sr-only">
@@ -272,7 +298,12 @@ export default function ProductsPage() {
               </DialogDescription>
             </DialogHeader>
             <FormError message={formError} />
-            {productDraft.hasRecovery ? (
+            {duplicateOf ? (
+              <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
+                Cópia de <b className="text-foreground">{duplicateOf.shortDescription}</b> (Ref. {duplicateOf.reference ?? duplicateOf.code}), com a foto. Informe a referência: ela e o código de barras não podem repetir. O estoque começa em zero.
+              </p>
+            ) : null}
+            {productDraft.hasRecovery && !duplicateOf ? (
               <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-semibold">Rascunho local encontrado</p>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -596,6 +627,13 @@ export default function ProductsPage() {
                           className="text-xs font-semibold text-primary hover:underline"
                         >
                           Editar
+                        </button>
+                        <button
+                          onClick={() => duplicate(product)}
+                          aria-label={`Duplicar ${product.shortDescription}`}
+                          className="text-xs font-semibold text-primary hover:underline"
+                        >
+                          Duplicar
                         </button>
                       </div>
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">

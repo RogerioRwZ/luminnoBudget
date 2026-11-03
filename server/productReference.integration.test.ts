@@ -38,4 +38,17 @@ describe("referência do produto", () => {
     await admin.product.save({ ...base, id, reference, barcode: "", shortDescription: `Pendente referência ${stamp}` });
     expect((await admin.product.list({ search: reference }))[0]).toMatchObject({ reference, barcode: null });
   });
+
+  it("duplicar pelo perfil Vendas leva o custo do original, sem o perfil vê-lo", async () => {
+    const admin = caller();
+    const stamp = Date.now().toString(36);
+    const source = await admin.product.save({ ...base, reference: `ORI-${stamp}`, shortDescription: `Original ${stamp}`, costPrice: 42.5, imageUrl: "/uploads/products/o.webp", imageKey: "products/o.webp" });
+    created.push(source);
+    const sales = appRouter.createCaller({ user: { id: 999_010, role: "sales", name: "Vendas", username: "vendas" } as any, req: { headers: {}, ip: "127.0.0.1" } as any, res: {} as any });
+    const copy = await sales.product.save({ ...base, reference: `COP-${stamp}`, shortDescription: `Original ${stamp}`, imageUrl: "/uploads/products/o.webp", imageKey: "products/o.webp", copyCostFrom: source });
+    created.push(copy);
+    const row = (await admin.product.list({ search: `COP-${stamp}` }))[0]!;
+    expect(row).toMatchObject({ costPrice: "42.50", imageUrl: "/uploads/products/o.webp", stockQuantity: "0.00" });
+    expect((await sales.product.list({ search: `COP-${stamp}` }))[0]).not.toHaveProperty("costPrice");
+  });
 });
