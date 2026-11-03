@@ -1,0 +1,21 @@
+CREATE INDEX `afterSalesCases_productId_idx` ON `afterSalesCases` (`productId`);--> statement-breakpoint
+CREATE INDEX `appointments_quoteId_idx` ON `appointments` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `financePayments_receivableId_idx` ON `financePayments` (`receivableId`);--> statement-breakpoint
+CREATE INDEX `financeReceivables_quoteId_idx` ON `financeReceivables` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `financeReceivables_clientId_idx` ON `financeReceivables` (`clientId`);--> statement-breakpoint
+CREATE INDEX `internalComments_quoteId_idx` ON `internalComments` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quoteAttachments_quoteId_idx` ON `quoteAttachments` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quoteItemDeliveries_quoteId_idx` ON `quoteItemDeliveries` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quoteItemDeliveries_quoteItemId_idx` ON `quoteItemDeliveries` (`quoteItemId`);--> statement-breakpoint
+CREATE INDEX `quoteItemReservations_quoteId_idx` ON `quoteItemReservations` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quoteItemReservations_productId_idx` ON `quoteItemReservations` (`productId`);--> statement-breakpoint
+CREATE INDEX `quoteItems_quoteRoomId_idx` ON `quoteItems` (`quoteRoomId`);--> statement-breakpoint
+CREATE INDEX `quoteItems_productId_idx` ON `quoteItems` (`productId`);--> statement-breakpoint
+CREATE INDEX `quotePdfHistory_quoteId_idx` ON `quotePdfHistory` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quoteRooms_quoteId_idx` ON `quoteRooms` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quoteVersions_quoteId_idx` ON `quoteVersions` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `quotes_clientId_idx` ON `quotes` (`clientId`);--> statement-breakpoint
+CREATE INDEX `stockLoanItems_productId_idx` ON `stockLoanItems` (`productId`);--> statement-breakpoint
+CREATE INDEX `stockLoans_quoteId_idx` ON `stockLoans` (`quoteId`);--> statement-breakpoint
+CREATE INDEX `stockMovements_productId_idx` ON `stockMovements` (`productId`);--> statement-breakpoint
+CREATE INDEX `stockMovements_quoteId_idx` ON `stockMovements` (`quoteId`);

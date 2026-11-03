@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { financePayments, financeReceivables, quoteItemReservations, quoteItems, quoteRooms, quotes, storeSettings } from "../drizzle/schema";
 import { getDb } from "./db";
 import { appRouter } from "./routers";
+import { getSettings } from "./quoteDb";
 import { addDaysInput } from "../shared/paymentPlan";
 
 const caller = () => appRouter.createCaller({ user: { id: 999_006, role: "user", name: "Teste", username: "teste" } as any, req: { headers: {}, ip: "127.0.0.1" } as any, res: {} as any });
@@ -47,6 +48,9 @@ const receivablesOf = async (quoteId: number) => {
 describe("forma de pagamento na aprovação", () => {
   it("cartão de crédito: um recebimento na hora, com a taxa da maquininha, sem parcelas mensais", async () => {
     const db = (await getDb())!;
+    // Num banco novo (como o do CI) a linha das Configurações só nasce na
+    // primeira leitura; sem ela, o UPDATE abaixo não grava as taxas.
+    await getSettings();
     created.cardFees = (await db.select({ cardFees: storeSettings.cardFees }).from(storeSettings).where(eq(storeSettings.id, 1)))[0]?.cardFees ?? null;
     await db.update(storeSettings).set({ cardFees: JSON.stringify({ debit: 1, credit: [3, 4, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8] }) }).where(eq(storeSettings.id, 1));
 

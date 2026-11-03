@@ -291,19 +291,25 @@ export async function saveProduct(input: {
     await db.update(products).set(values).where(eq(products.id, input.id));
     return input.id;
   }
-  // Dois cadastros ao mesmo tempo disputam a mesma trava e o MySQL derruba
-  // um deles por deadlock; nesse caso basta tentar de novo.
+  // Dois cadastros ao mesmo tempo disputam a mesma trava.
+  return retryOnDeadlock(() => db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM ${products} FOR UPDATE`);
+    const existingCodes = await tx.select({ code: products.code }).from(products);
+    const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
+    return inserted[0]!.id;
+  }));
+}
+
+// Duas gravações ao mesmo tempo nas mesmas tabelas: o MySQL derruba uma delas
+// por deadlock e desfaz tudo o que ela fez; basta repetir a transação.
+export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT id FROM ${products} FOR UPDATE`);
-        const existingCodes = await tx.select({ code: products.code }).from(products);
-        const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
-        return inserted[0]!.id;
-      });
+      return await run();
     } catch (error) {
       const code = (error as { cause?: { code?: string }; code?: string }).cause?.code ?? (error as { code?: string }).code;
-      if (code !== "ER_LOCK_DEADLOCK" || attempt >= 3) throw error;
+      if (code !== "ER_LOCK_DEADLOCK" || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20 * attempt + Math.random() * 30));
     }
   }
 }
@@ -669,7 +675,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
     const problem = validatePaymentPlan(paymentPlan, totals);
     if (problem) throw new Error(problem);
   }
-  return db.transaction(async (tx) => {
+  return retryOnDeadlock(() => db.transaction(async (tx) => {
     let quoteId = input.id;
     const quoteValues = {
       quoteNumber: input.quoteNumber ?? 1,
@@ -769,7 +775,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
     // restante aparece em Compras. Reserva liberada vai para quem esperava.
     await allocatePendingReservations(tx, [...approvedProducts, ...releasedProducts]);
     return quoteId!;
-  }).then(async (quoteId) => {
+  })).then(async (quoteId) => {
     const saved = await getQuote(quoteId);
     if (saved?.status === "approved") await createReceivablesFromQuote({ ...saved, paymentPlan: parsePaymentPlan(saved.paymentPlan) }, createdByUserId);
     return saved;

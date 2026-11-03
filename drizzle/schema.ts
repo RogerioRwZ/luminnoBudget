@@ -107,14 +107,14 @@ export const quotes = mysqlTable("quotes", {
   commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [index("quotes_clientId_idx").on(table.clientId)]);
 
 export const quoteRooms = mysqlTable("quoteRooms", {
   id: int("id").autoincrement().primaryKey(),
   quoteId: int("quoteId").notNull(),
   name: varchar("name", { length: 160 }).notNull(),
   sortOrder: int("sortOrder").notNull().default(0),
-});
+}, (table) => [index("quoteRooms_quoteId_idx").on(table.quoteId)]);
 
 export const quoteItems = mysqlTable("quoteItems", {
   id: int("id").autoincrement().primaryKey(),
@@ -130,7 +130,7 @@ export const quoteItems = mysqlTable("quoteItems", {
   // venda não muda quando o custo do catálogo é reajustado depois.
   unitCost: decimal("unitCost", { precision: 12, scale: 2 }),
   sortOrder: int("sortOrder").notNull().default(0),
-});
+}, (table) => [index("quoteItems_quoteRoomId_idx").on(table.quoteRoomId), index("quoteItems_productId_idx").on(table.productId)]);
 
 export const quotePdfHistory = mysqlTable("quotePdfHistory", {
   id: int("id").autoincrement().primaryKey(),
@@ -144,7 +144,7 @@ export const quotePdfHistory = mysqlTable("quotePdfHistory", {
   snapshot: mediumtext("snapshot"),
   fileSize: int("fileSize").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [index("quotePdfHistory_quoteId_idx").on(table.quoteId)]);
 
 export const financeReceivables = mysqlTable("financeReceivables", {
   id: int("id").autoincrement().primaryKey(),
@@ -162,7 +162,7 @@ export const financeReceivables = mysqlTable("financeReceivables", {
   createdByUserId: int("createdByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [index("financeReceivables_quoteId_idx").on(table.quoteId), index("financeReceivables_clientId_idx").on(table.clientId)]);
 
 export const financePayments = mysqlTable("financePayments", {
   id: int("id").autoincrement().primaryKey(),
@@ -177,7 +177,7 @@ export const financePayments = mysqlTable("financePayments", {
   notes: text("notes"),
   createdByUserId: int("createdByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [index("financePayments_receivableId_idx").on(table.receivableId)]);
 
 export const quoteItemReservations = mysqlTable("quoteItemReservations", {
   id: int("id").autoincrement().primaryKey(),
@@ -188,7 +188,7 @@ export const quoteItemReservations = mysqlTable("quoteItemReservations", {
   reservedAt: timestamp("reservedAt").notNull().defaultNow(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [index("quoteItemReservations_quoteId_idx").on(table.quoteId), index("quoteItemReservations_productId_idx").on(table.productId)]);
 
 export const stockMovements = mysqlTable("stockMovements", {
   id: int("id").autoincrement().primaryKey(),
@@ -205,7 +205,7 @@ export const stockMovements = mysqlTable("stockMovements", {
   notes: text("notes"),
   occurredAt: timestamp("occurredAt").notNull().defaultNow(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [index("stockMovements_productId_idx").on(table.productId), index("stockMovements_quoteId_idx").on(table.quoteId)]);
 
 export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   id: int("id").autoincrement().primaryKey(),
@@ -221,7 +221,7 @@ export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   notes: text("notes"),
   stockMovementId: int("stockMovementId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [index("quoteItemDeliveries_quoteId_idx").on(table.quoteId), index("quoteItemDeliveries_quoteItemId_idx").on(table.quoteItemId)]);
 
 export const quoteVersions = mysqlTable("quoteVersions", {
   id: int("id").autoincrement().primaryKey(),
@@ -231,7 +231,7 @@ export const quoteVersions = mysqlTable("quoteVersions", {
   changeNote: varchar("changeNote", { length: 512 }),
   createdByUserId: int("createdByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [index("quoteVersions_quoteId_idx").on(table.quoteId)]);
 
 export const internalComments = mysqlTable("internalComments", {
   id: int("id").autoincrement().primaryKey(),
@@ -241,7 +241,7 @@ export const internalComments = mysqlTable("internalComments", {
   resolved: boolean("resolved").notNull().default(false),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [index("internalComments_quoteId_idx").on(table.quoteId)]);
 
 export const quoteAttachments = mysqlTable("quoteAttachments", {
   id: int("id").autoincrement().primaryKey(),
@@ -252,7 +252,7 @@ export const quoteAttachments = mysqlTable("quoteAttachments", {
   fileSize: int("fileSize").notNull(),
   createdByUserId: int("createdByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [index("quoteAttachments_quoteId_idx").on(table.quoteId)]);
 
 export const messageTemplates = mysqlTable("messageTemplates", {
   id: int("id").autoincrement().primaryKey(),
@@ -311,7 +311,7 @@ export const appointments = mysqlTable("appointments", {
   createdByUserId: int("createdByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [index("appointments_scheduledAt_idx").on(table.scheduledAt)]);
+}, (table) => [index("appointments_scheduledAt_idx").on(table.scheduledAt), index("appointments_quoteId_idx").on(table.quoteId)]);
 
 // Comissão dos profissionais (arquitetos, designers). O nome é o mesmo
 // texto usado nos orçamentos; sem cadastro, vale a comissão padrão da loja.
@@ -365,6 +365,7 @@ export const afterSalesCases = mysqlTable("afterSalesCases", {
 }, (table) => [
   index("afterSalesCases_quoteId_idx").on(table.quoteId),
   index("afterSalesCases_status_idx").on(table.status),
+  index("afterSalesCases_productId_idx").on(table.productId),
 ]);
 
 // Mostruário e consignação: peças emprestadas a clientes e profissionais
@@ -383,7 +384,7 @@ export const stockLoans = mysqlTable("stockLoans", {
   createdByUserId: int("createdByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [index("stockLoans_dueDate_idx").on(table.dueDate)]);
+}, (table) => [index("stockLoans_dueDate_idx").on(table.dueDate), index("stockLoans_quoteId_idx").on(table.quoteId)]);
 
 export const stockLoanItems = mysqlTable("stockLoanItems", {
   id: int("id").autoincrement().primaryKey(),
@@ -394,7 +395,7 @@ export const stockLoanItems = mysqlTable("stockLoanItems", {
   returnedQuantity: decimal("returnedQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
   soldQuantity: decimal("soldQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
   lostQuantity: decimal("lostQuantity", { precision: 12, scale: 2 }).notNull().default("0"),
-}, (table) => [index("stockLoanItems_loanId_idx").on(table.loanId)]);
+}, (table) => [index("stockLoanItems_loanId_idx").on(table.loanId), index("stockLoanItems_productId_idx").on(table.productId)]);
 
 // Avisos no celular (Web Push): um registro por aparelho que ativou os
 // avisos. O endereço é longo demais para índice único; o hash cumpre o papel.
