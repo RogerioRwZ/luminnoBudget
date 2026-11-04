@@ -85,7 +85,11 @@ function sendPrivateFile(res: Response, resolvePath: () => string, fileName: str
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
-    server.listen(port, () => {
+    server.on("error", (error) => {
+    console.error(`[Servidor] Não foi possível usar a porta ${port}:`, error);
+    process.exit(1);
+  });
+  server.listen(port, () => {
       server.close(() => resolve(true));
     });
     server.on("error", () => resolve(false));
@@ -151,6 +155,9 @@ async function startServer() {
       createContext,
     })
   );
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "Rota não encontrada." });
+  });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -159,7 +166,9 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  // Em produção o proxy aponta para esta porta: subir em outra deixaria o
+  // sistema fora do ar sem aviso. Melhor falhar e aparecer no log do serviço.
+  const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);

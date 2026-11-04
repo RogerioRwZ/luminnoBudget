@@ -1,3 +1,7 @@
+import { parseDecimalInput } from "@/components/MoneyInput";
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
+import { isListedUnit, isNumericUnit, NUMERIC_UNIT_MESSAGE, UNIT_OPTIONS } from "@shared/units";
 import {
   AsyncButton,
   FormError,
@@ -23,7 +27,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { DraftAutosaveStatus } from "@/components/DraftAutosaveStatus";
 import { removeDraft, useDraftAutosave } from "@/hooks/useDraftAutosave";
 import { usePermissions } from "@/hooks/usePermissions";
-import { canSeeCost } from "@shared/permissions";
+import { canAccess, canSeeCost } from "@shared/permissions";
 import { percentLabel } from "@shared/margin";
 import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -60,6 +64,8 @@ type ProductForm = {
   // Texto: vazio usa a garantia padrão das Configurações.
   warrantyMonths: string;
   active: boolean;
+  // Texto, como a pessoa digita ("15,5"). Só vale no cadastro.
+  initialStock: string;
 };
 const emptyProduct: ProductForm = {
   code: "",
@@ -76,6 +82,7 @@ const emptyProduct: ProductForm = {
   reorderPoint: 0,
   warrantyMonths: "",
   active: true,
+  initialStock: "",
 };
 type Product = {
   id: number;
@@ -113,6 +120,7 @@ export default function ProductsPage() {
   const utils = trpc.useUtils();
   const { role } = usePermissions();
   const showCost = canSeeCost(role);
+  const canStock = canAccess(role, "stock");
   const { data: settings } = trpc.settings.get.useQuery(undefined, { staleTime: 5 * 60_000 });
   const { data = [], isLoading, error, refetch } = trpc.product.list.useQuery();
   const save = trpc.product.save.useMutation({
@@ -153,12 +161,14 @@ export default function ProductsPage() {
   });
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState("");
+  const [otherUnit, setOtherUnit] = useState(false);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<ProductForm>(emptyProduct);
   const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
     enabled: open,
   });
   const filtered = useMemo(() => data.filter(product => matchesProductSearch(product, search)), [data, search]);
+  const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filtered, filtered.length);
   // Avisa antes de salvar: referência e código de barras não podem repetir.
   const others = data.filter(product => product.id !== form.id);
   const referenceTwin = form.reference.trim() ? others.find(product => product.reference && findProductByScan([product], form.reference)) : undefined;
@@ -178,16 +188,22 @@ export default function ProductsPage() {
       setFormError(message);
       return;
     }
+    if (!form.unit.trim()) {
+      setFormError("Informe a unidade de medida.");
+      return;
+    }
     save.mutate({
       ...form,
       // Quem não vê o custo não o recebe na tela: o servidor copia do original.
       ...(duplicateOf && !showCost ? { copyCostFrom: duplicateOf.id } : {}),
       // Quem não vê o custo não envia o campo, e o custo gravado é mantido.
       costPrice: showCost ? (form.costPrice.trim() === "" ? null : Number(form.costPrice.replace(",", "."))) : undefined,
+      initialStock: !form.id && canStock && form.initialStock?.trim() ? parseDecimalInput(form.initialStock) : undefined,
       warrantyMonths: form.warrantyMonths.trim() === "" ? null : Number(form.warrantyMonths),
     });
   };
   const edit = (product: Product) => {
+    setOtherUnit(false);
     setDuplicateOf(null);
     setForm({
       id: product.id,
@@ -205,12 +221,14 @@ export default function ProductsPage() {
       reorderPoint: Number(product.reorderPoint),
       warrantyMonths: product.warrantyMonths == null ? "" : String(product.warrantyMonths),
       active: product.active,
+      initialStock: "",
     });
     setOpen(true);
   };
   // Abre o cadastro de um produto novo com os dados e a foto deste. Referência e
-  // código de barras não podem repetir, e o estoque da cópia começa em zero.
+  // código de barras não podem repetir, e o estoque da cópia é informado de novo.
   const duplicate = (product: Product) => {
+    setOtherUnit(false);
     setFormError("");
     setTriedSave(false);
     setDuplicateOf(product);
@@ -229,6 +247,8 @@ export default function ProductsPage() {
     });
     setOpen(true);
   };
+  const editingProduct = form.id ? data.find(product => product.id === form.id) : undefined;
+  const unitIsOther = otherUnit || !isListedUnit(form.unit);
   const handleImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -373,16 +393,58 @@ export default function ProductsPage() {
                 {barcodeError ? <p className="text-xs text-destructive">{barcodeError}</p> : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="product-unit">Unidade</Label>
-                <Input
+                <Label htmlFor="product-unit">Unidade de medida</Label>
+                <select
                   id="product-unit"
                   aria-label="Unidade"
-                  value={form.unit}
-                  onChange={e =>
-                    setForm({ ...form, unit: e.target.value.toUpperCase() })
-                  }
-                  placeholder="UN"
-                />
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  value={unitIsOther ? "__outra" : form.unit}
+                  onChange={e => {
+                    const other = e.target.value === "__outra";
+                    setOtherUnit(other);
+                    setForm({ ...form, unit: other ? "" : e.target.value });
+                  }}
+                >
+                  {UNIT_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                  <option value="__outra">Outra…</option>
+                </select>
+                {unitIsOther ? (
+                  <Input
+                    aria-label="Outra unidade"
+                    maxLength={16}
+                    value={form.unit}
+                    onChange={e => setForm({ ...form, unit: e.target.value.toUpperCase() })}
+                    placeholder="Ex.: BARRA"
+                  />
+                ) : null}
+                {isNumericUnit(form.unit) ? <p className="text-xs text-destructive">{NUMERIC_UNIT_MESSAGE}</p> : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-stock">{form.id ? "Saldo em estoque" : `Quantidade em estoque (${form.unit || "UN"})`}</Label>
+                {form.id ? (
+                  <>
+                    <Input id="product-stock" readOnly disabled value={`${Number(editingProduct?.stockQuantity ?? 0).toLocaleString("pt-BR")} ${form.unit}`} />
+                    <p className="text-xs text-muted-foreground">Para alterar, use Estoque &gt; Movimentar estoque: fica registrado no histórico.</p>
+                  </>
+                ) : canStock ? (
+                  <>
+                    <Input
+                      id="product-stock"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={form.initialStock ?? ""}
+                      onChange={e => setForm({ ...form, initialStock: e.target.value.replace(/[^\d.,]/g, "") })}
+                    />
+                    <p className="text-xs text-muted-foreground">Entra como movimentação de entrada. Vazio: começa sem estoque.</p>
+                  </>
+                ) : (
+                  <>
+                    <Input id="product-stock" readOnly disabled value="0" />
+                    <p className="text-xs text-muted-foreground">Quem lança o estoque é a expedição, em Estoque &gt; Movimentar estoque.</p>
+                  </>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Fornecedor</Label>
@@ -600,8 +662,9 @@ export default function ProductsPage() {
               </Button>
             </div>
           ) : filtered.length ? (
+            <>
             <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
-              {filtered.map(product => {
+              {visibleProducts.map(product => {
                 const stock = Number(product.stockQuantity);
                 const point = Number(product.reorderPoint);
                 const low = point > 0 && stock <= point;
@@ -680,6 +743,8 @@ export default function ProductsPage() {
                 );
               })}
             </div>
+            <ShowMoreButton remaining={remainingProducts} onClick={showMoreProducts} />
+            </>
           ) : (
             <div className="p-12 text-center">
               <PackagePlus className="mx-auto h-8 w-8 text-muted-foreground" />

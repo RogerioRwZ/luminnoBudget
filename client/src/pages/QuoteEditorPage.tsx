@@ -556,7 +556,10 @@ export default function QuoteEditorPage() {
             ...current,
             rooms: current.rooms.map((room, index) =>
               index === roomIndex
-                ? {
+                ? room.items.some(item => item.productId === product.id)
+                  // Mesmo produto de novo (leitor, por exemplo): soma na mesma linha.
+                  ? { ...room, items: room.items.map(item => (item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item)) }
+                  : {
                     ...room,
                     items: [
                       ...room.items,
@@ -784,6 +787,16 @@ export default function QuoteEditorPage() {
       setIsPreparingPrint(false);
     }
   };
+  if (!isNewRoute && !quoteQuery.isLoading && !draft && (quoteQuery.isError || quoteQuery.data === null))
+    return (
+      <div role="alert" className="grid min-h-[50vh] place-items-center p-6 text-center">
+        <div className="space-y-3">
+          <p className="font-display text-lg font-bold">Orçamento não encontrado</p>
+          <p className="text-sm text-muted-foreground">Ele pode ter sido excluído, ou o link está errado.</p>
+          <Button variant="outline" onClick={() => setLocation("/orcamentos")}>Voltar para orçamentos</Button>
+        </div>
+      </div>
+    );
   if (quoteQuery.isLoading || !draft || !summary)
     return (
       <div className="grid min-h-[420px] place-items-center">
@@ -1379,6 +1392,8 @@ export default function QuoteEditorPage() {
                           <Button
                             size="icon"
                             variant="ghost"
+                            aria-label={`Remover ${item.shortDescription}`}
+                            title="Remover item"
                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
                             onClick={() =>
                               updateRoom(roomIndex, {

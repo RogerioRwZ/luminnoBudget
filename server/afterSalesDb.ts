@@ -3,7 +3,7 @@ import { afterSalesCases, products, quoteItemDeliveries, quoteItems, quoteRooms,
 import { AFTER_SALES_TYPE_LABELS, buildAfterSalesReport, isActiveCase, isCaseOverdue, warrantyLots, type AfterSalesReason, type AfterSalesStatus, type AfterSalesType } from "../shared/afterSales";
 import { toNumber } from "../shared/quote";
 import { getDb, LOCKED_READS } from "./db";
-import { getSettings } from "./quoteDb";
+import { getQuote, getSettings } from "./quoteDb";
 import { moveStock } from "./stockDb";
 
 async function database() {
@@ -174,6 +174,10 @@ export async function updateAfterSalesCase(input: {
     // Saiu de Resolvido (reaberta ou recusada): o que foi movimentado volta atrás.
     const undoneRestock = input.status !== "resolved" && Boolean(before.restockMovementId);
     const undoneReplacement = input.status !== "resolved" && Boolean(before.replacementMovementId);
+    if (input.refundAmount) {
+      const total = (await getQuote(before.quoteId))?.summary.total ?? 0;
+      if (input.refundAmount > total) throw new Error(`O valor devolvido não pode passar do total da venda (R$ ${total.toFixed(2).replace(".", ",")}).`);
+    }
     const label = `Pós-venda #${before.id} (${AFTER_SALES_TYPE_LABELS[before.type].toLowerCase()})`;
     const stockBase = { productId: before.productId!, quantity: before.quantity, occurredAt: new Date(), responsible: input.responsible || null, quoteId: before.quoteId, quoteItemId: before.quoteItemId, clientName: before.clientName };
     // Primeiro o que devolve peça: pode ser o que permite a saída seguinte.

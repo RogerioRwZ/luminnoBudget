@@ -492,11 +492,12 @@ function UserAccessCard({
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Nome</Label>
-          <Input value={name} onChange={event => setName(event.target.value)} />
+          <Input aria-label={`Nome de ${user.username}`} value={name} onChange={event => setName(event.target.value)} />
         </div>
         <div className="space-y-1.5">
           <Label>E-mail</Label>
           <Input
+            aria-label={`E-mail de ${user.username}`}
             type="email"
             value={email}
             onChange={event => setEmail(event.target.value)}

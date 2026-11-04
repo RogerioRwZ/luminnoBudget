@@ -1,3 +1,5 @@
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AsyncButton,
@@ -226,7 +228,7 @@ export default function OperationsPage() {
     { templateEvent, templateName, templateBody },
     { enabled: true }
   );
-  const quotes = trpc.quote.list.useQuery();
+  const quotes = trpc.quote.options.useQuery();
   const versions = trpc.quote.versions.useQuery(
     { quoteId: quoteId! },
     { enabled: Boolean(quoteId) }
@@ -241,6 +243,7 @@ export default function OperationsPage() {
   );
   const templates = trpc.templates.list.useQuery();
   const pendingMessages = trpc.messages.pending.useQuery();
+  const { visible: visibleMessages, remaining: remainingMessages, showMore: showMoreMessages } = useVisibleItems(pendingMessages.data ?? [], null, 20);
   const [quoteMessageEvent, setQuoteMessageEvent] =
     useState<MessageEvent>("quote_sent");
   const [quoteMessageRequested, setQuoteMessageRequested] = useState(false);
@@ -348,10 +351,8 @@ export default function OperationsPage() {
       toast.error(message);
     },
   });
-  const selectedQuote = useMemo(
-    () => quotes.data?.find(quote => quote.id === quoteId),
-    [quotes.data, quoteId]
-  );
+  const selectedQuoteQuery = trpc.quote.get.useQuery({ id: quoteId ?? 0 }, { enabled: Boolean(quoteId) });
+  const selectedQuote = quoteId ? selectedQuoteQuery.data ?? undefined : undefined;
   const selectedVersion = useMemo(
     () => versions.data?.find(version => version.id === selectedVersionId),
     [versions.data, selectedVersionId]
@@ -545,8 +546,9 @@ export default function OperationsPage() {
               </Button>
             </div>
           ) : pendingMessages.data?.length ? (
+            <>
             <div className="divide-y divide-border rounded-xl border border-border">
-              {pendingMessages.data.map(item => (
+              {visibleMessages.map(item => (
                 <div
                   key={item.key}
                   className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center"
@@ -583,6 +585,8 @@ export default function OperationsPage() {
                 </div>
               ))}
             </div>
+              <ShowMoreButton remaining={remainingMessages} onClick={showMoreMessages} pageSize={20} />
+            </>
           ) : (
             <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
               Nenhuma mensagem pendente hoje.

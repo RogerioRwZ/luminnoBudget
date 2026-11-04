@@ -5,6 +5,10 @@ import {
   financePayments,
   financeReceivables,
   products,
+  internalComments,
+  messageTemplates,
+  quoteVersions,
+  activityLog,
   quoteItemCancellations,
   quoteItemDeliveries,
   quoteItems,
@@ -33,7 +37,7 @@ import { getDb, LOCKED_READS, retryOnDeadlock } from "./db";
 import { commissionRateFor } from "./reportsDb";
 import { createReceivablesFromQuote, financeOverview, releaseQuoteReceivables } from "./financeDb";
 import { parseEntryOffer, parsePaymentPlan, validatePaymentPlan, type EntryOffer, type PaymentPlan } from "../shared/paymentPlan";
-import { allocatePendingReservations, fulfillmentLines } from "./stockDb";
+import { allocatePendingReservations, fulfillmentLines, moveStock } from "./stockDb";
 import { matchesClientSearch } from "../shared/contact";
 
 export type QuoteDraft = {
@@ -186,6 +190,8 @@ export async function saveClient(input: {
     address: input.address || null,
   };
   if (input.id) {
+    const existing = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, input.id)).limit(1);
+    if (!existing.length) throw new Error("Cliente não encontrado. Ele pode ter sido excluído por outra pessoa.");
     await db.update(clients).set(values).where(eq(clients.id, input.id));
     return input.id;
   }
@@ -221,6 +227,10 @@ export async function saveProduct(input: {
   // undefined mantém a garantia gravada; null volta para a padrão da loja.
   warrantyMonths?: number | null;
   active: boolean;
+  // Só no cadastro: o saldo de partida entra como movimentação de entrada,
+  // para aparecer no histórico como qualquer outra.
+  initialStock?: number;
+  responsible?: string | null;
 }) {
   const db = await database();
   // Campos não enviados mantêm o que já estava gravado.
@@ -263,6 +273,7 @@ export async function saveProduct(input: {
     await tx.execute(sql`SELECT id FROM ${products} FOR UPDATE`);
     const existingCodes = await tx.select({ code: products.code }).from(products);
     const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
+    if (input.initialStock) await moveStock(tx, { productId: inserted[0]!.id, type: "entry", quantity: input.initialStock, occurredAt: new Date(), responsible: input.responsible || null, notes: "Estoque inicial no cadastro do produto" });
     return inserted[0]!.id;
   }));
 }
@@ -275,8 +286,18 @@ export async function getProduct(id: number) {
   return rows[0] ?? null;
 }
 
+// Custo atual dos produtos, para conferir a margem na aprovação.
+export async function productCosts(ids: number[]) {
+  if (!ids.length) return new Map<number, number | null>();
+  const db = await database();
+  const rows = await db.select({ id: products.id, costPrice: products.costPrice }).from(products).where(inArray(products.id, Array.from(new Set(ids))));
+  return new Map(rows.map((row) => [row.id, row.costPrice === null ? null : toNumber(row.costPrice)]));
+}
+
 export async function deleteProduct(id: number) {
   const db = await database();
+  const existing = await db.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
+  if (!existing.length) throw new Error("Produto não encontrado.");
   await db.update(products).set({ active: false }).where(eq(products.id, id));
 }
 
@@ -397,6 +418,17 @@ async function hydrateQuotes<TQuote extends { id: number }>(db: Awaited<ReturnTy
 // TODO o histórico) — busca todos os orçamentos, sem filtro nem paginação.
 // Não usar diretamente para alimentar a listagem da tela de orçamentos:
 // use listQuotesPaged, que filtra e pagina no servidor.
+// Para escolher um orçamento (Agenda, Ferramentas): só o que aparece na lista,
+// sem itens e valores, e os mais recentes.
+export async function quoteOptions() {
+  const db = await database();
+  return db
+    .select({ id: quotes.id, quoteNumber: quotes.quoteNumber, clientId: quotes.clientId, clientName: quotes.clientName, phone: quotes.phone, address: quotes.address, status: quotes.status })
+    .from(quotes)
+    .orderBy(desc(quotes.id))
+    .limit(1000);
+}
+
 export async function listQuotes() {
   const db = await database();
   const allQuotes = await db.select().from(quotes).orderBy(desc(quotes.updatedAt));
@@ -830,7 +862,7 @@ export async function registerFollowUp(id: number, days: number) {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows, cancellationRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows, cancellationRows, commentRows, versionRows, attachmentRows, templateRows, activityRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -850,12 +882,17 @@ export async function exportBackup() {
     db.select().from(stockLoans),
     db.select().from(stockLoanItems),
     db.select().from(quoteItemCancellations),
+    db.select().from(internalComments),
+    db.select().from(quoteVersions),
+    db.select().from(quoteAttachments),
+    db.select().from(messageTemplates),
+    db.select().from(activityLog),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows, quoteItemCancellations: cancellationRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows, quoteItemCancellations: cancellationRows, internalComments: commentRows, quoteVersions: versionRows, quoteAttachments: attachmentRows, messageTemplates: templateRows, activityLog: activityRows },
   };
 }
 
@@ -901,6 +938,11 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     quoteItemReservations?: Array<typeof quoteItemReservations.$inferInsert>;
     quoteItemDeliveries?: Array<typeof quoteItemDeliveries.$inferInsert>;
     quoteItemCancellations?: Array<typeof quoteItemCancellations.$inferInsert>;
+    internalComments?: Array<typeof internalComments.$inferInsert>;
+    quoteVersions?: Array<typeof quoteVersions.$inferInsert>;
+    quoteAttachments?: Array<typeof quoteAttachments.$inferInsert>;
+    messageTemplates?: Array<typeof messageTemplates.$inferInsert>;
+    activityLog?: Array<typeof activityLog.$inferInsert>;
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
     storeSettings?: Array<typeof storeSettings.$inferInsert>;
     appointments?: Array<typeof appointments.$inferInsert>;
@@ -910,8 +952,19 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     stockLoans?: Array<typeof stockLoans.$inferInsert>;
     stockLoanItems?: Array<typeof stockLoanItems.$inferInsert>;
   };
+  // Substituir apaga tudo antes de gravar: um arquivo sem os dados principais
+  // deixaria o sistema vazio.
+  if (input.replace && !data.products?.length && !data.quotes?.length && !data.clients?.length) {
+    throw new Error("Este backup não tem produtos, orçamentos nem clientes. A restauração foi cancelada e nada foi apagado.");
+  }
   await db.transaction(async (tx) => {
     if (input.replace) {
+      // Backups antigos não trazem estas tabelas: nesse caso elas ficam como estão.
+      if (data.internalComments) await tx.delete(internalComments);
+      if (data.quoteVersions) await tx.delete(quoteVersions);
+      if (data.quoteAttachments) await tx.delete(quoteAttachments);
+      if (data.messageTemplates) await tx.delete(messageTemplates);
+      if (data.activityLog) await tx.delete(activityLog);
       await tx.delete(stockMovements);
       await tx.delete(financePayments);
       await tx.delete(financeReceivables);
@@ -951,6 +1004,11 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.afterSalesCases?.length) await tx.insert(afterSalesCases).values(data.afterSalesCases).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, resolution: sql`values(resolution)`, resolvedAt: sql`values(resolvedAt)` } });
     if (data.stockLoans?.length) await tx.insert(stockLoans).values(data.stockLoans).onDuplicateKeyUpdate({ set: { dueDate: sql`values(dueDate)`, closedAt: sql`values(closedAt)`, notes: sql`values(notes)` } });
     if (data.stockLoanItems?.length) await tx.insert(stockLoanItems).values(data.stockLoanItems).onDuplicateKeyUpdate({ set: { returnedQuantity: sql`values(returnedQuantity)`, soldQuantity: sql`values(soldQuantity)`, lostQuantity: sql`values(lostQuantity)` } });
+    if (data.internalComments?.length) await tx.insert(internalComments).values(data.internalComments).onDuplicateKeyUpdate({ set: { body: sql`values(body)` } });
+    if (data.quoteVersions?.length) await tx.insert(quoteVersions).values(data.quoteVersions).onDuplicateKeyUpdate({ set: { changeNote: sql`values(changeNote)` } });
+    if (data.quoteAttachments?.length) await tx.insert(quoteAttachments).values(data.quoteAttachments).onDuplicateKeyUpdate({ set: { fileName: sql`values(fileName)` } });
+    if (data.messageTemplates?.length) await tx.insert(messageTemplates).values(data.messageTemplates).onDuplicateKeyUpdate({ set: { body: sql`values(body)` } });
+    if (data.activityLog?.length) await tx.insert(activityLog).values(data.activityLog).onDuplicateKeyUpdate({ set: { summary: sql`values(summary)` } });
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };

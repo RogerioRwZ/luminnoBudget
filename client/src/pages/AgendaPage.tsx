@@ -83,7 +83,7 @@ export default function AgendaPage() {
   const [typeFilter, setTypeFilter] = useState<AppointmentType | "all">("all");
   const range = useMemo(() => weekRange(reference), [reference]);
   const { data = [], isLoading, error, refetch } = trpc.agenda.list.useQuery({ from: range.from, to: range.to });
-  const { data: quotes = [] } = trpc.quote.list.useQuery();
+  const { data: quotes = [] } = trpc.quote.options.useQuery();
   const { data: settings } = trpc.settings.get.useQuery();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>(() => emptyForm(new Date()));
