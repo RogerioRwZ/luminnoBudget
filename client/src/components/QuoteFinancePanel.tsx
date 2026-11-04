@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { CircleDollarSign, Landmark } from "lucide-react";
 import { useLocation } from "wouter";
 
-const meta = { open: { label: "Em aberto", className: "bg-sky-500/10 text-sky-700 dark:text-sky-300" }, partial: { label: "Parcial", className: "bg-amber-500/15 text-amber-800 dark:text-amber-300" }, paid: { label: "Recebida", className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" }, overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700 dark:text-red-300" }, cancelled: { label: "Cancelada", className: "bg-slate-500/10 text-slate-700" } } as const;
+const meta = { open: { label: "Em aberto", className: "bg-sky-500/10 text-sky-700 dark:text-sky-300" }, partial: { label: "Parcial", className: "bg-amber-500/15 text-amber-800 dark:text-amber-300" }, paid: { label: "Recebida", className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" }, overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700 dark:text-red-300" }, cancelled: { label: "Cancelada", className: "bg-slate-500/10 text-slate-700 dark:text-slate-300" } } as const;
 
 export function QuoteFinancePanel({ quoteId, quoteStatus }: { quoteId: number; quoteStatus: "draft" | "open" | "approved" | "lost" }) {
   const [, setLocation] = useLocation(); const { data: receivables = [], isLoading } = trpc.finance.byQuote.useQuery({ quoteId });

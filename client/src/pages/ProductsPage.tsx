@@ -687,14 +687,14 @@ export default function ProductsPage() {
                         </p>
                         <button
                           onClick={() => edit(product)}
-                          className="text-xs font-semibold text-primary hover:underline"
+                          className="-my-1 shrink-0 rounded px-2 py-2 text-xs font-semibold text-primary hover:underline"
                         >
                           Editar
                         </button>
                         <button
                           onClick={() => duplicate(product)}
                           aria-label={`Duplicar ${product.shortDescription}`}
-                          className="text-xs font-semibold text-primary hover:underline"
+                          className="-my-1 shrink-0 rounded px-2 py-2 text-xs font-semibold text-primary hover:underline"
                         >
                           Duplicar
                         </button>
@@ -716,7 +716,7 @@ export default function ProductsPage() {
                           {money(product.unitPrice)}
                         </p>
                         <span
-                          className={`text-[10px] font-bold uppercase tracking-wide ${product.active ? "text-emerald-600" : "text-muted-foreground"}`}
+                          className={`text-[10px] font-bold uppercase tracking-wide ${product.active ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}
                         >
                           {product.active ? "Ativo" : "Arquivado"}
                         </span>
@@ -731,8 +731,8 @@ export default function ProductsPage() {
                           variant="secondary"
                           className={
                             low
-                              ? "bg-red-500/10 text-red-700"
-                              : "bg-emerald-500/10 text-emerald-700"
+                              ? "bg-red-500/10 text-red-700 dark:text-red-300"
+                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                           }
                         >
                           {stock} {product.unit}

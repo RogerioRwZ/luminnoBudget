@@ -507,14 +507,15 @@ export const businessRouter = router({
       productId: z.number().int().positive(),
       type: z.enum(["entry", "adjustment", "return"]),
       quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais"),
-      responsible: nullableText,
       notes: nullableText,
       occurredAt: z.coerce.date(),
     }).refine((input) => input.type === "adjustment" || input.quantity > 0, { message: "Entrada e devolução têm quantidade positiva. Para tirar do saldo, use Ajuste.", path: ["quantity"] })).mutation(async ({ ctx, input }) => {
-      const result = await recordStockMovement(input);
+      // O responsável é sempre quem está logado: não vem da tela.
+      const responsible = ctx.user.name || ctx.user.username;
+      const result = await recordStockMovement({ ...input, responsible });
       const product = await getProduct(input.productId);
       const label = { entry: "Entrada", adjustment: "Ajuste", return: "Devolução" }[input.type];
-      await log(ctx, { action: `stock.${input.type}`, entityType: "stock", entityId: input.productId, summary: `${label} de estoque: ${input.quantity > 0 && input.type === "adjustment" ? "+" : ""}${input.quantity} ${product?.unit ?? ""} em #${product?.code ?? input.productId} ${product?.shortDescription ?? ""} (saldo ${result.beforeQuantity} → ${result.afterQuantity})`.replace(/\s+/g, " "), details: { responsavel: input.responsible ?? null, observacao: input.notes ?? null } });
+      await log(ctx, { action: `stock.${input.type}`, entityType: "stock", entityId: input.productId, summary: `${label} de estoque: ${input.quantity > 0 && input.type === "adjustment" ? "+" : ""}${input.quantity} ${product?.unit ?? ""} em #${product?.code ?? input.productId} ${product?.shortDescription ?? ""} (saldo ${result.beforeQuantity} → ${result.afterQuantity})`.replace(/\s+/g, " "), details: { responsavel: responsible, observacao: input.notes ?? null } });
       return result;
     }),
     deliver: areaProcedure("stock").input(z.object({

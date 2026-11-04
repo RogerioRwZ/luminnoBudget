@@ -79,6 +79,9 @@
 }
 
 .dark {
+  /* Sem isto o navegador desenha listas nativas, datas e barras de rolagem no
+     modo claro: fundo branco com o texto claro do tema. */
+  color-scheme: dark;
   --background: oklch(0.17 0.008 80);
   --foreground: oklch(0.93 0.009 90);
   --card: oklch(0.22 0.009 80);
@@ -109,7 +112,9 @@
 }
 
 @layer base {
+  :root { color-scheme: light; }
   * { @apply border-border outline-ring/50; }
+  select option, select optgroup { background-color: var(--popover); color: var(--popover-foreground); }
   html { font-family: "Manrope", system-ui, sans-serif; }
   body { @apply bg-background text-foreground; font-family: "Manrope", system-ui, sans-serif; }
   button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [type="button"]:not(:disabled), [type="submit"]:not(:disabled), [type="reset"]:not(:disabled), a[href], select:not(:disabled), input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled) { @apply cursor-pointer; }
@@ -117,20 +122,37 @@
 
 @layer components {
   .font-display { font-family: "Sora", "Manrope", sans-serif; }
-  .eyebrow { color: oklch(0.61 0.13 91); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.18em; line-height: 1; text-transform: uppercase; }
+  .eyebrow { color: oklch(0.5 0.115 91); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.18em; line-height: 1; text-transform: uppercase; }
+  .dark .eyebrow { color: oklch(0.72 0.14 91); }
   .page-title { font-family: "Sora", "Manrope", sans-serif; font-size: 1.7rem; font-weight: 700; letter-spacing: -0.045em; line-height: 1.15; margin-top: 0.45rem; }
   .page-description { color: var(--muted-foreground); font-size: 0.82rem; line-height: 1.55; margin-top: 0.45rem; max-width: 44rem; }
   .quote-line-head { align-items: center; background: color-mix(in oklab, var(--muted) 55%, transparent); color: var(--muted-foreground); display: grid; font-size: 0.62rem; font-weight: 800; gap: 0.75rem; grid-template-columns: 42px minmax(210px, 1fr) 74px 104px 105px 32px; letter-spacing: 0.08em; padding: 0.65rem 1rem; text-transform: uppercase; }
   .quote-line { align-items: center; display: grid; gap: 0.75rem; grid-template-columns: 42px minmax(210px, 1fr) 74px 104px 105px 32px; min-width: 680px; padding: 0.7rem 1rem; }
   .quote-lines { overflow-x: auto; }
+  .quote-cell-label { display: none; font-size: 0.68rem; color: var(--muted-foreground); }
 }
 
 @media (max-width: 640px) {
   .page-title { font-size: 1.45rem; }
   .quote-line-head { display: none; }
-  .quote-line { grid-template-columns: 40px minmax(150px, 1fr) 70px 85px; min-width: 520px; }
-  .quote-line > :nth-child(5) { display: none; }
-  .quote-line > :nth-child(6) { display: none; }
+  .quote-lines { overflow-x: visible; }
+  .quote-line { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-areas: "thumb desc desc desc desc remove" "qty qty price price total total"; gap: 0.5rem; min-width: 0; align-items: end; }
+  .quote-line > :nth-child(1) { grid-area: thumb; }
+  .quote-line > :nth-child(2) { grid-area: desc; }
+  .quote-line > :nth-child(3) { grid-area: qty; }
+  .quote-line > :nth-child(4) { grid-area: price; }
+  .quote-line > :nth-child(5) { grid-area: total; }
+  .quote-line > :nth-child(6) { grid-area: remove; }
+  .quote-line > b { display: block; white-space: nowrap; font-size: 0.8rem; }
+  .quote-line input[aria-label^="Referência"], .quote-line input[aria-label^="Unidade"] { height: 2rem; }
+  .quote-line > b::before { content: "Total"; display: block; font-size: 0.68rem; font-weight: 500; color: var(--muted-foreground); }
+  .quote-cell-label { display: block !important; }
+  .stack-table { min-width: 0 !important; }
+  .stack-table thead { display: none; }
+  .stack-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem 0.75rem; padding: 0.75rem 0; }
+  .stack-table td { display: block; padding: 0 !important; white-space: normal !important; text-align: left !important; }
+  .stack-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.68rem; font-weight: 500; color: var(--muted-foreground); }
+  .stack-table td:first-child, .stack-table td:last-child { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -1369,7 +1369,9 @@ export default function QuoteEditorPage() {
                               />
                             </div>
                           </div>
-                          <MoneyInput
+                          <label className="min-w-0">
+                            <span className="quote-cell-label">Qtd.</span>
+                            <MoneyInput
                             format="quantity"
                             value={item.quantity}
                             onValueChange={quantity =>
@@ -1378,7 +1380,10 @@ export default function QuoteEditorPage() {
                             aria-label={`Quantidade do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                             className="h-9"
                           />
-                          <MoneyInput
+                          </label>
+                          <label className="min-w-0">
+                            <span className="quote-cell-label">Valor un.</span>
+                            <MoneyInput
                             value={item.unitPrice}
                             onValueChange={unitPrice =>
                               updateItem(roomIndex, itemIndex, { unitPrice })
@@ -1386,6 +1391,7 @@ export default function QuoteEditorPage() {
                             aria-label={`Valor unitário do item ${(itemGlobalOffsets[roomIndex] ?? 0) + itemIndex + 1}`}
                             className="h-9"
                           />
+                          </label>
                           <b className="text-right text-sm">
                             {money(item.quantity * item.unitPrice)}
                           </b>

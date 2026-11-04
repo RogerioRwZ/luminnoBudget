@@ -54,11 +54,11 @@ type MovementForm = {
   productId: number;
   type: "entry" | "adjustment" | "return";
   quantity: number;
-  responsible: string;
   notes: string;
   occurredAt: string;
 };
 // Data e hora locais: toISOString é UTC e adiantaria o campo em 3 horas.
+const qty = (value: number) => value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 const nowInput = () => {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -105,6 +105,8 @@ export default function InventoryPage() {
     error: overviewError,
     refetch: refetchOverview,
   } = trpc.inventory.overview.useQuery();
+  const { data: authStatus } = trpc.auth.status.useQuery(undefined, { staleTime: Infinity });
+  const currentUserName = authStatus?.user?.name || authStatus?.user?.username || "";
   const {
     data: fulfillments = [],
     isLoading: fulfillmentsLoading,
@@ -128,7 +130,6 @@ export default function InventoryPage() {
     productId: 0,
     type: "entry",
     quantity: 0,
-    responsible: "",
     notes: "",
     occurredAt: nowInput(),
   });
@@ -315,7 +316,6 @@ export default function InventoryPage() {
       productId: products[0]?.id ?? 0,
       type: "entry",
       quantity: 0,
-      responsible: "",
       notes: "",
       occurredAt: nowInput(),
     });
@@ -575,17 +575,17 @@ export default function InventoryPage() {
                           variant="secondary"
                           className={
                             product.lowStock
-                              ? "bg-red-500/10 text-red-700"
-                              : "bg-emerald-500/10 text-emerald-700"
+                              ? "bg-red-500/10 text-red-700 dark:text-red-300"
+                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                           }
                         >
-                          Físico: {product.stockQuantity}
+                          Físico: {qty(product.stockQuantity)}
                         </Badge>
                         <Badge
                           variant="secondary"
                           className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
                         >
-                          Res.: {product.reservedQuantity}
+                          Res.: {qty(product.reservedQuantity)}
                         </Badge>
                         {product.loanedQuantity ? (
                           <Badge variant="secondary" className="bg-violet-500/10 text-violet-700 dark:text-violet-300" title="Fora da loja, no mostruário">
@@ -594,7 +594,7 @@ export default function InventoryPage() {
                         ) : null}
                       </div>
                       <p className="mt-1 text-xs font-semibold text-primary">
-                        Disponível: {product.availableQuantity} {product.unit}
+                        Disponível: {qty(product.availableQuantity)} {product.unit}
                       </p>
                     </div>
                   </div>
@@ -642,7 +642,7 @@ export default function InventoryPage() {
                       variant="secondary"
                       className="bg-red-500/10 text-red-700 dark:text-red-300"
                     >
-                      {product.stockQuantity} {product.unit}
+                      {qty(product.stockQuantity)} {product.unit}
                     </Badge>
                   </div>
                 ))}
@@ -764,9 +764,9 @@ export default function InventoryPage() {
                             </p>
                             <p className="mt-1 text-xs text-muted-foreground">
                               {line.roomName} · entregue{" "}
-                              {line.deliveredQuantity} de {line.orderedQuantity}{" "}
+                              {qty(line.deliveredQuantity)} de {qty(line.orderedQuantity)}{" "}
                               {line.unit}
-                              {line.cancelledQuantity ? ` · ${line.cancelledQuantity} cancelado` : ""}
+                              {line.cancelledQuantity ? ` · ${qty(line.cancelledQuantity)} cancelado` : ""}
                             </p>
                             {line.pendingQuantity > 0 ? (
                               <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
@@ -775,7 +775,7 @@ export default function InventoryPage() {
                                     variant="secondary"
                                     className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
                                   >
-                                    Reservado: {line.reservedQuantity}
+                                    Reservado: {qty(line.reservedQuantity)}
                                   </Badge>
                                 ) : (
                                   <Badge variant="secondary">
@@ -786,7 +786,7 @@ export default function InventoryPage() {
                                   variant="secondary"
                                   className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                                 >
-                                  Pode retirar: {line.deliverableQuantity}
+                                  Pode retirar: {qty(line.deliverableQuantity)}
                                 </Badge>
                                 {line.shortageQuantity > 0 ? (
                                   <Badge
@@ -794,7 +794,7 @@ export default function InventoryPage() {
                                     className="bg-rose-500/10 text-rose-700 dark:text-rose-300"
                                   >
                                     <ShoppingCart className="mr-1 h-3 w-3" />
-                                    Falta comprar: {line.shortageQuantity}
+                                    Falta comprar: {qty(line.shortageQuantity)}
                                   </Badge>
                                 ) : null}
                               </div>
@@ -809,7 +809,7 @@ export default function InventoryPage() {
                                     <div key={`d${delivery.id}`} className="flex flex-wrap items-center gap-2">
                                       <p className={delivery.reversedAt ? "line-through" : ""}>
                                         Retirada: {dateOnly(delivery.deliveredAt)} ·{" "}
-                                        {delivery.deliveredQuantity} {line.unit}
+                                        {qty(delivery.deliveredQuantity)} {line.unit}
                                         {delivery.responsible
                                           ? ` · ${delivery.responsible}`
                                           : ""}
@@ -817,7 +817,7 @@ export default function InventoryPage() {
                                       {delivery.reversedAt ? (
                                         <span>Estornada em {dateOnly(delivery.reversedAt)}: {delivery.reversalReason}</span>
                                       ) : (
-                                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => { setCorrectionError(""); setReverseForm({ line, delivery, reason: "" }); }}>
+                                        <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => { setCorrectionError(""); setReverseForm({ line, delivery, reason: "" }); }}>
                                           Estornar
                                         </Button>
                                       )}
@@ -827,12 +827,12 @@ export default function InventoryPage() {
                                     <div key={`c${cancellation.id}`} className="flex flex-wrap items-center gap-2">
                                       <p className={cancellation.undoneAt ? "line-through" : ""}>
                                         Saldo cancelado: {dateOnly(cancellation.cancelledAt)} ·{" "}
-                                        {cancellation.quantity} {line.unit} · {cancellation.reason}
+                                        {qty(cancellation.quantity)} {line.unit} · {cancellation.reason}
                                       </p>
                                       {cancellation.undoneAt ? (
                                         <span>Desfeito em {dateOnly(cancellation.undoneAt)}</span>
                                       ) : (
-                                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setUndoTarget({ id: cancellation.id, label: `${cancellation.quantity} ${line.unit} de ${line.shortDescription}` })}>
+                                        <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setUndoTarget({ id: cancellation.id, label: `${qty(cancellation.quantity)} ${line.unit} de ${line.shortDescription}` })}>
                                           Desfazer
                                         </Button>
                                       )}
@@ -901,7 +901,7 @@ export default function InventoryPage() {
                 <div key={entry.line.quoteItemId} className="flex items-end gap-3">
                   <p className="min-w-0 flex-1 text-sm">
                     <b className="block truncate">{entry.line.shortDescription}</b>
-                    <span className="text-xs text-muted-foreground">{entry.line.roomName} · pendente: {entry.line.pendingQuantity} {entry.line.unit}</span>
+                    <span className="text-xs text-muted-foreground">{entry.line.roomName} · pendente: {qty(entry.line.pendingQuantity)} {entry.line.unit}</span>
                   </p>
                   <Input
                     aria-label={`Quantidade a cancelar de ${entry.line.shortDescription}`}
@@ -1186,15 +1186,13 @@ export default function InventoryPage() {
               <Label>Responsável</Label>
               <Input
                 aria-label="Responsável"
-                value={movementForm.responsible}
-                onChange={e =>
-                  setMovementForm({
-                    ...movementForm,
-                    responsible: e.target.value,
-                  })
-                }
-                placeholder="Quem registrou a movimentação"
+                readOnly
+                disabled
+                value={currentUserName}
               />
+              <p className="text-xs text-muted-foreground">
+                É sempre o usuário logado.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Data e hora</Label>
@@ -1265,11 +1263,11 @@ export default function InventoryPage() {
               <div className="rounded-xl bg-muted/60 p-3">
                 <p className="font-semibold">{selectedLine.shortDescription}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Falta entregar: {selectedLine.pendingQuantity} {selectedLine.unit}{" "}
-                  · Pode retirar agora: {selectedLine.deliverableQuantity}{" "}
+                  Falta entregar: {qty(selectedLine.pendingQuantity)} {selectedLine.unit}{" "}
+                  · Pode retirar agora: {qty(selectedLine.deliverableQuantity)}{" "}
                   {selectedLine.unit}
                   {selectedLine.shortageQuantity > 0
-                    ? ` · Aguardando compra: ${selectedLine.shortageQuantity} ${selectedLine.unit}`
+                    ? ` · Aguardando compra: ${qty(selectedLine.shortageQuantity)} ${selectedLine.unit}`
                     : ""}
                 </p>
               </div>
@@ -1279,7 +1277,7 @@ export default function InventoryPage() {
                   aria-label="Quantidade entregue"
                   type="number"
                   min="0.01"
-                  max={selectedLine.deliverableQuantity}
+                  max={qty(selectedLine.deliverableQuantity)}
                   step="0.01"
                   value={deliveryForm.quantity}
                   onChange={e =>

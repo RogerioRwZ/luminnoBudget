@@ -91,7 +91,7 @@ export default function AuthPage({
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#151515] px-4 py-10 text-white">
       <div className="absolute inset-0 opacity-50 [background:radial-gradient(circle_at_top_right,#f4d84222,transparent_28%),radial-gradient(circle_at_bottom_left,#ffffff10,transparent_30%)]" />
-      <Card className="relative w-full max-w-md border-white/10 bg-white text-foreground shadow-2xl">
+      <Card className="relative w-full max-w-md border-border bg-card text-card-foreground shadow-2xl">
         <CardHeader className="space-y-4 pb-4">
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#f4d842] text-xs font-black text-black">

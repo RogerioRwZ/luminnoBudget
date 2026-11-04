@@ -182,7 +182,7 @@ export default function AfterSalesPage() {
         ].map(card => (
           <Card key={card.label} className="border-border/70 shadow-sm">
             <CardContent className="p-4 sm:p-5">
-              <card.icon className={`mb-3 h-5 w-5 ${card.alert ? "text-red-600" : "text-primary"}`} />
+              <card.icon className={`mb-3 h-5 w-5 ${card.alert ? "text-red-600 dark:text-red-300" : "text-primary"}`} />
               <p className="text-xs font-semibold text-muted-foreground">{card.label}</p>
               <p className={`mt-1 font-display text-xl font-bold tracking-tight sm:text-2xl ${card.alert ? "text-red-700 dark:text-red-300" : ""}`}>{card.value}</p>
             </CardContent>

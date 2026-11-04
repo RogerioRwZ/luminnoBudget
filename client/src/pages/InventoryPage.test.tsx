@@ -19,7 +19,7 @@ vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href=
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    auth: { status: { useQuery: () => ({ data: { user: { role: "admin" } } }) } },
+    auth: { status: { useQuery: () => ({ data: { user: { role: "admin", name: "Ana Lima", username: "ana" } } }) } },
     useUtils: () => ({ inventory: { invalidate: mocks.invalidate }, product: { list: { invalidate: mocks.invalidate } } }),
     inventory: {
       overview: { useQuery: () => ({ ...mocks.overview, refetch: mocks.refetchOverview }) },
@@ -67,6 +67,16 @@ describe("InventoryPage", () => {
     rerender(<InventoryPage />);
     expect(screen.getByText("Nenhum produto corresponde aos filtros.")).toBeTruthy();
     expect(screen.getByText("Não há itens pendentes de retirada.")).toBeTruthy();
+  });
+
+  it("responsável pela movimentação é o usuário logado, sem edição", () => {
+    mocks.overview.data = { ...emptyOverview, products: [{ id: 1, code: "1", reference: "R", shortDescription: "Spot", unit: "UN", stockQuantity: 1, reservedQuantity: 0, availableQuantity: 1, loanedQuantity: 0, reorderPoint: 0, unitPrice: 1, lowStock: false, active: true, barcode: null, supplierName: null, imageUrl: null }] };
+    mocks.fulfillments.data = [];
+    render(<InventoryPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Movimentar estoque/ }));
+    const field = screen.getByLabelText("Responsável") as HTMLInputElement;
+    expect(field.value).toBe("Ana Lima");
+    expect(field.disabled).toBe(true);
   });
 
   it("informa falha de estoque e permite nova tentativa", () => {
