@@ -59,6 +59,24 @@ describe("ProductsPage", () => {
     expect(screen.queryByText("Fita")).toBeNull();
   });
 
+  it("descrição longa mostra Ver mais e Ver menos; curta não", () => {
+    const base = { imageUrl: null, imageKey: null, barcode: null, unit: "UN", supplierName: null, unitPrice: "10", costPrice: null, stockQuantity: "0", reorderPoint: "0", warrantyMonths: null, active: true, code: "1", reference: "A-1", shortDescription: "Spot" };
+    mocks.list.data = [{ ...base, id: 1, fullDescription: "Texto longo do produto" }];
+    const heights = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(100);
+    render(<ProductsPage />);
+    const more = screen.getByRole("button", { name: "Ver mais" });
+    expect(screen.getByText("Texto longo do produto").className).toContain("line-clamp-3");
+    fireEvent.click(more);
+    expect(screen.getByText("Texto longo do produto").className).not.toContain("line-clamp-3");
+    fireEvent.click(screen.getByRole("button", { name: "Ver menos" }));
+    expect(screen.getByRole("button", { name: "Ver mais" })).toBeTruthy();
+    cleanup();
+    heights.mockReturnValue(0);
+    render(<ProductsPage />);
+    expect(screen.queryByRole("button", { name: "Ver mais" })).toBeNull();
+    heights.mockRestore();
+  });
+
   it("abre o cadastro com o código lido em outra tela e exige a referência", () => {
     mocks.list.data = [{ id: 9, code: "9", reference: "LM-1", shortDescription: "Spot", fullDescription: null, imageUrl: null, imageKey: null, barcode: "111", unit: "UN", supplierName: null, unitPrice: "1", stockQuantity: "0", reorderPoint: "0", active: true, parentId: null, modelName: null, attributes: null }];
     window.history.replaceState(null, "", "/catalogo?novo=7890000000017");
