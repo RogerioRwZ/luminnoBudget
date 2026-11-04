@@ -46,6 +46,7 @@ export type SearchableProduct = {
   code: string;
   reference?: string | null;
   shortDescription: string;
+  fullDescription?: string | null;
   supplierName?: string | null;
   barcode?: string | null;
 };
@@ -56,7 +57,7 @@ export type SearchableProduct = {
 export function matchesProductSearch(product: SearchableProduct, query: string) {
   const words = foldText(query).split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const text = foldText([product.reference, product.code, `#${product.code}`, product.shortDescription, product.supplierName, product.barcode].filter(Boolean).join(" "));
+  const text = foldText([product.reference, product.code, `#${product.code}`, product.shortDescription, product.fullDescription, product.supplierName, product.barcode].filter(Boolean).join(" "));
   return words.every((word) => text.includes(word));
 }
 

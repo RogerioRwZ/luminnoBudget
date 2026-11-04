@@ -30,7 +30,7 @@ describe("referência e código de barras", () => {
 
   const products = [
     { code: "12", reference: "LM-100/PT", shortDescription: "Pendente Arco — Preto · 3000K", supplierName: "Luminare", barcode: "7891234567890" },
-    { code: "13", reference: "SP-7W", shortDescription: "Spot Embutir 7W", supplierName: "Stella", barcode: null },
+    { code: "13", reference: "SP-7W", shortDescription: "Spot Embutir 7W", fullDescription: "Corpo em alumínio, ideal para gesso", supplierName: "Stella", barcode: null },
   ];
 
   it("busca por referência, descrição e código de barras, sem acento e em qualquer ordem", () => {
@@ -38,6 +38,7 @@ describe("referência e código de barras", () => {
     expect(find("lm-100")).toEqual(["12"]);
     expect(find("preto pendente")).toEqual(["12"]);
     expect(find("embutir")).toEqual(["13"]);
+    expect(find("aluminio gesso")).toEqual(["13"]);
     expect(find("4567890")).toEqual(["12"]);
     expect(find("#13")).toEqual(["13"]);
     expect(find("")).toEqual(["12", "13"]);

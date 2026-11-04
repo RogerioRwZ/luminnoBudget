@@ -699,6 +699,11 @@ export default function ProductsPage() {
                           Duplicar
                         </button>
                       </div>
+                      {product.fullDescription?.trim() && product.fullDescription.trim() !== product.shortDescription.trim() ? (
+                        <p className="mt-1 whitespace-pre-line break-words text-xs text-muted-foreground">
+                          {product.fullDescription.trim()}
+                        </p>
+                      ) : null}
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                         Ref. {product.reference ?? product.code} · #{product.code} · {product.unit}
                       </p>

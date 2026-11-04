@@ -44,6 +44,21 @@ describe("ProductsPage", () => {
     expectNoUnnamedFormControls(container);
   });
 
+  it("mostra a descrição completa e busca por ela", () => {
+    const base = { imageUrl: null, imageKey: null, barcode: null, unit: "UN", supplierName: null, unitPrice: "10", costPrice: null, stockQuantity: "0", reorderPoint: "0", warrantyMonths: null, active: true };
+    mocks.list.data = [
+      { ...base, id: 1, code: "1", reference: "A-1", shortDescription: "Spot", fullDescription: "Corpo em alumínio\nideal para gesso" },
+      { ...base, id: 2, code: "2", reference: "B-2", shortDescription: "Fita", fullDescription: "Fita" },
+    ];
+    render(<ProductsPage />);
+    expect(screen.getByText(/Corpo em alumínio/)).toBeTruthy();
+    // Igual à descrição curta: não repete o texto.
+    expect(screen.getAllByText("Fita")).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("Buscar por referência, descrição ou código de barras"), { target: { value: "aluminio" } });
+    expect(screen.getByText("Spot")).toBeTruthy();
+    expect(screen.queryByText("Fita")).toBeNull();
+  });
+
   it("abre o cadastro com o código lido em outra tela e exige a referência", () => {
     mocks.list.data = [{ id: 9, code: "9", reference: "LM-1", shortDescription: "Spot", fullDescription: null, imageUrl: null, imageKey: null, barcode: "111", unit: "UN", supplierName: null, unitPrice: "1", stockQuantity: "0", reorderPoint: "0", active: true, parentId: null, modelName: null, attributes: null }];
     window.history.replaceState(null, "", "/catalogo?novo=7890000000017");
