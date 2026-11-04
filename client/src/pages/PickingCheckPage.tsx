@@ -198,7 +198,7 @@ export default function PickingCheckPage() {
         <>
           <Card className="border-border/70 shadow-sm">
             <CardContent className="space-y-4 p-5">
-              <form onSubmit={scan} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <form onSubmit={scan} className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="flex-1 space-y-2">
                   <Label htmlFor="scan-code">Código de barras</Label>
                   <div className="relative">
@@ -216,7 +216,7 @@ export default function PickingCheckPage() {
                     />
                   </div>
                 </div>
-                <div className="w-full space-y-2 sm:w-32">
+                <div className="w-full space-y-2 lg:w-32">
                   <Label htmlFor="scan-multiplier">Qtd. por leitura</Label>
                   <Input
                     id="scan-multiplier"
@@ -274,8 +274,8 @@ export default function PickingCheckPage() {
                           {item.shortDescription}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Ref. {item.reference || item.code}
-                          {item.barcode ? ` · Cód. barras ${item.barcode}` : " · sem código de barras, use os botões"}
+                          {item.reference || item.code ? `Ref. ${item.reference || item.code} · ` : ""}
+                          {item.barcode ? `Cód. barras ${item.barcode}` : "sem código de barras, use os botões"}
                           {" · "}
                           {item.rooms.join(", ")}
                         </p>
@@ -322,7 +322,7 @@ export default function PickingCheckPage() {
                   Registre a entrada no estoque ou ajuste a conferência.
                 </p>
               ) : null}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="flex-1 space-y-2">
                   <Label htmlFor="check-responsible">Quem retirou ou entregou (opcional)</Label>
                   <Input id="check-responsible" value={responsible} onChange={event => setResponsible(event.target.value)} placeholder="Ex.: cliente, motorista" />

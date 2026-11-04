@@ -9,7 +9,23 @@ const t = initTRPC.context<TrpcContext>().create({
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+
+// Regra de negócio recusada (`throw new Error("...")` nos módulos do servidor)
+// é erro de quem pediu, com mensagem para a pessoa. Falha de verdade (banco,
+// bug) vira 500 com mensagem genérica: o texto original pode trazer SQL.
+const friendlyErrors = t.middleware(async ({ next, path }) => {
+  const result = await next();
+  if (result.ok || result.error.code !== "INTERNAL_SERVER_ERROR") return result;
+  const cause = result.error.cause as (Error & { code?: unknown; errno?: unknown }) | undefined;
+  if (cause?.constructor === Error && cause.code === undefined && cause.errno === undefined) {
+    return { ...result, error: new TRPCError({ code: "BAD_REQUEST", message: cause.message, cause }) };
+  }
+  console.error(`[API] ${path}:`, cause ?? result.error);
+  return { ...result, error: new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro interno. Tente novamente em instantes.", cause }) };
+});
+
+const baseProcedure = t.procedure.use(friendlyErrors);
+export const publicProcedure = baseProcedure;
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -43,9 +59,9 @@ const hideCost = t.middleware(async ({ ctx, next }) => {
   return result;
 });
 
-export const protectedProcedure = t.procedure.use(requireUser).use(hideCost);
+export const protectedProcedure = baseProcedure.use(requireUser).use(hideCost);
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = baseProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

@@ -1,3 +1,4 @@
+import { cleanUnit } from "@shared/units";
 import { buildPixPayload } from "@shared/pix";
 import { quotePdfFileName, sanitizePdfSnapshot } from "@shared/quoteFileName";
 import { pixQrDataUrl } from "./pixQr";
@@ -331,6 +332,8 @@ async function buildQuotePdf(input: QuotePdfInput) {
     ["Escopo", `${itemCount} ${itemCount === 1 ? "item" : "itens"} em ${input.rooms.length} ${input.rooms.length === 1 ? "ambiente" : "ambientes"}`],
   ];
   const detailHeight = (lines: Array<[string, string]>, width: number) => lines.reduce((sum, [, value]) => sum + wrap(value, width).length * 3.9 + 1.1, 0);
+  // A largura depende da fonte: o nome sai em negrito 12, não na fonte corrente.
+  font(12, "bold");
   const clientNameLines = wrap(clientLabel, cardWidth - 10);
   font(8.3);
   const clientHeight = 13 + clientNameLines.length * 5.6 + (clientLines.length ? detailHeight(clientLines, cardWidth - 32) + 1 : 0);
@@ -465,7 +468,7 @@ async function buildQuotePdf(input: QuotePdfInput) {
       font(9, "bold");
       pdf.text(description, col.description, textTop);
       font(8.6, "normal");
-      pdf.text(`${quantity(item.quantity)} ${item.unit}`, col.quantity, textTop, { align: "right" });
+      pdf.text(`${quantity(item.quantity)} ${cleanUnit(item.unit)}`, col.quantity, textTop, { align: "right" });
       pdf.text(currency(item.unitPrice), col.unit, textTop, { align: "right" });
       font(9, "bold");
       pdf.text(currency(item.quantity * item.unitPrice), col.total, textTop, { align: "right" });

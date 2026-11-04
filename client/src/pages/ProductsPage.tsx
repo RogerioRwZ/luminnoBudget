@@ -1,3 +1,6 @@
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
+import { isNumericUnit, NUMERIC_UNIT_MESSAGE } from "@shared/units";
 import {
   AsyncButton,
   FormError,
@@ -159,6 +162,7 @@ export default function ProductsPage() {
     enabled: open,
   });
   const filtered = useMemo(() => data.filter(product => matchesProductSearch(product, search)), [data, search]);
+  const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filtered, filtered.length);
   // Avisa antes de salvar: referência e código de barras não podem repetir.
   const others = data.filter(product => product.id !== form.id);
   const referenceTwin = form.reference.trim() ? others.find(product => product.reference && findProductByScan([product], form.reference)) : undefined;
@@ -383,6 +387,7 @@ export default function ProductsPage() {
                   }
                   placeholder="UN"
                 />
+                {isNumericUnit(form.unit) ? <p className="text-xs text-destructive">{NUMERIC_UNIT_MESSAGE}</p> : <p className="text-xs text-muted-foreground">Medida de venda: UN, M, CX. Não é o estoque.</p>}
               </div>
               <div className="space-y-2">
                 <Label>Fornecedor</Label>
@@ -600,8 +605,9 @@ export default function ProductsPage() {
               </Button>
             </div>
           ) : filtered.length ? (
+            <>
             <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
-              {filtered.map(product => {
+              {visibleProducts.map(product => {
                 const stock = Number(product.stockQuantity);
                 const point = Number(product.reorderPoint);
                 const low = point > 0 && stock <= point;
@@ -680,6 +686,8 @@ export default function ProductsPage() {
                 );
               })}
             </div>
+            <ShowMoreButton remaining={remainingProducts} onClick={showMoreProducts} />
+            </>
           ) : (
             <div className="p-12 text-center">
               <PackagePlus className="mx-auto h-8 w-8 text-muted-foreground" />

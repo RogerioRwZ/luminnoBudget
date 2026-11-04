@@ -45,6 +45,8 @@ import {
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { toast } from "sonner";
 import { plural } from "@shared/plural";
 
@@ -56,7 +58,11 @@ type MovementForm = {
   notes: string;
   occurredAt: string;
 };
-const nowInput = () => new Date().toISOString().slice(0, 16);
+// Data e hora locais: toISOString é UTC e adiantaria o campo em 3 horas.
+const nowInput = () => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
 
 const movementMeta = {
   entry: {
@@ -225,6 +231,7 @@ export default function InventoryPage() {
     const text = fulfillmentSearch.trim().toLocaleLowerCase("pt-BR");
     return (fulfillmentTab === "pending" ? pendingQuotes : finishedQuotes).filter(group => !text || `#${group.quoteNumber} ${group.clientName}`.toLocaleLowerCase("pt-BR").includes(text));
   }, [fulfillmentSearch, fulfillmentTab, finishedQuotes, pendingQuotes]);
+  const { visible: shownGroups, remaining: remainingGroups, showMore: showMoreGroups } = useVisibleItems(visibleGroups, `${fulfillmentTab}|${fulfillmentSearch}`, 20);
   const [cancelForm, setCancelForm] = useState<{
     title: string;
     lines: Array<{ line: (typeof fulfillments)[number]; quantity: string }>;
@@ -302,6 +309,7 @@ export default function InventoryPage() {
       }).filter(product => matchesProductSearch(product, productSearch)),
     [products, supplierFilter, maximumStock, availabilityFilter, productSearch]
   );
+  const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filteredProducts, filteredProducts.length);
   const openMovement = () => {
     setMovementForm({
       productId: products[0]?.id ?? 0,
@@ -534,8 +542,9 @@ export default function InventoryPage() {
                 </Button>
               </div>
             ) : filteredProducts.length ? (
+            <>
               <div className="divide-y divide-border">
-                {filteredProducts.map(product => (
+                {visibleProducts.map(product => (
                   <div
                     key={product.id}
                     className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
@@ -591,6 +600,8 @@ export default function InventoryPage() {
                   </div>
                 ))}
               </div>
+              <ShowMoreButton remaining={remainingProducts} onClick={showMoreProducts} />
+            </>
             ) : (
               <div className="py-10 text-center">
                 <Filter className="mx-auto h-7 w-7 text-muted-foreground" />
@@ -699,7 +710,7 @@ export default function InventoryPage() {
                     onChange={event => setFulfillmentSearch(event.target.value)}
                   />
                 </div>
-                {visibleGroups.map(group => (
+                {shownGroups.map(group => (
                   <div
                     key={group.quoteId}
                     className="overflow-hidden rounded-xl border border-border/70"
@@ -852,6 +863,7 @@ export default function InventoryPage() {
                     </div>
                   </div>
                 ))}
+                <ShowMoreButton remaining={remainingGroups} onClick={showMoreGroups} pageSize={20} />
                 {!visibleGroups.length ? (
                   <div className="py-10 text-center">
                     <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
@@ -1159,6 +1171,7 @@ export default function InventoryPage() {
                   }
                   type="number"
                   step="0.01"
+                  min={movementForm.type === "adjustment" ? undefined : "0.01"}
                   value={movementForm.quantity}
                   onChange={e =>
                     setMovementForm({
@@ -1296,6 +1309,7 @@ export default function InventoryPage() {
                 <Input
                   aria-label="Data e hora da entrega"
                   type="datetime-local"
+                  max={nowInput()}
                   value={deliveryForm.deliveredAt}
                   onChange={e =>
                     setDeliveryForm({

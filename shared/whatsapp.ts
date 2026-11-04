@@ -6,7 +6,7 @@ export type WhatsAppRoom = { name: string; items: Array<{ quantity: number; shor
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
 export function buildWhatsAppProposal(input: { brand: string; quoteNumber: number; clientName: string; rooms: WhatsAppRoom[]; installments: number; notes?: string; summary: PricingSummary; entryOffer?: EntryOffer | null }) {
-  const roomLines = input.rooms.flatMap((room, roomIndex) => [`🏠 *${room.name}*`, ...room.items.map((item) => `• ${item.quantity}x ${item.shortDescription} — ${currency(item.quantity * item.unitPrice)}`), `Subtotal: ${currency(input.summary.rooms[roomIndex] ?? 0)}`, ""]);
+  const roomLines = input.rooms.flatMap((room, roomIndex) => [`🏠 *${room.name}*`, ...room.items.map((item) => `• ${item.quantity.toLocaleString("pt-BR")}x ${item.shortDescription} — ${currency(item.quantity * item.unitPrice)}`), `Subtotal: ${currency(input.summary.rooms[roomIndex] ?? 0)}`, ""]);
   return [`✨ *${input.brand} Iluminação*`, `🧾 *ORÇAMENTO #${input.quoteNumber}*`, `👤 Cliente: ${input.clientName || "Não informado"}`, "", ...roomLines, `💡 *Total: ${currency(input.summary.total)}*`, `💳 Em até ${input.installments}x de ${currency(input.summary.installmentValue)} sem juros`, input.summary.pixDiscountAmount > 0 ? `⚡ PIX: ${currency(input.summary.pixTotal)} (${currency(input.summary.pixDiscountAmount)} de desconto)` : "", input.entryOffer ? `🤝 ${describeEntryOffer(input.summary.total, input.entryOffer)}` : "", input.notes ? `\n${input.notes}` : ""].filter(Boolean).join("\n");
 }
 

@@ -7,6 +7,19 @@ import App from "./App";
 import "./index.css";
 import { setupPwa } from "./lib/pwa";
 
+// Sistema atualizado com a aba aberta: o pedaço antigo da tela não existe mais.
+// Recarrega uma vez para pegar a versão nova.
+window.addEventListener("vite:preloadError", event => {
+  try {
+    if (sessionStorage.getItem("luminno-reload-after-update")) return;
+    sessionStorage.setItem("luminno-reload-after-update", "1");
+  } catch {
+    return;
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 const queryClient = new QueryClient();
 
 queryClient.getQueryCache().subscribe(event => {

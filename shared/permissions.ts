@@ -63,6 +63,7 @@ export function canSeeCost(role: string | null | undefined) {
 }
 
 export function canOpenPage(role: string | null | undefined, path: string) {
+  if (path === "/administracao" || path.startsWith("/administracao/")) return role === "admin";
   const entry = Object.entries(PAGE_AREAS).find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`));
   return !entry || canAccess(role, entry[1]);
 }

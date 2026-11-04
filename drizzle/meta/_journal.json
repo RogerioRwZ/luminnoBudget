@@ -169,6 +169,13 @@
       "when": 1793809253072,
       "tag": "0023_cancelar_saldo_estorno",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1793813629089,
+      "tag": "0024_unidade_numerica",
+      "breakpoints": true
     }
   ]
 }

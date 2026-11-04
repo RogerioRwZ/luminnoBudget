@@ -14,6 +14,7 @@ import {
   getQuote,
   getSettings,
   getPickingList,
+  quoteOptions,
   quoteLockInfo,
   registerFollowUp,
   getProduct,
@@ -27,10 +28,14 @@ import {
   saveClient,
   saveProduct,
   saveQuote,
+  productCosts,
   saveSettings,
 } from "../quoteDb";
 import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
+import { barcodeProblem, normalizeBarcode } from "../../shared/productCodes";
+import { quoteMargin } from "../../shared/margin";
+import { cleanUnit, isNumericUnit, NUMERIC_UNIT_MESSAGE } from "../../shared/units";
 import { canAccess, canSeeCost, USER_ROLES } from "../../shared/permissions";
 import { abcReport, staleStockReport } from "../turnoverDb";
 import { commissionReport, dailySummary, deleteCommissionPayment, recordCommissionPayment, salesReport, saveProfessional } from "../reportsDb";
@@ -87,12 +92,29 @@ const clientInput = z.object({
 
 const deliveryQuantity = z.coerce.number().positive().max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade");
 const correctionReason = z.string().trim().min(3, "Informe o motivo").max(500);
-const deliveryMeta = { responsible: nullableText, notes: nullableText, deliveredAt: z.coerce.date() };
+// Folga de um minuto para diferença de relógio entre o aparelho e o servidor.
+const deliveredAt = z.coerce.date().refine((date) => date.getTime() <= Date.now() + 60_000, "A data da retirada não pode estar no futuro.");
+const deliveryMeta = { responsible: nullableText, notes: nullableText, deliveredAt };
 
 async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, results: Array<{ quoteItemId: number }>, responsible?: string | null) {
   const [quote, lines] = await Promise.all([getQuote(quoteId), fulfillmentLines([quoteId])]);
   const complete = lines.every((line) => line.pendingQuantity <= 0);
   await log(ctx, { action: "stock.delivery", entityType: "stock", entityId: quoteId, summary: `Registrou retirada de ${plural(results.length, "item", "itens")} do orçamento #${quote?.quoteNumber ?? quoteId}${quote?.clientName ? ` (${quote.clientName})` : ""}${complete ? " — pedido totalmente entregue" : ""}`, details: { responsavel: responsible ?? null } });
+}
+
+// Desconto máximo e margem mínima: acima do limite, Vendas prepara a proposta,
+// mas quem aprova é outro perfil. Zero nas Configurações desliga a regra.
+function saleLimitProblem(input: { discountMode: "percentage" | "fixed"; discountValue: number; rooms: Array<{ items: Array<{ productId?: number | null; quantity: number; unitPrice: number }> }> }, settings: { maxDiscountPercent: string | number; minMarginPercent: string | number }, costs: Map<number, number | null>) {
+  const items = input.rooms.flatMap((room) => room.items);
+  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const discountAmount = input.discountMode === "percentage" ? (subtotal * input.discountValue) / 100 : input.discountValue;
+  const discount = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
+  const maxDiscount = Number(settings.maxDiscountPercent);
+  if (maxDiscount > 0 && discount > maxDiscount + 0.001) return `Desconto de ${discount.toFixed(1).replace(".", ",")}% passa do limite de ${maxDiscount}%. Peça a outro perfil para aprovar este orçamento.`;
+  const minMargin = Number(settings.minMarginPercent);
+  const margin = quoteMargin(items.map((item) => ({ quantity: item.quantity, unitPrice: item.unitPrice, unitCost: item.productId ? costs.get(item.productId) ?? null : null })), discountAmount).margin;
+  if (minMargin > 0 && margin !== null && margin * 100 < minMargin) return `Este orçamento está abaixo da margem mínima de ${minMargin}%. Peça a outro perfil para aprová-lo.`;
+  return null;
 }
 
 const periodInput = z.object({ from: z.coerce.date(), to: z.coerce.date() }).refine((range) => range.to > range.from && range.to.getTime() - range.from.getTime() <= 367 * 24 * 60 * 60_000, "Escolha um período de até um ano.");
@@ -120,7 +142,7 @@ const productInput = z.object({
   imageUrl: imageLocation.nullable().optional().or(z.literal("")),
   imageKey: nullableText,
   barcode: z.string().trim().max(64).nullable().optional().or(z.literal("")),
-  unit: z.string().trim().min(1).max(16).default("UN"),
+  unit: z.string().trim().min(1).max(16).refine((value) => !isNumericUnit(value), NUMERIC_UNIT_MESSAGE).default("UN"),
   supplierName: z.string().trim().max(240).nullable().optional().or(z.literal("")),
   unitPrice: money,
   costPrice: z.coerce.number().min(0).max(99_999_999).nullable().optional(),
@@ -137,7 +159,7 @@ const quoteItemInput = z
     code: z.string().trim().max(64).default(""),
     shortDescription: z.string().trim().min(1, "Informe a descrição do item").max(512),
     imageUrl: itemImageLocation.nullable().optional().or(z.literal("")),
-    unit: z.string().trim().min(1).max(16).default("UN"),
+    unit: z.string().trim().max(16).default("UN").transform(cleanUnit),
     quantity: z.coerce.number().positive("A quantidade deve ser maior que zero").max(99999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade"),
     unitPrice: money,
   })
@@ -199,10 +221,14 @@ export const businessRouter = router({
   dashboard: protectedProcedure.query(async ({ ctx }) => {
     const data = await dashboardMetrics();
     if (canAccess(ctx.user.role, "finance")) return data;
-    return { ...data, finance: null, monthly: data.monthly.map((month) => ({ ...month, received: 0 })) };
+    const withoutFinance = { ...data, finance: null, monthly: data.monthly.map((month) => ({ ...month, received: 0 })) };
+    if (canAccess(ctx.user.role, "quotes")) return withoutFinance;
+    // A expedição vê as quantidades, não quanto a loja vendeu.
+    return { ...withoutFinance, approvedRevenue: 0, quotedTotal: 0, approvedValue: 0, pendingValue: 0, rejectedValue: 0, statusSummary: data.statusSummary.map((entry) => ({ ...entry, value: 0 })), monthly: [], expirationAlerts: [], followUps: [] };
   }),
   customers: router({
-    list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listClients(input?.search)),
+    // CPF, telefone e e-mail: só quem atende o cliente.
+    list: areaProcedure("customers", "quotes").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listClients(input?.search)),
     save: areaProcedure("customers").input(clientInput).mutation(async ({ ctx, input }) => {
       const id = await saveClient({ ...input, email: input.email || null });
       await log(ctx, { action: input.id ? "customer.update" : "customer.create", entityType: "customer", entityId: id, summary: `${input.id ? "Atualizou" : "Cadastrou"} o cliente ${input.name}` });
@@ -241,8 +267,10 @@ export const businessRouter = router({
       return id;
     }),
     setBarcode: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
+      const problem = barcodeProblem(input.barcode);
+      if (problem) throw new TRPCError({ code: "BAD_REQUEST", message: problem });
       try {
-        const result = await updateProductBarcode(input.productId, input.barcode || null);
+        const result = await updateProductBarcode(input.productId, normalizeBarcode(input.barcode));
         await log(ctx, { action: "product.barcode", entityType: "product", entityId: input.productId, summary: input.barcode ? `Vinculou o código de barras ${input.barcode} ao produto #${input.productId}` : `Removeu o código de barras do produto #${input.productId}` });
         return result;
       } catch (error) {
@@ -272,7 +300,8 @@ export const businessRouter = router({
     }),
   }),
   quote: router({
-    list: areaProcedure("quotes", "agenda", "pdfs").query(listQuotes),
+    list: areaProcedure("quotes", "pdfs").query(listQuotes),
+    options: areaProcedure("quotes", "agenda", "pdfs").query(() => quoteOptions()),
     listPaged: areaProcedure("quotes", "pdfs")
       .input(
         z
@@ -299,6 +328,10 @@ export const businessRouter = router({
       const before = input.id ? await getQuote(input.id) : null;
       if (input.status === "lost" && before?.status !== "lost" && !input.lostReason) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o motivo de não aprovação." });
+      }
+      if (input.status === "approved" && before?.status !== "approved" && ctx.user.role === "sales") {
+        const problem = saleLimitProblem(input, await getSettings(), await productCosts(input.rooms.flatMap((room) => room.items.flatMap((item) => (item.productId ? [item.productId] : [])))));
+        if (problem) throw new TRPCError({ code: "FORBIDDEN", message: problem });
       }
       const saved = await saveQuote(input, ctx.user.id);
       if (saved && before && before.status !== saved.status) {
@@ -473,7 +506,7 @@ export const businessRouter = router({
       responsible: nullableText,
       notes: nullableText,
       occurredAt: z.coerce.date(),
-    })).mutation(async ({ ctx, input }) => {
+    }).refine((input) => input.type === "adjustment" || input.quantity > 0, { message: "Entrada e devolução têm quantidade positiva. Para tirar do saldo, use Ajuste.", path: ["quantity"] })).mutation(async ({ ctx, input }) => {
       const result = await recordStockMovement(input);
       const product = await getProduct(input.productId);
       const label = { entry: "Entrada", adjustment: "Ajuste", return: "Devolução" }[input.type];

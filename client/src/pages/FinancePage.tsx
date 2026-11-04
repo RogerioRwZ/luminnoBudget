@@ -35,13 +35,20 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { MessageDialog } from "@/components/MessageDialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { plural } from "@shared/plural";
 import { LegacyPlanReview } from "@/components/LegacyPlanReview";
 
-const nowInput = () => new Date().toISOString().slice(0, 16);
+// Data e hora locais: toISOString é UTC e adiantaria o campo em 3 horas.
+const nowInput = () => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
 const dateInput = () => new Date().toISOString().slice(0, 10);
 const statusMeta: Record<FinanceStatus, { label: string; className: string }> =
   {
@@ -207,6 +214,8 @@ export default function FinancePage() {
   });
   const rows = (data?.receivables ?? []) as Receivable[];
   const totals = data?.totals;
+  const refunds = data?.refunds ?? [];
+  const [cancelTarget, setCancelTarget] = useState<{ id: number; label: string } | null>(null);
   const filtered = useMemo(
     () =>
       rows.filter(
@@ -218,6 +227,7 @@ export default function FinancePage() {
       ),
     [rows, search, statusFilter]
   );
+  const { visible: visibleRows, remaining: remainingRows, showMore: showMoreRows } = useVisibleItems(filtered, `${search}|${statusFilter}`);
   const selectClient = (id: string) => {
     const client = clients.find(item => item.id === Number(id));
     setCreateForm({
@@ -390,6 +400,7 @@ export default function FinancePage() {
               </Button>
             </div>
           ) : filtered.length ? (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_td:first-child]:whitespace-normal [&_td:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th]:px-3 [&_th:first-child]:pl-0 [&_th:last-child]:pr-0">
                 <thead className="border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -405,7 +416,7 @@ export default function FinancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(row => {
+                  {visibleRows.map(row => {
                     const meta = statusMeta[row.status];
                     return (
                       <tr
@@ -489,7 +500,7 @@ export default function FinancePage() {
                                 size="sm"
                                 variant="ghost"
                                 disabled={cancel.isPending}
-                                onClick={() => cancel.mutate({ id: row.id })}
+                                onClick={() => setCancelTarget({ id: row.id, label: `${row.clientName}, parcela ${row.installmentNumber}/${row.installmentCount}, ${money(row.originalAmount)}` })}
                               >
                                 Cancelar
                               </Button>
@@ -535,6 +546,8 @@ export default function FinancePage() {
                 </tbody>
               </table>
             </div>
+              <ShowMoreButton remaining={remainingRows} onClick={showMoreRows} />
+            </>
           ) : (
             <div className="py-12 text-center">
               <WalletCards className="mx-auto h-8 w-8 text-muted-foreground" />
@@ -549,6 +562,41 @@ export default function FinancePage() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        onOpenChange={open => !open && setCancelTarget(null)}
+        title="Cancelar esta cobrança?"
+        description={cancelTarget ? `${cancelTarget.label}. Ela sai da carteira e não recebe mais pagamentos.` : ""}
+        confirmLabel="Cancelar cobrança"
+        destructive
+        onConfirm={() => {
+          if (cancelTarget) cancel.mutate({ id: cancelTarget.id });
+          setCancelTarget(null);
+        }}
+      />
+      {refunds.length ? (
+        <Card className="border-border/70 shadow-sm">
+          <CardContent className="p-5">
+            <p className="text-sm font-bold">Devolvido ao cliente no pós-venda</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Valores informados nas ocorrências. Eles não alteram as cobranças
+              sozinhos: registre o estorno na cobrança, se o dinheiro já tinha
+              entrado.
+            </p>
+            <ul className="mt-3 divide-y divide-border text-sm">
+              {refunds.slice(0, 5).map(refund => (
+                <li key={refund.id} className="flex items-center justify-between gap-3 py-2">
+                  <span className="min-w-0 truncate">
+                    #{refund.id} · {refund.clientName}
+                    {refund.quoteNumber ? ` · orçamento #${refund.quoteNumber}` : ""} · {refund.productDescription}
+                  </span>
+                  <b className="shrink-0">{money(refund.amount)}</b>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

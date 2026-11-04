@@ -1,5 +1,5 @@
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { clients, financePayments, financeReceivables, quotes } from "../drizzle/schema";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { afterSalesCases, clients, financePayments, financeReceivables, quotes } from "../drizzle/schema";
 import { dateFromInput, isBilledMethod, PLAN_METHOD_LABELS, type PaymentPlan } from "../shared/paymentPlan";
 import { calculateReceivableStatus, dueDateForInstallment, PaymentMethod, PaymentType, remainingReceivableAmount, roundMoney, splitInstallments } from "../shared/finance";
 import { toNumber } from "../shared/quote";
@@ -35,7 +35,9 @@ function hydrateReceivable(receivable: ReceivableRow, payments: PaymentRow[], no
 
 export async function financeOverview() {
   const db = await database();
-  const [receivables, payments, quoteRows] = await Promise.all([
+  const [refundRows, receivables, payments, quoteRows] = await Promise.all([
+    // Valor devolvido no pós-venda: fica à vista aqui para o estorno ser feito.
+    db.select({ id: afterSalesCases.id, clientName: afterSalesCases.clientName, productDescription: afterSalesCases.productDescription, quoteId: afterSalesCases.quoteId, amount: afterSalesCases.refundAmount, resolvedAt: afterSalesCases.resolvedAt }).from(afterSalesCases).where(isNotNull(afterSalesCases.refundAmount)).orderBy(desc(afterSalesCases.resolvedAt), desc(afterSalesCases.id)).limit(50),
     db.select().from(financeReceivables).orderBy(financeReceivables.dueDate, desc(financeReceivables.id)),
     // Sem limite: os saldos de cada cobrança são somados a partir destes
     // pagamentos, e cortar a lista faria cobranças antigas parecerem em aberto.
@@ -58,6 +60,7 @@ export async function financeOverview() {
   const overdueRows = rows.filter((row) => row.overdue);
   return {
     receivables: rows,
+    refunds: refundRows.map((row) => ({ ...row, amount: toNumber(row.amount), quoteNumber: quoteNumbers.get(row.quoteId) ?? null })),
     totals: {
       expected: activeRows.reduce((sum, row) => sum + row.originalAmount, 0),
       received: activeRows.reduce((sum, row) => sum + row.receivedAmount, 0),

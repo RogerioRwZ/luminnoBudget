@@ -28,7 +28,7 @@ export function QuoteMarginPanel({
       {overDiscount ? (
         <p role="status" className="flex gap-2 rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-100">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Desconto de {percentLabel(discount / 100)} passa do limite de {percentLabel(maxDiscountPercent / 100)} definido nas Configurações.
+          Desconto de {percentLabel(discount / 100)} passa do limite de {percentLabel(maxDiscountPercent / 100)} definido nas Configurações. O perfil Vendas não aprova acima dele.
         </p>
       ) : null}
       {margin && margin.revenue > 0 ? (
@@ -45,7 +45,7 @@ export function QuoteMarginPanel({
               Lucro bruto {money(margin.profit)} sobre custo de {money(margin.cost)} (sem frete).
             </p>
           ) : null}
-          {lowMargin ? <p className="mt-1 font-semibold">Abaixo da margem mínima de {percentLabel(minMarginPercent / 100)}.</p> : null}
+          {lowMargin ? <p className="mt-1 font-semibold">Abaixo da margem mínima de {percentLabel(minMarginPercent / 100)}. O perfil Vendas não aprova abaixo dela.</p> : null}
           {margin.missingCost ? (
             <p className="mt-1 text-muted-foreground">
               {plural(margin.missingCost, "item sem custo cadastrado ficou", "itens sem custo cadastrado ficaram")} fora da conta.

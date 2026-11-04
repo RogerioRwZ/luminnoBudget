@@ -58,6 +58,11 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // Nome com hash: nunca muda de conteúdo. Pedido de arquivo que não existe
+  // (aba aberta antes de uma atualização) é 404, não a página do sistema.
+  app.use("/assets", express.static(path.join(distPath, "assets"), { immutable: true, maxAge: "1y", fallthrough: true }), (_req, res) => {
+    res.status(404).type("text/plain").send("Arquivo não encontrado.");
+  });
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist

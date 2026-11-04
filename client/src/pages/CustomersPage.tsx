@@ -1,3 +1,5 @@
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
 import {
   AsyncButton,
   FormError,
@@ -96,6 +98,7 @@ export default function CustomersPage() {
     enabled: open,
   });
   const filtered = useMemo(() => data.filter(customer => matchesClientSearch(customer, search)), [data, search]);
+  const { visible: visibleCustomers, remaining: remainingCustomers, showMore: showMoreCustomers } = useVisibleItems(filtered, filtered.length);
   // Mesmo CPF/CNPJ ou telefone em outro cliente: avisa (sem bloquear; uma
   // família pode dividir o telefone) e oferece abrir o cadastro existente.
   const duplicates = useMemo(() => {
@@ -322,8 +325,9 @@ export default function CustomersPage() {
               </Button>
             </div>
           ) : filtered.length ? (
+            <>
             <div className="divide-y divide-border">
-              {filtered.map(customer => (
+              {visibleCustomers.map(customer => (
                 <div
                   key={customer.id}
                   className="flex flex-col gap-3 p-4 transition hover:bg-muted/30 sm:flex-row sm:items-center"
@@ -365,6 +369,8 @@ export default function CustomersPage() {
                 </div>
               ))}
             </div>
+            <ShowMoreButton remaining={remainingCustomers} onClick={showMoreCustomers} />
+            </>
           ) : (
             <div className="p-12 text-center">
               <UsersRound className="mx-auto h-8 w-8 text-muted-foreground" />
