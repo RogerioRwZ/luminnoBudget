@@ -54,7 +54,6 @@ type MovementForm = {
   productId: number;
   type: "entry" | "adjustment" | "return";
   quantity: number;
-  responsible: string;
   notes: string;
   occurredAt: string;
 };
@@ -106,6 +105,8 @@ export default function InventoryPage() {
     error: overviewError,
     refetch: refetchOverview,
   } = trpc.inventory.overview.useQuery();
+  const { data: authStatus } = trpc.auth.status.useQuery(undefined, { staleTime: Infinity });
+  const currentUserName = authStatus?.user?.name || authStatus?.user?.username || "";
   const {
     data: fulfillments = [],
     isLoading: fulfillmentsLoading,
@@ -129,7 +130,6 @@ export default function InventoryPage() {
     productId: 0,
     type: "entry",
     quantity: 0,
-    responsible: "",
     notes: "",
     occurredAt: nowInput(),
   });
@@ -316,7 +316,6 @@ export default function InventoryPage() {
       productId: products[0]?.id ?? 0,
       type: "entry",
       quantity: 0,
-      responsible: "",
       notes: "",
       occurredAt: nowInput(),
     });
@@ -1187,15 +1186,13 @@ export default function InventoryPage() {
               <Label>Responsável</Label>
               <Input
                 aria-label="Responsável"
-                value={movementForm.responsible}
-                onChange={e =>
-                  setMovementForm({
-                    ...movementForm,
-                    responsible: e.target.value,
-                  })
-                }
-                placeholder="Quem registrou a movimentação"
+                readOnly
+                disabled
+                value={currentUserName}
               />
+              <p className="text-xs text-muted-foreground">
+                É sempre o usuário logado.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Data e hora</Label>

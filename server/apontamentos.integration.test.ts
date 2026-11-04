@@ -76,6 +76,12 @@ describe("unidade e estoque", () => {
     expect((await stock.inventory.overview()).products.find((product) => product.id === other)).toMatchObject({ stockQuantity: 4 });
   }, 20_000);
 
+  it("movimentação registra o usuário logado, mesmo que outro nome seja enviado", async () => {
+    const id = await product();
+    await caller("stock").inventory.move({ productId: id, type: "entry", quantity: 3, occurredAt: new Date(), responsible: "Outra Pessoa" } as never);
+    expect((await admin.inventory.overview()).movements.find((movement) => movement.productId === id)).toMatchObject({ responsible: "Teste", quantity: 3 });
+  }, 20_000);
+
   it("entrada negativa é recusada; ajuste negativo continua valendo", async () => {
     const id = await product(5);
     await expect(admin.inventory.move({ productId: id, type: "entry", quantity: -2, occurredAt: new Date() })).rejects.toThrow(/positiva/);
