@@ -90,3 +90,23 @@ export async function getUserByOpenId(openId: string) {
 }
 
 // TODO: add feature queries here as your schema grows.
+
+// Duas gravações ao mesmo tempo nas mesmas tabelas: o MySQL derruba uma delas
+// por deadlock e desfaz tudo o que ela fez; basta repetir a transação.
+export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const code = (error as { cause?: { code?: string }; code?: string }).cause?.code ?? (error as { code?: string }).code;
+      if (code !== "ER_LOCK_DEADLOCK" || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20 * attempt + Math.random() * 30));
+    }
+  }
+}
+
+// Para transações que travam linhas com FOR UPDATE e depois decidem pelo que
+// leem. No padrão do MySQL (REPEATABLE READ) a leitura comum continua vendo a
+// foto do início da transação, mesmo depois de esperar a trava: duas retiradas
+// simultâneas leriam o mesmo saldo e passariam juntas.
+export const LOCKED_READS = { isolationLevel: "read committed" } as const;

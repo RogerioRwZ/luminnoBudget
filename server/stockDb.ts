@@ -1,9 +1,9 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { loanedByProduct } from "./loansDb";
-import { products, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements } from "../drizzle/schema";
+import { afterSalesCases, products, quoteItemCancellations, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements } from "../drizzle/schema";
 import { calculateAvailableStock, calculatePendingDelivery, calculateRemainingReservation, calculateStockAfter, describeFulfillment, getStockDelta, isCentQuantity, StockMovementType } from "../shared/stock";
 import { toNumber } from "../shared/quote";
-import { getDb } from "./db";
+import { getDb, LOCKED_READS, retryOnDeadlock } from "./db";
 
 const money = (value: number) => value.toFixed(2);
 
@@ -69,7 +69,7 @@ export async function moveStock(tx: Tx, input: StockMovementInput) {
 
 export async function recordStockMovement(input: StockMovementInput) {
   const db = await database();
-  return db.transaction((tx) => moveStock(tx, input));
+  return db.transaction((tx) => moveStock(tx, input), LOCKED_READS);
 }
 
 // Reserva o estoque livre para itens de orçamentos aprovados que ainda estão
@@ -90,8 +90,13 @@ export async function allocatePendingReservations(tx: Tx, productIds: number[]) 
       .orderBy(asc(quotes.approvedAt), asc(quotes.id), asc(quoteRooms.sortOrder), asc(quoteItems.sortOrder), asc(quoteItems.id)),
   ]);
   if (!lines.length) return;
-  const deliveries = await tx.select({ quoteItemId: quoteItemDeliveries.quoteItemId, deliveredQuantity: quoteItemDeliveries.deliveredQuantity }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, lines.map((line) => line.itemId)));
+  const lineIds = lines.map((line) => line.itemId);
+  const [deliveries, cancellations] = await Promise.all([
+    tx.select({ quoteItemId: quoteItemDeliveries.quoteItemId, deliveredQuantity: quoteItemDeliveries.deliveredQuantity }).from(quoteItemDeliveries).where(and(inArray(quoteItemDeliveries.quoteItemId, lineIds), isNull(quoteItemDeliveries.reversedAt))),
+    tx.select({ quoteItemId: quoteItemCancellations.quoteItemId, quantity: quoteItemCancellations.quantity }).from(quoteItemCancellations).where(and(inArray(quoteItemCancellations.quoteItemId, lineIds), isNull(quoteItemCancellations.undoneAt))),
+  ]);
   const deliveredByItem = sumBy(deliveries, (row) => row.quoteItemId, (row) => toNumber(row.deliveredQuantity));
+  const cancelledByItem = sumBy(cancellations, (row) => row.quoteItemId, (row) => toNumber(row.quantity));
   const reservationByItem = new Map(reservations.map((row) => [row.quoteItemId, row]));
   const reservedByProduct = sumBy(reservations, (row) => row.productId, (row) => toNumber(row.reservedQuantity));
   const free = new Map(productRows.map((row) => [row.id, calculateAvailableStock(toNumber(row.stockQuantity), reservedByProduct.get(row.id) ?? 0)]));
@@ -99,7 +104,7 @@ export async function allocatePendingReservations(tx: Tx, productIds: number[]) 
     const productId = line.productId!;
     const reservation = reservationByItem.get(line.itemId);
     const reserved = reservation ? toNumber(reservation.reservedQuantity) : 0;
-    const { shortage } = describeFulfillment({ ordered: toNumber(line.quantity), delivered: deliveredByItem.get(line.itemId) ?? 0, reserved, stock: 0 });
+    const { shortage } = describeFulfillment({ ordered: toNumber(line.quantity), delivered: deliveredByItem.get(line.itemId) ?? 0, cancelled: cancelledByItem.get(line.itemId) ?? 0, reserved, stock: 0 });
     const take = round2(Math.min(shortage, free.get(productId) ?? 0));
     if (take <= 0) continue;
     free.set(productId, round2((free.get(productId) ?? 0) - take));
@@ -131,8 +136,9 @@ export async function fulfillmentLines(quoteIds: number[]) {
   if (!items.length) return [];
   const itemIds = items.map((item) => item.id);
   const productIds = Array.from(new Set(items.map((item) => item.productId).filter((id): id is number => Boolean(id))));
-  const [deliveries, reservations, productRows, productReservations] = await Promise.all([
+  const [deliveries, cancellations, reservations, productRows, productReservations] = await Promise.all([
     db.select().from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, itemIds)).orderBy(desc(quoteItemDeliveries.deliveredAt)),
+    db.select().from(quoteItemCancellations).where(inArray(quoteItemCancellations.quoteItemId, itemIds)).orderBy(desc(quoteItemCancellations.cancelledAt)),
     db.select().from(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds)),
     productIds.length ? db.select().from(products).where(inArray(products.id, productIds)) : Promise.resolve([] as Array<typeof products.$inferSelect>),
     productIds.length ? db.select().from(quoteItemReservations).where(inArray(quoteItemReservations.productId, productIds)) : Promise.resolve([] as Array<typeof quoteItemReservations.$inferSelect>),
@@ -144,25 +150,30 @@ export async function fulfillmentLines(quoteIds: number[]) {
   const reservationByItem = new Map(reservations.map((row) => [row.quoteItemId, toNumber(row.reservedQuantity)]));
   const deliveriesByItem = new Map<number, typeof deliveries>();
   deliveries.forEach((row) => deliveriesByItem.set(row.quoteItemId, [...(deliveriesByItem.get(row.quoteItemId) ?? []), row]));
+  const cancellationsByItem = new Map<number, typeof cancellations>();
+  cancellations.forEach((row) => cancellationsByItem.set(row.quoteItemId, [...(cancellationsByItem.get(row.quoteItemId) ?? []), row]));
   return items.map((item) => {
     const room = roomMap.get(item.quoteRoomId)!;
     const quote = quoteMap.get(room.quoteId)!;
     const product = item.productId ? productMap.get(item.productId) : undefined;
     const itemDeliveries = deliveriesByItem.get(item.id) ?? [];
     const ordered = toNumber(item.quantity);
-    const delivered = calculatePendingDelivery(ordered, itemDeliveries.map((row) => toNumber(row.deliveredQuantity))).delivered;
+    const delivered = calculatePendingDelivery(ordered, itemDeliveries.filter((row) => !row.reversedAt).map((row) => toNumber(row.deliveredQuantity))).delivered;
+    const itemCancellations = cancellationsByItem.get(item.id) ?? [];
+    const cancelled = round2(itemCancellations.filter((row) => !row.undoneAt).reduce((sum, row) => sum + toNumber(row.quantity), 0));
     const reserved = reservationByItem.get(item.id) ?? 0;
     const stockQuantity = product ? toNumber(product.stockQuantity) : null;
-    const status = describeFulfillment({ ordered, delivered, reserved, stock: item.productId ? stockQuantity ?? 0 : null });
+    const status = describeFulfillment({ ordered, delivered, cancelled, reserved, stock: item.productId ? stockQuantity ?? 0 : null });
     const approved = quote.status === "approved";
     return {
       quoteId: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, phone: quote.phone, approved,
       quoteItemId: item.id, roomName: room.name, productId: item.productId, barcode: product?.barcode ?? null, reference: product?.reference ?? null,
-      code: item.code, shortDescription: item.shortDescription, fullDescription: product?.fullDescription ?? null, unit: item.unit, supplierName: product?.supplierName ?? null,
-      orderedQuantity: ordered, deliveredQuantity: delivered, pendingQuantity: status.pending, reservedQuantity: reserved,
+      code: item.code, shortDescription: item.shortDescription, fullDescription: product?.fullDescription ?? null, unit: item.unit, unitPrice: toNumber(item.unitPrice), supplierName: product?.supplierName ?? null,
+      orderedQuantity: ordered, deliveredQuantity: delivered, cancelledQuantity: cancelled, pendingQuantity: status.pending, reservedQuantity: reserved,
       deliverableQuantity: approved ? status.deliverable : 0, shortageQuantity: approved ? status.shortage : 0,
       stockQuantity, availableQuantity: product ? Math.max(0, calculateAvailableStock(stockQuantity ?? 0, reservedByProduct.get(product.id) ?? 0)) : null,
       deliveries: itemDeliveries.map((row) => ({ ...row, deliveredQuantity: toNumber(row.deliveredQuantity) })),
+      cancellations: itemCancellations.map((row) => ({ ...row, quantity: toNumber(row.quantity) })),
     };
   });
 }
@@ -175,11 +186,19 @@ export async function approvedFulfillments() {
   return lines.sort((first, second) => Number(second.pendingQuantity > 0) - Number(first.pendingQuantity > 0) || order.get(first.quoteId)! - order.get(second.quoteId)!);
 }
 
+async function cancelledQuantity(tx: Tx, quoteItemId: number) {
+  const rows = await tx.select({ quantity: quoteItemCancellations.quantity }).from(quoteItemCancellations).where(and(eq(quoteItemCancellations.quoteItemId, quoteItemId), isNull(quoteItemCancellations.undoneAt)));
+  return round2(rows.reduce((sum, row) => sum + toNumber(row.quantity), 0));
+}
+
 type DeliveryMeta = { responsible?: string | null; notes?: string | null; deliveredAt: Date };
 
 // Registra retiradas de vários itens do mesmo orçamento numa transação só:
 // ou tudo entra, ou nada muda.
 async function deliverInTransaction(tx: Tx, quoteId: number, requested: Array<{ quoteItemId: number; quantity: number }>, meta: DeliveryMeta) {
+  // Primeira coisa: trava o orçamento. É o que segura duas retiradas do mesmo
+  // pedido ao mesmo tempo, inclusive de item avulso, que não trava produto.
+  await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, quoteId)} FOR UPDATE`);
   const quote = (await tx.select().from(quotes).where(eq(quotes.id, quoteId)).limit(1))[0];
   if (!quote) throw new Error("Orçamento não encontrado");
   if (quote.status !== "approved") throw new Error("A retirada só pode ser registrada em orçamentos aprovados");
@@ -196,8 +215,9 @@ async function deliverInTransaction(tx: Tx, quoteId: number, requested: Array<{ 
   const results: Array<{ deliveryId: number; quoteItemId: number; deliveredQuantity: number; pendingQuantity: number; stockQuantity: number | null }> = [];
   for (const { item } of items) {
     const quantity = merged.get(item.id)!;
-    const priorDeliveries = await tx.select().from(quoteItemDeliveries).where(eq(quoteItemDeliveries.quoteItemId, item.id));
-    const delivery = calculatePendingDelivery(toNumber(item.quantity), priorDeliveries.map((row) => toNumber(row.deliveredQuantity)));
+    const priorDeliveries = await tx.select().from(quoteItemDeliveries).where(and(eq(quoteItemDeliveries.quoteItemId, item.id), isNull(quoteItemDeliveries.reversedAt)));
+    const cancelled = await cancelledQuantity(tx, item.id);
+    const delivery = calculatePendingDelivery(round2(toNumber(item.quantity) - cancelled), priorDeliveries.map((row) => toNumber(row.deliveredQuantity)));
     if (quantity > delivery.pending) throw new Error(`A retirada de "${item.shortDescription}" excede o saldo pendente de ${delivery.pending} ${item.unit}`);
     const base = { quoteId: quote.id, quoteItemId: item.id, clientName: quote.clientName || null, deliveredQuantity: money(quantity), deliveredAt: meta.deliveredAt, responsible: meta.responsible || null, notes: meta.notes || null };
     if (!item.productId) {
@@ -225,13 +245,13 @@ async function deliverInTransaction(tx: Tx, quoteId: number, requested: Array<{ 
 
 export async function deliverQuoteItem(input: { quoteId: number; quoteItemId: number; quantity: number } & DeliveryMeta) {
   const db = await database();
-  const [result] = await db.transaction((tx) => deliverInTransaction(tx, input.quoteId, [{ quoteItemId: input.quoteItemId, quantity: input.quantity }], input));
+  const [result] = await retryOnDeadlock(() => db.transaction((tx) => deliverInTransaction(tx, input.quoteId, [{ quoteItemId: input.quoteItemId, quantity: input.quantity }], input), LOCKED_READS));
   return result!;
 }
 
 export async function deliverQuoteItems(input: { quoteId: number; lines: Array<{ quoteItemId: number; quantity: number }> } & DeliveryMeta) {
   const db = await database();
-  return db.transaction((tx) => deliverInTransaction(tx, input.quoteId, input.lines, input));
+  return retryOnDeadlock(() => db.transaction((tx) => deliverInTransaction(tx, input.quoteId, input.lines, input), LOCKED_READS));
 }
 
 // "Retirar tudo": tudo o que está reservado (e os itens avulsos pendentes).
@@ -239,6 +259,95 @@ export async function deliverAllAvailable(input: { quoteId: number } & DeliveryM
   const lines = (await fulfillmentLines([input.quoteId])).filter((line) => line.deliverableQuantity > 0).map((line) => ({ quoteItemId: line.quoteItemId, quantity: line.deliverableQuantity }));
   if (!lines.length) throw new Error("Não há itens disponíveis para retirada neste orçamento. Confira as reservas no estoque.");
   return deliverQuoteItems({ ...input, lines });
+}
+
+// Cancela o que o cliente não vai mais retirar: o saldo sai de Retiradas,
+// Separação e Compras, e a reserva liberada vai para quem está na fila. O
+// Financeiro não muda: o dinheiro pode já ter sido recebido.
+export async function cancelRemainder(input: { quoteId: number; lines: Array<{ quoteItemId: number; quantity: number }>; reason: string }, userId: number) {
+  const db = await database();
+  return retryOnDeadlock(() => db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, input.quoteId)} FOR UPDATE`);
+    const quote = (await tx.select().from(quotes).where(eq(quotes.id, input.quoteId)).limit(1))[0];
+    if (!quote) throw new Error("Orçamento não encontrado");
+    if (quote.status !== "approved") throw new Error("Só dá para cancelar saldo de orçamentos aprovados.");
+    const merged = new Map<number, number>();
+    input.lines.forEach((line) => {
+      if (!(line.quantity > 0) || !isCentQuantity(line.quantity)) throw new Error("Informe quantidades maiores que zero, com até 2 casas decimais.");
+      merged.set(line.quoteItemId, round2((merged.get(line.quoteItemId) ?? 0) + line.quantity));
+    });
+    if (!merged.size) throw new Error("Nenhum item para cancelar.");
+    const items = await tx.select({ item: quoteItems, room: quoteRooms }).from(quoteItems).innerJoin(quoteRooms, eq(quoteRooms.id, quoteItems.quoteRoomId)).where(inArray(quoteItems.id, Array.from(merged.keys())));
+    if (items.length !== merged.size || items.some((row) => row.room.quoteId !== quote.id)) throw new Error("O item não pertence ao orçamento informado");
+    const productIds = Array.from(new Set(items.map((row) => row.item.productId).filter((id): id is number => Boolean(id)))).sort((first, second) => first - second);
+    if (productIds.length) await tx.execute(sql`SELECT id FROM ${products} WHERE ${inArray(products.id, productIds)} FOR UPDATE`);
+    let amount = 0;
+    for (const { item } of items) {
+      const quantity = merged.get(item.id)!;
+      const delivered = await tx.select({ quantity: quoteItemDeliveries.deliveredQuantity }).from(quoteItemDeliveries).where(and(eq(quoteItemDeliveries.quoteItemId, item.id), isNull(quoteItemDeliveries.reversedAt)));
+      const { pending } = calculatePendingDelivery(round2(toNumber(item.quantity) - await cancelledQuantity(tx, item.id)), delivered.map((row) => toNumber(row.quantity)));
+      if (quantity > pending) throw new Error(`O cancelamento de "${item.shortDescription}" excede o saldo pendente de ${pending} ${item.unit}`);
+      await tx.insert(quoteItemCancellations).values({ quoteId: quote.id, quoteItemId: item.id, productId: item.productId, quantity: money(quantity), reason: input.reason, createdByUserId: userId });
+      amount = round2(amount + quantity * toNumber(item.unitPrice));
+      const reservation = (await tx.select().from(quoteItemReservations).where(eq(quoteItemReservations.quoteItemId, item.id)).limit(1))[0];
+      const left = round2(pending - quantity);
+      if (reservation && toNumber(reservation.reservedQuantity) > left) {
+        if (left <= 0) await tx.delete(quoteItemReservations).where(eq(quoteItemReservations.id, reservation.id));
+        else await tx.update(quoteItemReservations).set({ reservedQuantity: money(left) }).where(eq(quoteItemReservations.id, reservation.id));
+      }
+    }
+    await allocatePendingReservations(tx, productIds);
+    return { quoteNumber: quote.quoteNumber, clientName: quote.clientName, amount };
+  }, LOCKED_READS));
+}
+
+// Desfazer o cancelamento: o item volta a pendente e reserva o que houver livre.
+export async function undoCancellation(id: number, userId: number) {
+  const db = await database();
+  return retryOnDeadlock(() => db.transaction(async (tx) => {
+    const found = (await tx.select({ quoteId: quoteItemCancellations.quoteId }).from(quoteItemCancellations).where(eq(quoteItemCancellations.id, id)).limit(1))[0];
+    if (!found) throw new Error("Cancelamento não encontrado.");
+    await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, found.quoteId)} FOR UPDATE`);
+    const row = (await tx.select().from(quoteItemCancellations).where(eq(quoteItemCancellations.id, id)).limit(1))[0]!;
+    if (row.undoneAt) throw new Error("Este cancelamento já foi desfeito.");
+    const quote = (await tx.select().from(quotes).where(eq(quotes.id, row.quoteId)).limit(1))[0]!;
+    if (quote.status !== "approved") throw new Error("Este orçamento não está mais aprovado.");
+    await tx.update(quoteItemCancellations).set({ undoneAt: new Date(), undoneByUserId: userId }).where(eq(quoteItemCancellations.id, id));
+    if (row.productId) await allocatePendingReservations(tx, [row.productId]);
+    return { quoteNumber: quote.quoteNumber, clientName: quote.clientName, quantity: toNumber(row.quantity) };
+  }, LOCKED_READS));
+}
+
+// Estorna a retirada lançada por engano: a peça volta ao estoque, o item volta
+// a pendente e a reserva é refeita pela ordem de aprovação. O registro fica.
+export async function reverseDelivery(input: { deliveryId: number; reason: string; responsible?: string | null }, userId: number) {
+  const db = await database();
+  return retryOnDeadlock(() => db.transaction(async (tx) => {
+    const found = (await tx.select({ quoteId: quoteItemDeliveries.quoteId }).from(quoteItemDeliveries).where(eq(quoteItemDeliveries.id, input.deliveryId)).limit(1))[0];
+    if (!found) throw new Error("Retirada não encontrada.");
+    await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, found.quoteId)} FOR UPDATE`);
+    const delivery = (await tx.select().from(quoteItemDeliveries).where(eq(quoteItemDeliveries.id, input.deliveryId)).limit(1))[0]!;
+    if (delivery.reversedAt) throw new Error("Esta retirada já foi estornada.");
+    const quote = (await tx.select().from(quotes).where(eq(quotes.id, delivery.quoteId)).limit(1))[0]!;
+    if (quote.status !== "approved") throw new Error("Este orçamento não está mais aprovado.");
+    const quantity = toNumber(delivery.deliveredQuantity);
+    // O que está em ocorrência de pós-venda já saiu para o cliente de fato.
+    const [active, cases] = await Promise.all([
+      tx.select({ quantity: quoteItemDeliveries.deliveredQuantity }).from(quoteItemDeliveries).where(and(eq(quoteItemDeliveries.quoteItemId, delivery.quoteItemId), isNull(quoteItemDeliveries.reversedAt))),
+      tx.select({ quantity: afterSalesCases.quantity, status: afterSalesCases.status }).from(afterSalesCases).where(eq(afterSalesCases.quoteItemId, delivery.quoteItemId)),
+    ]);
+    const delivered = active.reduce((sum, row) => sum + toNumber(row.quantity), 0);
+    const inCases = cases.filter((row) => row.status !== "rejected").reduce((sum, row) => sum + toNumber(row.quantity), 0);
+    if (round2(delivered - quantity) < round2(inCases)) throw new Error(`Não dá para estornar: ${inCases} deste item estão em ocorrências de pós-venda. Recuse ou resolva a ocorrência pelo Pós-venda.`);
+    // Marca antes de devolver ao estoque: a reserva refeita pela entrada já
+    // precisa enxergar o item como pendente.
+    await tx.update(quoteItemDeliveries).set({ reversedAt: new Date(), reversalReason: input.reason, reversedByUserId: userId }).where(eq(quoteItemDeliveries.id, delivery.id));
+    if (delivery.productId) {
+      const moved = await moveStock(tx, { productId: delivery.productId, type: "return", quantity, occurredAt: new Date(), responsible: input.responsible || null, notes: `Estorno da retirada #${delivery.id}: ${input.reason}`, quoteId: quote.id, quoteItemId: delivery.quoteItemId, clientName: quote.clientName || null });
+      await tx.update(quoteItemDeliveries).set({ reversalMovementId: moved.movementId }).where(eq(quoteItemDeliveries.id, delivery.id));
+    }
+    return { quoteNumber: quote.quoteNumber, clientName: quote.clientName, quantity };
+  }, LOCKED_READS));
 }
 
 export type PurchaseLine = {

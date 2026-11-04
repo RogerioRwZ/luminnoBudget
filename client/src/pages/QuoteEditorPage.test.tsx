@@ -34,8 +34,9 @@ vi.mock("@/lib/trpc", () => {
   const mutation = () => ({ isPending: false, mutate: mocks.mutate });
   return {
     trpc: {
-      useUtils: () => ({ quote: { list: { invalidate: mocks.invalidate }, pdfHistory: { invalidate: mocks.invalidate }, pdfHistoryAll: { invalidate: mocks.invalidate } }, dashboard: { invalidate: mocks.invalidate } }),
+      useUtils: () => ({ quote: { lockInfo: { invalidate: mocks.invalidate }, list: { invalidate: mocks.invalidate }, pdfHistory: { invalidate: mocks.invalidate }, pdfHistoryAll: { invalidate: mocks.invalidate } }, dashboard: { invalidate: mocks.invalidate } }),
       quote: {
+        lockInfo: { useQuery: () => ({ data: undefined }) },
         get: { useQuery: () => ({ data: quote, isLoading: false }) },
         pdfHistory: { useQuery: () => ({ data: [{ id: 7, fileName: "orcamento-0018.pdf", fileSize: 1200, createdAt: new Date("2026-08-25T12:00:00.000Z"), downloadUrl: "/api/quote-pdfs/7/download" }], isLoading: false, isError: false }) },
         create: { useMutation: mutation },

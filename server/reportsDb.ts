@@ -1,3 +1,4 @@
+import { businessDay } from "../shared/finance";
 import { desc, eq } from "drizzle-orm";
 import { commissionPayments, products, professionals, users } from "../drizzle/schema";
 import { commissionAmount, commissionBase, professionalKey } from "../shared/commission";
@@ -217,9 +218,10 @@ export async function dailySummary(role: string, now = new Date()): Promise<Dail
     .filter((quote) => quote.validUntil && quote.validUntil >= startOfDay && quote.validUntil < endOfDay)
     .map((quote) => ({ id: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, total: quote.summary.total }));
 
-  const dueReceivables = finance?.receivables.filter((row) => row.status !== "cancelled" && row.status !== "paid" && row.remainingAmount > 0 && row.dueDate < endOfDay) ?? [];
-  const overdue = dueReceivables.filter((row) => row.dueDate < startOfDay);
-  const dueToday = dueReceivables.filter((row) => row.dueDate >= startOfDay);
+  const today = businessDay(now);
+  const dueReceivables = finance?.receivables.filter((row) => row.status !== "cancelled" && row.status !== "paid" && row.remainingAmount > 0 && businessDay(row.dueDate) <= today) ?? [];
+  const overdue = dueReceivables.filter((row) => businessDay(row.dueDate) < today);
+  const dueToday = dueReceivables.filter((row) => businessDay(row.dueDate) === today);
 
   const shortageLines = purchases?.flatMap((group) => group.lines.filter((line) => line.shortageQuantity > 0).map((line) => ({ ...line, supplierName: group.supplierName }))) ?? [];
   const waitingQuotes = new Set(shortageLines.flatMap((line) => line.waitingQuotes.map((entry) => entry.quoteId)));
@@ -241,7 +243,7 @@ export async function dailySummary(role: string, now = new Date()): Promise<Dail
     installments: finance ? {
       dueToday: { count: dueToday.length, amount: sum(dueToday) },
       overdue: { count: overdue.length, amount: sum(overdue) },
-      items: [...dueToday, ...overdue].slice(0, 6).map((row) => ({ id: row.id, clientName: row.clientName, quoteNumber: row.quoteNumber, installmentNumber: row.installmentNumber, installmentCount: row.installmentCount, remainingAmount: row.remainingAmount, dueDate: row.dueDate, overdue: row.dueDate < startOfDay })),
+      items: [...dueToday, ...overdue].slice(0, 6).map((row) => ({ id: row.id, clientName: row.clientName, quoteNumber: row.quoteNumber, installmentNumber: row.installmentNumber, installmentCount: row.installmentCount, remainingAmount: row.remainingAmount, dueDate: row.dueDate, overdue: businessDay(row.dueDate) < today })),
     } : null,
     purchases: purchases ? {
       products: shortageLines.length,

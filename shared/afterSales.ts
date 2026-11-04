@@ -47,6 +47,22 @@ export function warrantyUntil(start: Date | string | null | undefined, months: n
   return target;
 }
 
+// Cada retirada tem o próprio prazo: peças retiradas meses depois não herdam a
+// garantia da primeira retirada.
+export function warrantyLots(deliveries: Array<{ quantity: number; deliveredAt: Date }>, months: number | null | undefined, now = new Date()) {
+  const lots = [...deliveries]
+    .sort((first, second) => first.deliveredAt.getTime() - second.deliveredAt.getTime())
+    .map((delivery) => {
+      const until = warrantyUntil(delivery.deliveredAt, months);
+      return { ...delivery, warrantyUntil: until, underWarranty: isUnderWarranty(until, now) };
+    });
+  return {
+    lots,
+    delivered: Math.round(lots.reduce((sum, lot) => sum + lot.quantity, 0) * 100) / 100,
+    underWarrantyQuantity: Math.round(lots.filter((lot) => lot.underWarranty).reduce((sum, lot) => sum + lot.quantity, 0) * 100) / 100,
+  };
+}
+
 export function isUnderWarranty(until: Date | null, now = new Date()) {
   return Boolean(until) && until! >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }

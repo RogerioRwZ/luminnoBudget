@@ -56,9 +56,9 @@ describe("pós-venda", () => {
 
     const { items } = await admin.afterSales.items({ quoteId: quote.id });
     const item = items[0]!;
-    expect(item).toMatchObject({ quantity: 3, available: 3, warrantyMonths: 24, underWarranty: true });
-    expect(item.deliveredAt).toBeInstanceOf(Date);
-    expect(item.warrantyUntil!.getFullYear()).toBe(item.deliveredAt!.getFullYear() + 2);
+    expect(item).toMatchObject({ quantity: 3, delivered: 3, available: 3, warrantyMonths: 24, underWarrantyQuantity: 3 });
+    expect(item.lots[0]!.deliveredAt).toBeInstanceOf(Date);
+    expect(item.lots[0]!.warrantyUntil!.getFullYear()).toBe(item.lots[0]!.deliveredAt.getFullYear() + 2);
 
     // Vendas e expedição também abrem ocorrências.
     const today = new Date();
@@ -120,7 +120,9 @@ describe("pós-venda", () => {
       discountMode: "percentage" as const, discountValue: 0, shipping: 0, pixDiscountMode: "percentage" as const, pixDiscountValue: 0, installments: 1,
       rooms: [{ name: "Sala", items: [{ productId: created.productId, code: "F", shortDescription: "Fita", unit: "UN", quantity: 2, unitPrice: 30 }] }],
     };
+    await admin.inventory.move({ productId: created.productId, type: "entry", quantity: 2, occurredAt: new Date() });
     await admin.quote.save(draft);
+    await admin.inventory.deliverAll({ quoteId: quote.id, deliveredAt: new Date() });
     const item = (await admin.afterSales.items({ quoteId: quote.id })).items[0]!;
     await admin.afterSales.create({ quoteId: quote.id, quoteItemId: item.quoteItemId, type: "return", reason: "regret", quantity: 1, dueDate: new Date() });
 

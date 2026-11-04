@@ -256,6 +256,10 @@ export default function QuoteEditorPage() {
   const showCost = canSeeCost(role);
   const { data: availabilityRows } = trpc.product.availability.useQuery(undefined, { staleTime: 30_000 });
   const availability = useMemo(() => new Map((availabilityRows ?? []).map(row => [row.productId, row.available])), [availabilityRows]);
+  const lockInfo = trpc.quote.lockInfo.useQuery(
+    { id: Number.isFinite(quoteId) && quoteId > 0 ? quoteId : 1 },
+    { enabled: Number.isFinite(quoteId) && quoteId > 0 }
+  );
   const [lossDialog, setLossDialog] = useState<{ reason: LostReason; notes: string } | null>(null);
   const [planDialog, setPlanDialog] = useState(false);
   const settings = settingsQuery.data as StoreSettings | undefined;
@@ -301,6 +305,9 @@ export default function QuoteEditorPage() {
   const save = trpc.quote.save.useMutation({
     onSuccess: quote => {
       if (quote) {
+        failedFingerprint.current = null;
+        setServerStatus(quote.status);
+        utils.quote.lockInfo.invalidate({ id: quote.id });
         const savedDraft = fromQuote(quote);
         serverFingerprint.current = JSON.stringify(savedDraft);
         setServerAutosaveStatus("saved");
@@ -330,6 +337,9 @@ export default function QuoteEditorPage() {
       setServerAutosaveStatus("error");
       setEditorError(message);
       toast.error(message);
+      // Recusa do servidor: repetir o mesmo conteúdo só repete o erro. Sem
+      // resposta (rede fora), segue tentando.
+      if (error.data) failedFingerprint.current = pendingSaveFingerprint.current;
     },
   });
   const remove = trpc.quote.delete.useMutation({
@@ -351,7 +361,12 @@ export default function QuoteEditorPage() {
   });
   const [editorError, setEditorError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Status gravado: itens, valores e condições só travam depois de salvo como
+  // aprovado (e destravam na hora ao escolher Em aberto).
+  const [serverStatus, setServerStatus] = useState<QuoteDraft["status"] | null>(null);
+  const failedFingerprint = useRef<string | null>(null);
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
+  const termsLocked = serverStatus === "approved" && draft?.status === "approved";
   const serverDraftFingerprint = useMemo(
     () => (quoteQuery.data ? JSON.stringify(fromQuote(quoteQuery.data as QuoteRecord)) : null),
     [quoteQuery.data]
@@ -371,6 +386,7 @@ export default function QuoteEditorPage() {
       const loadedDraft = fromQuote(quoteQuery.data as QuoteRecord);
       serverFingerprint.current = JSON.stringify(loadedDraft);
       setServerAutosaveStatus("saved");
+      setServerStatus(loadedDraft.status);
       setDraft(loadedDraft);
     }
   }, [quoteQuery.data]);
@@ -383,6 +399,7 @@ export default function QuoteEditorPage() {
       return;
     }
     if (fingerprint === serverFingerprint.current) return;
+    if (fingerprint === failedFingerprint.current) return;
     setServerAutosaveStatus("waiting");
     const timer = window.setTimeout(() => {
       setServerAutosaveStatus("saving");
@@ -808,8 +825,14 @@ export default function QuoteEditorPage() {
           <p className="min-w-0 flex-1 text-emerald-900 dark:text-emerald-100">
             <span className="font-semibold">Orçamento aprovado.</span> Dados do
             cliente, datas e observações podem ser editados; itens, valores e
-            condições ficam travados enquanto houver reserva de estoque. Para
-            alterá-los, mude o status para Em aberto.
+            condições ficam travados.{" "}
+            {lockInfo.data?.hasDeliveries
+              ? "Como já há retiradas, ele não pode mais ser reaberto: use Cancelar saldo, em Estoque, para o que o cliente não vai levar e o Pós-venda para devoluções."
+              : lockInfo.data?.hasCases
+                ? "Como há ocorrências de pós-venda, ele não pode mais ser reaberto: corrija a venda pelo Pós-venda."
+                : lockInfo.data?.hasReceipts
+                  ? "Como já há recebimentos, estorne-os no Financeiro para poder reabrir."
+                  : "Para alterá-los, mude o status para Em aberto."}
           </p>
           <div className="flex flex-wrap gap-2">
             {can("stock") ? (
@@ -975,7 +998,7 @@ export default function QuoteEditorPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {(Object.keys(QUOTE_STATUS_LABELS) as QuoteStatus[]).map(status => (
-                      <SelectItem key={status} value={status}>
+                      <SelectItem key={status} value={status} disabled={termsLocked && status !== "approved" && lockInfo.data?.canReopen === false}>
                         {QUOTE_STATUS_LABELS[status]}
                       </SelectItem>
                     ))}
@@ -1125,6 +1148,7 @@ export default function QuoteEditorPage() {
               </div>
             </CardContent>
           </Card>
+          <fieldset disabled={termsLocked} className="contents">
           <div className="space-y-5">
             {draft.rooms.map((room, roomIndex) => {
               const query = searches[roomIndex] ?? "";
@@ -1266,7 +1290,7 @@ export default function QuoteEditorPage() {
                         return (
                         <Fragment key={itemIndex}>
                         <div
-                          draggable
+                          draggable={!termsLocked}
                           onDragStart={event => {
                             event.dataTransfer.effectAllowed = "move";
                             event.dataTransfer.setData(
@@ -1420,6 +1444,7 @@ export default function QuoteEditorPage() {
             <Plus className="mr-2 h-4 w-4" />
             Adicionar ambiente
           </Button>
+          </fieldset>
           <Card className="border-border/70 shadow-sm">
             <CardHeader>
               <CardTitle className="font-display text-lg">
@@ -1439,6 +1464,7 @@ export default function QuoteEditorPage() {
           </Card>
         </div>
         <aside className="space-y-5 xl:sticky xl:top-24 xl:self-start">
+          <fieldset disabled={termsLocked} className="contents">
           <Card className="border-border/70 shadow-sm">
             <CardHeader className="border-b border-border bg-muted/30 pb-4">
               <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -1631,19 +1657,22 @@ export default function QuoteEditorPage() {
               ) : null}
             </CardContent>
           </Card>
+          </fieldset>
           {can("finance") ? (
             <QuoteFinancePanel quoteId={draft.id} quoteStatus={draft.status} />
           ) : null}
           {draft.id && draft.status === "approved" && can("aftersales") ? <AfterSalesQuotePanel quoteId={draft.id} /> : null}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => setConfirmDelete(true)}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Excluir orçamento
-          </Button>
+          {lockInfo.data?.canDelete !== false ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Excluir orçamento
+            </Button>
+          ) : null}
           <PaymentPlanDialog
             open={planDialog}
             totals={{ total: summary.total, pixTotal: summary.pixTotal }}

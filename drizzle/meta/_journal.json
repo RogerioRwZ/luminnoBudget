@@ -162,6 +162,13 @@
       "when": 1793741036926,
       "tag": "0022_retirar_variacoes",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1793809253072,
+      "tag": "0023_cancelar_saldo_estorno",
+      "breakpoints": true
     }
   ]
 }

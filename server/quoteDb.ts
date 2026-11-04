@@ -1,10 +1,11 @@
-import { desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   appointments,
   clients,
   financePayments,
   financeReceivables,
   products,
+  quoteItemCancellations,
   quoteItemDeliveries,
   quoteItems,
   quoteItemReservations,
@@ -28,7 +29,7 @@ import { buildPickingList } from "../shared/picking";
 import { addDays, isFollowUpDue, LOST_REASONS, type LostReason } from "../shared/followUp";
 import { barcodeProblem, matchesProductSearch, nextProductCode, normalizeBarcode, normalizeReference, referenceProblem } from "../shared/productCodes";
 import { professionalKey } from "../shared/commission";
-import { getDb } from "./db";
+import { getDb, LOCKED_READS, retryOnDeadlock } from "./db";
 import { commissionRateFor } from "./reportsDb";
 import { createReceivablesFromQuote, financeOverview, releaseQuoteReceivables } from "./financeDb";
 import { parseEntryOffer, parsePaymentPlan, validatePaymentPlan, type EntryOffer, type PaymentPlan } from "../shared/paymentPlan";
@@ -266,19 +267,7 @@ export async function saveProduct(input: {
   }));
 }
 
-// Duas gravações ao mesmo tempo nas mesmas tabelas: o MySQL derruba uma delas
-// por deadlock e desfaz tudo o que ela fez; basta repetir a transação.
-export async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 4): Promise<T> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await run();
-    } catch (error) {
-      const code = (error as { cause?: { code?: string }; code?: string }).cause?.code ?? (error as { code?: string }).code;
-      if (code !== "ER_LOCK_DEADLOCK" || attempt >= attempts) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 20 * attempt + Math.random() * 30));
-    }
-  }
-}
+export { retryOnDeadlock };
 
 export async function getProduct(id: number) {
   const db = await database();
@@ -485,7 +474,7 @@ export async function getPickingList(quoteId: number) {
   const lines = await fulfillmentLines([quoteId]);
   return {
     quote: { id: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, professional: quote.professional, status: quote.status, issueDate: quote.issueDate, validUntil: quote.validUntil },
-    items: buildPickingList(lines.map((line) => ({ quoteItemId: line.quoteItemId, productId: line.productId, barcode: line.barcode, reference: line.reference, code: line.code, shortDescription: line.shortDescription, fullDescription: line.fullDescription, unit: line.unit, quantity: line.pendingQuantity, orderedQuantity: line.orderedQuantity, deliveredQuantity: line.deliveredQuantity, deliverableQuantity: line.deliverableQuantity, roomName: line.roomName }))),
+    items: buildPickingList(lines.map((line) => ({ quoteItemId: line.quoteItemId, productId: line.productId, barcode: line.barcode, reference: line.reference, code: line.code, shortDescription: line.shortDescription, fullDescription: line.fullDescription, unit: line.unit, quantity: line.pendingQuantity, orderedQuantity: line.orderedQuantity - line.cancelledQuantity, deliveredQuantity: line.deliveredQuantity, deliverableQuantity: line.deliverableQuantity, roomName: line.roomName }))),
   };
 }
 
@@ -634,7 +623,7 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       const [reservations, deliveries] = existingItemIds.length
         ? await Promise.all([
           tx.select().from(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds)),
-          tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, existingItemIds)).limit(1),
+          tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(and(inArray(quoteItemDeliveries.quoteItemId, existingItemIds), isNull(quoteItemDeliveries.reversedAt))).limit(1),
         ])
         : [[], []];
 
@@ -655,6 +644,12 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
       if (cases.length) throw new Error("Este orçamento tem ocorrências de pós-venda: itens e status não podem mais ser alterados. Para corrigir a venda, abra uma devolução ou troca no Pós-venda.");
       if (deliveries.length) throw new Error("Este orçamento já tem retiradas registradas e não pode sair do status Aprovado.");
       if (existingQuote.status === "approved") await releaseQuoteReceivables(tx, quoteId);
+      // Os itens serão regravados: retirada estornada e cancelamento de saldo
+      // deixam de valer. Fica o rastro em movimentações e atividades.
+      if (existingItemIds.length) {
+        await tx.delete(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, existingItemIds));
+        await tx.delete(quoteItemCancellations).where(inArray(quoteItemCancellations.quoteItemId, existingItemIds));
+      }
       if (reservations.length) {
         await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, existingItemIds));
         releasedProducts.push(...reservations.map((row) => row.productId));
@@ -694,11 +689,34 @@ export async function saveQuote(input: QuoteDraft, createdByUserId = 0) {
     // restante aparece em Compras. Reserva liberada vai para quem esperava.
     await allocatePendingReservations(tx, [...approvedProducts, ...releasedProducts]);
     return quoteId!;
-  })).then(async (quoteId) => {
+  }, LOCKED_READS)).then(async (quoteId) => {
     const saved = await getQuote(quoteId);
     if (saved?.status === "approved") await createReceivablesFromQuote({ ...saved, paymentPlan: parsePaymentPlan(saved.paymentPlan) }, createdByUserId);
     return saved;
   });
+}
+
+// O que impede reabrir ou excluir: mesma regra de saveQuote e deleteQuote, para
+// a tela só oferecer o que o servidor aceita.
+export async function quoteLockInfo(id: number) {
+  const db = await database();
+  const [deliveries, cases, receivables] = await Promise.all([
+    db.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(and(eq(quoteItemDeliveries.quoteId, id), isNull(quoteItemDeliveries.reversedAt))).limit(1),
+    db.select({ id: afterSalesCases.id }).from(afterSalesCases).where(eq(afterSalesCases.quoteId, id)).limit(1),
+    db.select({ id: financeReceivables.id, status: financeReceivables.status }).from(financeReceivables).where(eq(financeReceivables.quoteId, id)),
+  ]);
+  const active = receivables.filter((row) => row.status !== "cancelled").map((row) => row.id);
+  const payments = active.length ? await db.select({ type: financePayments.type, amount: financePayments.amount, receivableId: financePayments.receivableId }).from(financePayments).where(inArray(financePayments.receivableId, active)) : [];
+  const received = active.some((receivableId) => payments.filter((row) => row.receivableId === receivableId).reduce((sum, row) => sum + (row.type === "reversal" ? -1 : 1) * toNumber(row.amount), 0) > 0.001);
+  const hasDeliveries = deliveries.length > 0;
+  const hasCases = cases.length > 0;
+  return {
+    hasDeliveries,
+    hasCases,
+    hasReceipts: received,
+    canReopen: !hasDeliveries && !hasCases && !received,
+    canDelete: !hasDeliveries && !hasCases && !receivables.length,
+  };
 }
 
 export async function deleteQuote(id: number) {
@@ -719,8 +737,10 @@ export async function deleteQuote(id: number) {
       const itemRows = await tx.select({ id: quoteItems.id }).from(quoteItems).where(inArray(quoteItems.quoteRoomId, roomIds));
       const itemIds = itemRows.map((item) => item.id);
       if (itemIds.length) {
-        const deliveries = await tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, itemIds)).limit(1);
+        const deliveries = await tx.select({ id: quoteItemDeliveries.id }).from(quoteItemDeliveries).where(and(inArray(quoteItemDeliveries.quoteItemId, itemIds), isNull(quoteItemDeliveries.reversedAt))).limit(1);
         if (deliveries.length) throw new Error("Este orçamento possui entregas registradas e não pode ser excluído.");
+        await tx.delete(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, itemIds));
+        await tx.delete(quoteItemCancellations).where(inArray(quoteItemCancellations.quoteItemId, itemIds));
         const released = await tx.select({ productId: quoteItemReservations.productId }).from(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds));
         await tx.delete(quoteItemReservations).where(inArray(quoteItemReservations.quoteItemId, itemIds));
         await tx.delete(quoteItems).where(inArray(quoteItems.quoteRoomId, roomIds));
@@ -732,7 +752,7 @@ export async function deleteQuote(id: number) {
     }
     await tx.delete(quoteRooms).where(eq(quoteRooms.quoteId, id));
     await tx.delete(quotes).where(eq(quotes.id, id));
-  });
+  }, LOCKED_READS);
   // Anexos de orçamento excluído não abrem mais em lugar nenhum: o registro
   // sai agora e o arquivo, na limpeza diária.
   await db.delete(quoteAttachments).where(eq(quoteAttachments.quoteId, id));
@@ -810,7 +830,7 @@ export async function registerFollowUp(id: number, days: number) {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows, cancellationRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -829,12 +849,13 @@ export async function exportBackup() {
     db.select().from(afterSalesCases),
     db.select().from(stockLoans),
     db.select().from(stockLoanItems),
+    db.select().from(quoteItemCancellations),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows, quoteItemCancellations: cancellationRows },
   };
 }
 
@@ -879,6 +900,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     financePayments?: Array<typeof financePayments.$inferInsert>;
     quoteItemReservations?: Array<typeof quoteItemReservations.$inferInsert>;
     quoteItemDeliveries?: Array<typeof quoteItemDeliveries.$inferInsert>;
+    quoteItemCancellations?: Array<typeof quoteItemCancellations.$inferInsert>;
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
     storeSettings?: Array<typeof storeSettings.$inferInsert>;
     appointments?: Array<typeof appointments.$inferInsert>;
@@ -894,6 +916,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       await tx.delete(financePayments);
       await tx.delete(financeReceivables);
       await tx.delete(quoteItemDeliveries);
+      await tx.delete(quoteItemCancellations);
       await tx.delete(quoteItemReservations);
       await tx.delete(quotePdfHistory);
       await tx.delete(quoteItems);
@@ -919,7 +942,8 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.financeReceivables?.length) await tx.insert(financeReceivables).values(data.financeReceivables).onDuplicateKeyUpdate({ set: { clientName: sql`values(clientName)`, description: sql`values(description)`, originalAmount: sql`values(originalAmount)`, dueDate: sql`values(dueDate)`, status: sql`values(status)` } });
     if (data.financePayments?.length) await tx.insert(financePayments).values(data.financePayments).onDuplicateKeyUpdate({ set: { amount: sql`values(amount)`, paidAt: sql`values(paidAt)`, reference: sql`values(reference)`, notes: sql`values(notes)` } });
     if (data.quoteItemReservations?.length) await tx.insert(quoteItemReservations).values(data.quoteItemReservations).onDuplicateKeyUpdate({ set: { reservedQuantity: sql`values(reservedQuantity)`, reservedAt: sql`values(reservedAt)` } });
-    if (data.quoteItemDeliveries?.length) await tx.insert(quoteItemDeliveries).values(data.quoteItemDeliveries).onDuplicateKeyUpdate({ set: { deliveredQuantity: sql`values(deliveredQuantity)`, deliveredAt: sql`values(deliveredAt)`, responsible: sql`values(responsible)` } });
+    if (data.quoteItemDeliveries?.length) await tx.insert(quoteItemDeliveries).values(data.quoteItemDeliveries).onDuplicateKeyUpdate({ set: { reversedAt: sql`values(reversedAt)`, deliveredQuantity: sql`values(deliveredQuantity)`, deliveredAt: sql`values(deliveredAt)`, responsible: sql`values(responsible)` } });
+    if (data.quoteItemCancellations?.length) await tx.insert(quoteItemCancellations).values(data.quoteItemCancellations).onDuplicateKeyUpdate({ set: { quantity: sql`values(quantity)`, undoneAt: sql`values(undoneAt)` } });
     if (data.stockMovements?.length) await tx.insert(stockMovements).values(data.stockMovements).onDuplicateKeyUpdate({ set: { quantity: sql`values(quantity)`, afterQuantity: sql`values(afterQuantity)`, occurredAt: sql`values(occurredAt)` } });
     if (data.appointments?.length) await tx.insert(appointments).values(data.appointments).onDuplicateKeyUpdate({ set: { status: sql`values(status)`, scheduledAt: sql`values(scheduledAt)`, notes: sql`values(notes)` } });
     if (data.professionals?.length) await tx.insert(professionals).values(data.professionals).onDuplicateKeyUpdate({ set: { commissionPercent: sql`values(commissionPercent)`, phone: sql`values(phone)` } });

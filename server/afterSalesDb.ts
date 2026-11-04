@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { afterSalesCases, products, quoteItemDeliveries, quoteItems, quoteRooms, quotes } from "../drizzle/schema";
-import { AFTER_SALES_TYPE_LABELS, buildAfterSalesReport, isActiveCase, isCaseOverdue, warrantyUntil, isUnderWarranty, type AfterSalesReason, type AfterSalesStatus, type AfterSalesType } from "../shared/afterSales";
+import { AFTER_SALES_TYPE_LABELS, buildAfterSalesReport, isActiveCase, isCaseOverdue, warrantyLots, type AfterSalesReason, type AfterSalesStatus, type AfterSalesType } from "../shared/afterSales";
 import { toNumber } from "../shared/quote";
-import { getDb } from "./db";
+import { getDb, LOCKED_READS } from "./db";
 import { getSettings } from "./quoteDb";
 import { moveStock } from "./stockDb";
 
@@ -41,7 +41,7 @@ export async function afterSalesItems(quoteId: number, now = new Date()) {
   const itemIds = items.map((item) => item.id);
   const productIds = items.flatMap((item) => (item.productId ? [item.productId] : []));
   const [deliveries, productRows, cases, settings] = await Promise.all([
-    itemIds.length ? db.select({ quoteItemId: quoteItemDeliveries.quoteItemId, deliveredAt: quoteItemDeliveries.deliveredAt }).from(quoteItemDeliveries).where(inArray(quoteItemDeliveries.quoteItemId, itemIds)) : [],
+    itemIds.length ? db.select({ quoteItemId: quoteItemDeliveries.quoteItemId, quantity: quoteItemDeliveries.deliveredQuantity, deliveredAt: quoteItemDeliveries.deliveredAt }).from(quoteItemDeliveries).where(and(inArray(quoteItemDeliveries.quoteItemId, itemIds), isNull(quoteItemDeliveries.reversedAt))) : [],
     productIds.length ? db.select({ id: products.id, warrantyMonths: products.warrantyMonths, supplierName: products.supplierName }).from(products).where(inArray(products.id, productIds)) : [],
     itemIds.length ? db.select({ quoteItemId: afterSalesCases.quoteItemId, quantity: afterSalesCases.quantity, status: afterSalesCases.status }).from(afterSalesCases).where(inArray(afterSalesCases.quoteItemId, itemIds)) : [],
     getSettings(),
@@ -50,11 +50,9 @@ export async function afterSalesItems(quoteId: number, now = new Date()) {
   return {
     quote: { id: quote.id, quoteNumber: quote.quoteNumber, clientName: quote.clientName, approvedAt: quote.approvedAt },
     items: items.map((item) => {
-      const delivered = deliveries.filter((row) => row.quoteItemId === item.id).map((row) => row.deliveredAt.getTime());
-      const deliveredAt = delivered.length ? new Date(Math.min(...delivered)) : null;
       const product = item.productId ? productById.get(item.productId) : undefined;
       const months = product?.warrantyMonths ?? settings.defaultWarrantyMonths;
-      const until = warrantyUntil(deliveredAt ?? quote.approvedAt, months);
+      const { lots, delivered, underWarrantyQuantity } = warrantyLots(deliveries.filter((row) => row.quoteItemId === item.id).map((row) => ({ quantity: toNumber(row.quantity), deliveredAt: row.deliveredAt })), months, now);
       const used = round(cases.filter((row) => row.quoteItemId === item.id && row.status !== "rejected").reduce((sum, row) => sum + toNumber(row.quantity), 0));
       const quantity = toNumber(item.quantity);
       return {
@@ -65,11 +63,12 @@ export async function afterSalesItems(quoteId: number, now = new Date()) {
         unit: item.unit,
         roomName: item.roomName,
         quantity,
-        available: round(Math.max(0, quantity - used)),
-        deliveredAt,
+        delivered,
+        // Só o que o cliente já levou pode voltar: o restante ainda está na loja.
+        available: round(Math.max(0, delivered - used)),
         warrantyMonths: months,
-        warrantyUntil: until,
-        underWarranty: isUnderWarranty(until, now),
+        lots,
+        underWarrantyQuantity,
       };
     }),
   };
@@ -108,29 +107,35 @@ export async function createAfterSalesCase(input: {
   dueDate: Date;
   description?: string | null;
 }, userId: number) {
-  const { quote, items } = await afterSalesItems(input.quoteId);
-  const item = items.find((entry) => entry.quoteItemId === input.quoteItemId);
-  if (!item) throw new Error("Item não encontrado neste orçamento.");
-  if (input.quantity > item.available) {
-    throw new Error(item.available > 0 ? `Só ${item.available} ${item.unit} deste item ainda podem entrar em pós-venda.` : "Todas as unidades deste item já estão em outras ocorrências de pós-venda.");
-  }
   const db = await database();
-  const product = item.productId ? (await db.select({ supplierName: products.supplierName }).from(products).where(eq(products.id, item.productId)).limit(1))[0] : undefined;
-  const inserted = await db.insert(afterSalesCases).values({
-    quoteId: quote.id,
-    quoteItemId: item.quoteItemId,
-    productId: item.productId,
-    clientName: quote.clientName || "Cliente sem nome",
-    productDescription: item.shortDescription,
-    supplierName: product?.supplierName || null,
-    type: input.type,
-    reason: input.reason,
-    quantity: money(input.quantity),
-    description: input.description || null,
-    dueDate: input.dueDate,
-    createdByUserId: userId,
-  }).$returningId();
-  return getAfterSalesCase(inserted[0]!.id);
+  const id = await db.transaction(async (tx) => {
+    // A trava faz a conferência de quantidade e a gravação valerem juntas.
+    await tx.execute(sql`SELECT id FROM ${quotes} WHERE ${eq(quotes.id, input.quoteId)} FOR UPDATE`);
+    const { quote, items } = await afterSalesItems(input.quoteId);
+    const item = items.find((entry) => entry.quoteItemId === input.quoteItemId);
+    if (!item) throw new Error("Item não encontrado neste orçamento.");
+    if (input.quantity > item.available) {
+      if (item.delivered <= 0) throw new Error("Este item ainda não foi retirado: registre a retirada no Estoque antes de abrir a ocorrência.");
+      throw new Error(item.available > 0 ? `Só ${item.available} ${item.unit} deste item ainda podem entrar em pós-venda (retirado: ${item.delivered}).` : "Todas as unidades retiradas deste item já estão em outras ocorrências de pós-venda.");
+    }
+    const product = item.productId ? (await tx.select({ supplierName: products.supplierName }).from(products).where(eq(products.id, item.productId)).limit(1))[0] : undefined;
+    const inserted = await tx.insert(afterSalesCases).values({
+      quoteId: quote.id,
+      quoteItemId: item.quoteItemId,
+      productId: item.productId,
+      clientName: quote.clientName || "Cliente sem nome",
+      productDescription: item.shortDescription,
+      supplierName: product?.supplierName || null,
+      type: input.type,
+      reason: input.reason,
+      quantity: money(input.quantity),
+      description: input.description || null,
+      dueDate: input.dueDate,
+      createdByUserId: userId,
+    }).$returningId();
+    return inserted[0]!.id;
+  }, LOCKED_READS);
+  return getAfterSalesCase(id);
 }
 
 export async function getAfterSalesCase(id: number) {
@@ -153,18 +158,31 @@ export async function updateAfterSalesCase(input: {
   responsible?: string | null;
 }) {
   const db = await database();
-  const before = await getAfterSalesCase(input.id);
-  if (!before) throw new Error("Ocorrência não encontrada.");
-  const closing = input.status === "resolved" || input.status === "rejected";
-  if (closing && !input.resolution?.trim()) throw new Error(input.status === "resolved" ? "Descreva como a ocorrência foi resolvida." : "Informe por que a ocorrência foi recusada.");
-  const restock = input.status === "resolved" && Boolean(input.restock) && !before.restockMovementId;
-  const replacement = input.status === "resolved" && Boolean(input.replacement) && !before.replacementMovementId;
-  if ((restock || replacement) && !before.productId) throw new Error("Item avulso, sem produto no catálogo: não há estoque para movimentar.");
-  if (restock && before.type === "warranty") throw new Error("Na garantia a peça vai para o fornecedor; use Devolução ou Troca para voltar ao estoque.");
-  if (replacement && before.type === "return") throw new Error("Devolução não entrega peça nova; use Troca ou Garantia.");
-  const label = `Pós-venda #${before.id} (${AFTER_SALES_TYPE_LABELS[before.type].toLowerCase()})`;
-  const stockBase = { productId: before.productId!, quantity: before.quantity, occurredAt: new Date(), responsible: input.responsible || null, quoteId: before.quoteId, quoteItemId: before.quoteItemId, clientName: before.clientName };
-  await db.transaction(async (tx) => {
+  const { before, restock, replacement, undoneRestock, undoneReplacement } = await db.transaction(async (tx) => {
+    // A trava vem antes de ler: resolver duas vezes ao mesmo tempo não pode
+    // movimentar o estoque duas vezes.
+    await tx.execute(sql`SELECT id FROM ${afterSalesCases} WHERE ${eq(afterSalesCases.id, input.id)} FOR UPDATE`);
+    const before = await getAfterSalesCase(input.id);
+    if (!before) throw new Error("Ocorrência não encontrada.");
+    const closing = input.status === "resolved" || input.status === "rejected";
+    if (closing && !input.resolution?.trim()) throw new Error(input.status === "resolved" ? "Descreva como a ocorrência foi resolvida." : "Informe por que a ocorrência foi recusada.");
+    const restock = input.status === "resolved" && Boolean(input.restock) && !before.restockMovementId;
+    const replacement = input.status === "resolved" && Boolean(input.replacement) && !before.replacementMovementId;
+    if ((restock || replacement) && !before.productId) throw new Error("Item avulso, sem produto no catálogo: não há estoque para movimentar.");
+    if (restock && before.type === "warranty") throw new Error("Na garantia a peça vai para o fornecedor; use Devolução ou Troca para voltar ao estoque.");
+    if (replacement && before.type === "return") throw new Error("Devolução não entrega peça nova; use Troca ou Garantia.");
+    // Saiu de Resolvido (reaberta ou recusada): o que foi movimentado volta atrás.
+    const undoneRestock = input.status !== "resolved" && Boolean(before.restockMovementId);
+    const undoneReplacement = input.status !== "resolved" && Boolean(before.replacementMovementId);
+    const label = `Pós-venda #${before.id} (${AFTER_SALES_TYPE_LABELS[before.type].toLowerCase()})`;
+    const stockBase = { productId: before.productId!, quantity: before.quantity, occurredAt: new Date(), responsible: input.responsible || null, quoteId: before.quoteId, quoteItemId: before.quoteItemId, clientName: before.clientName };
+    // Primeiro o que devolve peça: pode ser o que permite a saída seguinte.
+    if (undoneReplacement) await moveStock(tx, { ...stockBase, type: "adjustment", notes: `${label}: reaberta, peça nova de volta ao estoque` });
+    if (undoneRestock) {
+      await moveStock(tx, { ...stockBase, type: "adjustment", quantity: -before.quantity, notes: `${label}: reaberta, peça devolvida sai do estoque` }).catch((error) => {
+        throw new Error(`Não dá para desfazer a devolução: ${before.quantity} peça(s) não estão mais livres no estoque. ${error instanceof Error ? error.message : ""}`.trim());
+      });
+    }
     const restockMovement = restock ? await moveStock(tx, { ...stockBase, type: "return", notes: `${label}: peça devolvida pelo cliente` }) : null;
     // Saída sem ser retirada de orçamento: ajuste negativo, que respeita as reservas.
     const replacementMovement = replacement ? await moveStock(tx, { ...stockBase, type: "adjustment", quantity: -before.quantity, notes: `${label}: peça nova entregue ao cliente` }) : null;
@@ -175,11 +193,12 @@ export async function updateAfterSalesCase(input: {
       resolution: input.resolution?.trim() || null,
       refundAmount: input.refundAmount ? money(input.refundAmount) : null,
       resolvedAt: closing ? before.resolvedAt ?? new Date() : null,
-      ...(restockMovement ? { restockMovementId: restockMovement.movementId } : {}),
-      ...(replacementMovement ? { replacementMovementId: replacementMovement.movementId } : {}),
+      ...(restockMovement ? { restockMovementId: restockMovement.movementId } : undoneRestock ? { restockMovementId: null } : {}),
+      ...(replacementMovement ? { replacementMovementId: replacementMovement.movementId } : undoneReplacement ? { replacementMovementId: null } : {}),
     }).where(eq(afterSalesCases.id, input.id));
-  });
-  return { before, after: (await getAfterSalesCase(input.id))!, restocked: restock, replaced: replacement };
+    return { before, restock, replacement, undoneRestock, undoneReplacement };
+  }, LOCKED_READS);
+  return { before, after: (await getAfterSalesCase(input.id))!, restocked: restock, replaced: replacement, undoneRestock, undoneReplacement };
 }
 
 export async function afterSalesReport(range: { from: Date; to: Date }, now = new Date()) {

@@ -42,11 +42,13 @@ export const afterSalesRouter = router({
     replacement: z.boolean().optional(),
     responsible: z.string().trim().max(240).nullable().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const { before, after, restocked, replaced } = await updateAfterSalesCase(input);
+    const { before, after, restocked, replaced, undoneRestock, undoneReplacement } = await updateAfterSalesCase(input);
     const notes = [
       before.status !== after.status ? `${AFTER_SALES_STATUS_LABELS[before.status].toLowerCase()} → ${AFTER_SALES_STATUS_LABELS[after.status].toLowerCase()}` : "",
       restocked ? `${after.quantity} de volta ao estoque` : "",
       replaced ? `${after.quantity} peça(s) nova(s) baixada(s) do estoque` : "",
+      undoneRestock ? `${after.quantity} devolvida(s) saíram do estoque` : "",
+      undoneReplacement ? `${after.quantity} peça(s) nova(s) voltaram ao estoque` : "",
       after.refundAmount && after.refundAmount !== before.refundAmount ? `reembolso de ${brl(after.refundAmount)}` : "",
     ].filter(Boolean);
     await recordActivity(ctx.user, {
