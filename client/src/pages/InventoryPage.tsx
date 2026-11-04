@@ -46,6 +46,7 @@ import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useDeliveryReceipt } from "@/hooks/useDeliveryReceipt";
 import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { toast } from "sonner";
 import { plural } from "@shared/plural";
@@ -167,13 +168,15 @@ export default function InventoryPage() {
       toast.error(message);
     },
   });
+  const printReceipt = useDeliveryReceipt();
   const deliver = trpc.inventory.deliver.useMutation({
-    onSuccess: result => {
+    onSuccess: (result, input) => {
       refresh();
       toast.success(
         result.pendingQuantity > 0
           ? `Retirada registrada. Faltam ${result.pendingQuantity.toLocaleString("pt-BR")} neste item.`
-          : "Retirada registrada. Item entregue por completo."
+          : "Retirada registrada. Item entregue por completo.",
+        { duration: 10_000, action: { label: "Comprovante", onClick: () => printReceipt(input.quoteId, result.deliveryId) } }
       );
       setDeliveryOpen(false);
       setSelectedLine(null);
@@ -284,11 +287,12 @@ export default function InventoryPage() {
     (typeof pendingQuotes)[number] | null
   >(null);
   const deliverAll = trpc.inventory.deliverAll.useMutation({
-    onSuccess: results => {
+    onSuccess: (results, input) => {
       refresh();
       setDeliverAllGroup(null);
       toast.success(
-        `Retirada registrada: ${plural(results.length, "item", "itens")}.`
+        `Retirada registrada: ${plural(results.length, "item", "itens")}.`,
+        { duration: 10_000, action: { label: "Comprovante", onClick: () => printReceipt(input.quoteId, results[0]!.deliveryId) } }
       );
     },
     onError: error => {
@@ -814,6 +818,11 @@ export default function InventoryPage() {
                                           ? ` · ${delivery.responsible}`
                                           : ""}
                                       </p>
+                                      {delivery.reversedAt ? null : (
+                                        <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => printReceipt(line.quoteId, delivery.id)}>
+                                          Comprovante
+                                        </Button>
+                                      )}
                                       {delivery.reversedAt ? (
                                         <span>Estornada em {dateOnly(delivery.reversedAt)}: {delivery.reversalReason}</span>
                                       ) : (

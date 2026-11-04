@@ -1,6 +1,7 @@
 import { AsyncButton, getFormErrorMessage } from "@/components/FormFeedback";
 import { CameraBarcodeScanner } from "@/components/CameraBarcodeScanner";
 import { findProductByScan } from "@shared/productCodes";
+import { useDeliveryReceipt } from "@/hooks/useDeliveryReceipt";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -136,9 +137,13 @@ export default function PickingCheckPage() {
     setFeedback({ tone: "ok", message: `${item.shortDescription} +${quantity(multiplier)} · ${quantity(current + multiplier)} de ${quantity(item.quantity)} ${item.unit}` });
   };
 
+  const printReceipt = useDeliveryReceipt();
   const deliver = trpc.inventory.deliverMany.useMutation({
-    onSuccess: results => {
-      toast.success(`Retirada registrada: ${plural(results.length, "item", "itens")}.`);
+    onSuccess: (results, input) => {
+      toast.success(`Retirada registrada: ${plural(results.length, "item", "itens")}.`, {
+        duration: 10_000,
+        action: { label: "Comprovante", onClick: () => printReceipt(input.quoteId, results[0]!.deliveryId) },
+      });
       setPicked({});
       setFeedback(null);
       utils.inventory.invalidate();
