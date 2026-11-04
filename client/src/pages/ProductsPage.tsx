@@ -1,3 +1,4 @@
+import { ExpandableText } from "@/components/ExpandableText";
 import { parseDecimalInput } from "@/components/MoneyInput";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
 import { useVisibleItems } from "@/hooks/useVisibleItems";
@@ -699,6 +700,9 @@ export default function ProductsPage() {
                           Duplicar
                         </button>
                       </div>
+                      {product.fullDescription?.trim() && product.fullDescription.trim() !== product.shortDescription.trim() ? (
+                        <ExpandableText className="mt-1" text={product.fullDescription.trim()} />
+                      ) : null}
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                         Ref. {product.reference ?? product.code} · #{product.code} · {product.unit}
                       </p>
