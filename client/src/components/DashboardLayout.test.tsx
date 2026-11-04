@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   onSuccess: undefined as undefined | (() => void | Promise<void>),
   invalidateStatus: vi.fn(),
   invalidateMe: vi.fn(),
+  isMobile: false,
 }));
 
 vi.mock("@/lib/trpc", () => ({
@@ -22,7 +23,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 vi.mock("@/contexts/ThemeContext", () => ({ useTheme: () => ({ theme: "light", toggleTheme: vi.fn() }) }));
-vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => false }));
+vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => mocks.isMobile }));
 
 import DashboardLayout from "./DashboardLayout";
 
@@ -76,10 +77,13 @@ describe("DashboardLayout", () => {
     expect(sidebar()).toBe("expanded");
 
     // Clique dentro da própria barra não recolhe.
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Orçamentos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Orçamentos" }));
     expect(sidebar()).toBe("expanded");
 
+    // Só recolhe depois do clique: apertar o botão do mouse não mexe na página.
     fireEvent.pointerDown(screen.getByText("Conteúdo"));
+    expect(sidebar()).toBe("expanded");
+    fireEvent.click(screen.getByText("Conteúdo"));
     await waitFor(() => expect(sidebar()).toBe("collapsed"));
     expect(document.cookie).toContain("sidebar_state=false");
 
@@ -87,6 +91,38 @@ describe("DashboardLayout", () => {
     fireEvent.pointerDown(toggle);
     fireEvent.click(toggle);
     await waitFor(() => expect(sidebar()).toBe("expanded"));
+  });
+
+  it("Esc recolhe a barra, mas não quando há uma janela aberta", async () => {
+    renderLayout("admin", { ok: true, database: "online" });
+    const sidebar = () => document.querySelector("[data-slot=sidebar]")?.getAttribute("data-state");
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.append(dialog);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(sidebar()).toBe("expanded");
+    dialog.remove();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(sidebar()).toBe("collapsed"));
+  });
+
+  it("no celular, escolher uma tela fecha a gaveta", async () => {
+    mocks.isMobile = true;
+    try {
+      renderLayout("admin", { ok: true, database: "online" });
+      fireEvent.click(await screen.findByRole("button", { name: "Abrir ou recolher o menu" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Orçamentos" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Orçamentos" })).toBeNull());
+    } finally {
+      mocks.isMobile = false;
+    }
+  });
+
+  it("dá nome ao botão de tema quando a barra está recolhida", async () => {
+    document.cookie = "sidebar_state=false; path=/";
+    renderLayout("admin", { ok: true, database: "online" });
+    expect(screen.getByRole("button", { name: /Tema (claro|escuro)/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sair do sistema" })).toBeTruthy();
   });
 
   it("abre recolhida quando foi recolhida antes", async () => {
