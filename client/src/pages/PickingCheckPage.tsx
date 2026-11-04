@@ -282,7 +282,7 @@ export default function PickingCheckPage() {
                         {approved && item.deliverableQuantity < item.quantity ? (
                           <Badge variant="secondary" className="mt-2 bg-amber-500/10 text-[11px] text-amber-700 dark:text-amber-300">
                             {item.productId
-                              ? `Só ${quantity(item.deliverableQuantity)} reservado; o resto aguarda compra`
+                              ? item.deliverableQuantity > 0 ? `Só ${quantity(item.deliverableQuantity)} reservado; o resto aguarda compra` : "Nada reservado: aguarda compra"
                               : "Item avulso"}
                           </Badge>
                         ) : null}

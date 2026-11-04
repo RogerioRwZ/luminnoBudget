@@ -96,9 +96,9 @@ function FinancialComparison({
               <dd
                 className={
                   difference > 0
-                    ? "text-amber-600"
+                    ? "text-amber-600 dark:text-amber-300"
                     : difference < 0
-                      ? "text-emerald-600"
+                      ? "text-emerald-600 dark:text-emerald-300"
                       : "text-muted-foreground"
                 }
               >

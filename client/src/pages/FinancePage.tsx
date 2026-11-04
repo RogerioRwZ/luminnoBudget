@@ -61,7 +61,7 @@ const statusMeta: Record<FinanceStatus, { label: string; className: string }> =
     overdue: { label: "Vencida", className: "bg-red-500/10 text-red-700 dark:text-red-300" },
     cancelled: {
       label: "Cancelada",
-      className: "bg-slate-500/10 text-slate-700",
+      className: "bg-slate-500/10 text-slate-700 dark:text-slate-300",
     },
   };
 // A loja não informa as taxas da operadora: o que entra no cartão é o valor
@@ -402,7 +402,7 @@ export default function FinancePage() {
           ) : filtered.length ? (
             <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_td:first-child]:whitespace-normal [&_td:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th]:px-3 [&_th:first-child]:pl-0 [&_th:last-child]:pr-0">
+              <table className="stack-table w-full min-w-[980px] text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_td:first-child]:whitespace-normal [&_td:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th]:px-3 [&_th:first-child]:pl-0 [&_th:last-child]:pr-0">
                 <thead className="border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="pb-3">Cliente / origem</th>
@@ -432,24 +432,24 @@ export default function FinancePage() {
                               : row.description}
                           </p>
                         </td>
-                        <td className="py-4 text-xs">
+                        <td data-label="Vencimento" className="py-4 text-xs">
                           {new Intl.DateTimeFormat("pt-BR").format(
                             new Date(row.dueDate)
                           )}
                         </td>
-                        <td className="py-4 text-xs">
+                        <td data-label="Parcela" className="py-4 text-xs">
                           {row.installmentNumber}/{row.installmentCount}
                         </td>
-                        <td className="py-4 text-right font-semibold">
+                        <td data-label="Valor" className="py-4 text-right font-semibold">
                           {money(row.originalAmount)}
                         </td>
-                        <td className="py-4 text-right text-emerald-700 dark:text-emerald-300">
+                        <td data-label="Recebido" className="py-4 text-right text-emerald-700 dark:text-emerald-300">
                           {money(row.receivedAmount)}
                         </td>
-                        <td className="py-4 text-right font-semibold">
+                        <td data-label="Saldo" className="py-4 text-right font-semibold">
                           {money(row.remainingAmount)}
                         </td>
-                        <td className="py-4">
+                        <td data-label="Status" className="py-4">
                           <Badge variant="secondary" className={meta.className}>
                             {meta.label}
                           </Badge>

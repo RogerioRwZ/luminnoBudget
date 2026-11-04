@@ -194,7 +194,7 @@ export default function AdminPage() {
           title="Aplicação"
           value={status?.application === "online" ? "Online" : "Verificando"}
           hint={`Ativa há ${uptime(status?.uptimeSeconds)}`}
-          tone="text-emerald-600"
+          tone="text-emerald-600 dark:text-emerald-300"
         />
         <StatusCard
           icon={Database}
@@ -205,7 +205,7 @@ export default function AdminPage() {
               ? "Consulta de saúde confirmada"
               : "Verifique a conexão"
           }
-          tone={status?.databaseOnline ? "text-emerald-600" : "text-red-600"}
+          tone={status?.databaseOnline ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-300"}
         />
         <StatusCard
           icon={UsersRound}
@@ -227,7 +227,7 @@ export default function AdminPage() {
               ? `livres de ${bytes(status.storage.totalBytes)}`
               : "Diretório local"
           }
-          tone="text-amber-600"
+          tone="text-amber-600 dark:text-amber-300"
         />
         <StatusCard
           icon={DatabaseBackup}
@@ -242,7 +242,7 @@ export default function AdminPage() {
                   ? `Último em ${new Date(status.backup.lastSuccessAt).toLocaleString("pt-BR")}${status.backup.state === "stale" ? ` (mais de ${BACKUP_STALE_HOURS} h)` : ""}`
                   : "Nenhum registro: instalações pelo instalador automático registram aqui cada backup"
           }
-          tone={status?.backup?.state === "ok" ? "text-emerald-600" : status?.backup?.state === "unknown" || !status?.backup ? "text-muted-foreground" : "text-red-600"}
+          tone={status?.backup?.state === "ok" ? "text-emerald-600 dark:text-emerald-300" : status?.backup?.state === "unknown" || !status?.backup ? "text-muted-foreground" : "text-red-600 dark:text-red-300"}
         />
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
