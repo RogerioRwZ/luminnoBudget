@@ -499,6 +499,7 @@ export const businessRouter = router({
   inventory: router({
     overview: areaProcedure("stock").query(inventoryOverview),
     fulfillments: areaProcedure("stock").query(approvedFulfillments),
+    quoteFulfillment: areaProcedure("stock").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => fulfillmentLines([input.quoteId])),
     purchases: areaProcedure("purchases").query(purchaseSuggestions),
     stale: areaProcedure("stock").input(z.object({ days: z.number().int().min(1).max(3650) })).query(({ input }) => staleStockReport(input.days)),
     abc: areaProcedure("stock").input(periodInput).query(({ input }) => abcReport(input)),
