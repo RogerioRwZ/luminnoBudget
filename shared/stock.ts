@@ -42,8 +42,8 @@ export function isCentQuantity(value: number) {
 
 // Situação de um item de orçamento aprovado. Itens avulsos (sem produto)
 // não têm estoque: tudo o que falta pode ser retirado.
-export function describeFulfillment(input: { ordered: number; delivered: number; reserved: number; stock: number | null }) {
-  const pending = Math.max(0, round(input.ordered - input.delivered));
+export function describeFulfillment(input: { ordered: number; delivered: number; cancelled?: number; reserved: number; stock: number | null }) {
+  const pending = Math.max(0, round(input.ordered - input.delivered - (input.cancelled ?? 0)));
   if (input.stock === null) return { pending, deliverable: pending, shortage: 0 };
   return {
     pending,

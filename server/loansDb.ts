@@ -1,8 +1,8 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { products, quotes, stockLoanItems, stockLoans } from "../drizzle/schema";
 import { loanItemPending, loanStatus, validateSettlement, type BorrowerKind } from "../shared/loans";
 import { toNumber } from "../shared/quote";
-import { getDb } from "./db";
+import { getDb, LOCKED_READS } from "./db";
 import { moveStock } from "./stockDb";
 
 async function database() {
@@ -82,7 +82,7 @@ export async function createLoan(input: {
       await tx.insert(stockLoanItems).values({ loanId: id, productId: item.productId, shortDescription, quantity: money(item.quantity) });
     }
     return id;
-  });
+  }, LOCKED_READS);
   return (await getLoan(loanId))!;
 }
 
@@ -97,21 +97,24 @@ export async function settleLoan(input: {
   notes?: string | null;
   responsible?: string | null;
 }) {
-  const loan = await getLoan(input.loanId);
-  if (!loan) throw new Error("Empréstimo não encontrado.");
-  const lines = input.lines.filter((line) => line.returned > 0 || line.sold > 0 || line.lost > 0);
-  if (!lines.length) throw new Error("Informe o que voltou, o que foi vendido ou o que se perdeu.");
-  for (const line of lines) {
-    const item = loan.items.find((entry) => entry.id === line.itemId);
-    if (!item) throw new Error("Item não encontrado neste empréstimo.");
-    const problem = validateSettlement(item, line);
-    if (problem) throw new Error(`${item.shortDescription}: ${problem}`);
-  }
   const db = await database();
-  const quote = input.quoteNumber ? (await db.select({ id: quotes.id, quoteNumber: quotes.quoteNumber }).from(quotes).where(eq(quotes.quoteNumber, input.quoteNumber)).limit(1))[0] : undefined;
-  if (input.quoteNumber && !quote) throw new Error(`Orçamento #${input.quoteNumber} não encontrado.`);
-  const quoteNumber = quote?.quoteNumber;
   await db.transaction(async (tx) => {
+    // A trava vem antes da conferência: dois acertos ao mesmo tempo não podem
+    // devolver a mesma peça duas vezes.
+    await tx.execute(sql`SELECT id FROM ${stockLoans} WHERE ${eq(stockLoans.id, input.loanId)} FOR UPDATE`);
+    const loan = await getLoan(input.loanId);
+    if (!loan) throw new Error("Empréstimo não encontrado.");
+    const lines = input.lines.filter((line) => line.returned > 0 || line.sold > 0 || line.lost > 0);
+    if (!lines.length) throw new Error("Informe o que voltou, o que foi vendido ou o que se perdeu.");
+    for (const line of lines) {
+      const item = loan.items.find((entry) => entry.id === line.itemId);
+      if (!item) throw new Error("Item não encontrado neste empréstimo.");
+      const problem = validateSettlement(item, line);
+      if (problem) throw new Error(`${item.shortDescription}: ${problem}`);
+    }
+    const quote = input.quoteNumber ? (await db.select({ id: quotes.id, quoteNumber: quotes.quoteNumber }).from(quotes).where(eq(quotes.quoteNumber, input.quoteNumber)).limit(1))[0] : undefined;
+    if (input.quoteNumber && !quote) throw new Error(`Orçamento #${input.quoteNumber} não encontrado.`);
+    const quoteNumber = quote?.quoteNumber;
     for (const line of lines) {
       const item = loan.items.find((entry) => entry.id === line.itemId)!;
       const base = { productId: item.productId, occurredAt: new Date(), responsible: input.responsible || null, clientName: loan.borrowerName };
@@ -133,8 +136,8 @@ export async function settleLoan(input: {
       ...(quote ? { quoteId: quote.id } : {}),
       closedAt: stillOpen ? null : new Date(),
     }).where(eq(stockLoans.id, loan.id));
-  });
-  return (await getLoan(loan.id))!;
+  }, LOCKED_READS);
+  return (await getLoan(input.loanId))!;
 }
 
 export async function extendLoan(input: { loanId: number; dueDate: Date }) {

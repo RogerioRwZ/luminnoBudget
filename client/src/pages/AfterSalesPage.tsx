@@ -340,7 +340,7 @@ export default function AfterSalesPage() {
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Nova ocorrência de pós-venda</DialogTitle>
-            <DialogDescription>Escolha a venda e o item. A garantia é contada da retirada (ou da aprovação, se o item ainda não foi retirado).</DialogDescription>
+            <DialogDescription>Escolha a venda e o item. Só o que já foi retirado pode entrar em ocorrência, e a garantia é contada de cada retirada.</DialogDescription>
           </DialogHeader>
           <FormError message={formError} />
           {newForm ? (
@@ -385,14 +385,18 @@ export default function AfterSalesPage() {
                         <span className="min-w-0 flex-1">
                           <span className="block font-semibold">{item.shortDescription}</span>
                           <span className="text-xs text-muted-foreground">
-                            {item.roomName} · {quantityText(item.quantity)} {item.unit} vendidos
-                            {item.available < item.quantity ? ` · ${quantityText(item.available)} disponíveis para pós-venda` : ""}
+                            {item.roomName} · {quantityText(item.quantity)} {item.unit} vendidos · {quantityText(item.delivered)} retirados
+                            {item.delivered > 0 && item.available < item.delivered ? ` · ${quantityText(item.available)} disponíveis para pós-venda` : ""}
                           </span>
-                          <span className={`mt-1 flex items-center gap-1 text-xs ${item.underWarranty ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}>
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            {item.warrantyUntil ? (item.underWarranty ? `Em garantia até ${dateOnly(item.warrantyUntil)}` : `Garantia vencida em ${dateOnly(item.warrantyUntil)}`) : "Sem garantia cadastrada"}
-                            {item.deliveredAt ? ` · retirado em ${dateOnly(item.deliveredAt)}` : " · ainda não retirado"}
-                          </span>
+                          {item.lots.length ? item.lots.map((lot, index) => (
+                            <span key={index} className={`mt-1 flex items-center gap-1 text-xs ${lot.underWarranty ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}>
+                              <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                              {quantityText(lot.quantity)} {item.unit} retirados em {dateOnly(lot.deliveredAt)} ·{" "}
+                              {lot.warrantyUntil ? (lot.underWarranty ? `em garantia até ${dateOnly(lot.warrantyUntil)}` : `garantia vencida em ${dateOnly(lot.warrantyUntil)}`) : "sem garantia cadastrada"}
+                            </span>
+                          )) : (
+                            <span className="mt-1 block text-xs text-muted-foreground">Ainda não retirado: registre a retirada no Estoque antes de abrir a ocorrência.</span>
+                          )}
                         </span>
                       </label>
                     ))}
@@ -425,9 +429,9 @@ export default function AfterSalesPage() {
                     <Label htmlFor="after-sales-description">Relato do cliente</Label>
                     <Textarea id="after-sales-description" rows={3} placeholder="O que aconteceu, fotos recebidas, combinado com o cliente…" value={newForm.description} onChange={event => setNewForm({ ...newForm, description: event.target.value })} />
                   </div>
-                  {selectedItem && !selectedItem.underWarranty && newForm.type === "warranty" ? (
+                  {selectedItem && newForm.type === "warranty" && Number(newForm.quantity.replace(",", ".")) > selectedItem.underWarrantyQuantity ? (
                     <p className="rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-100">
-                      A garantia deste item já venceu. A ocorrência pode ser aberta assim mesmo, por cortesia ou acordo com o fornecedor.
+                      {selectedItem.underWarrantyQuantity > 0 ? `Só ${quantityText(selectedItem.underWarrantyQuantity)} ${selectedItem.unit} deste item estão em garantia.` : "A garantia deste item já venceu."} A ocorrência pode ser aberta assim mesmo, por cortesia ou acordo com o fornecedor.
                     </p>
                   ) : null}
                   <div className="flex justify-end gap-2">
@@ -516,6 +520,13 @@ export default function AfterSalesPage() {
                     <Input placeholder="Responsável (opcional)" value={editForm.responsible} onChange={event => setEditForm({ ...editForm, responsible: event.target.value })} />
                   ) : null}
                 </div>
+              ) : null}
+              {editForm.status !== "resolved" && (editing.restockMovementId || editing.replacementMovementId) ? (
+                <p className="rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-100">
+                  Ao salvar, o estoque volta atrás:
+                  {editing.restockMovementId ? ` ${quantityText(editing.quantity)} peça(s) devolvida(s) saem do estoque.` : ""}
+                  {editing.replacementMovementId ? ` ${quantityText(editing.quantity)} peça(s) nova(s) voltam ao estoque.` : ""}
+                </p>
               ) : null}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setEditForm(null)}>Cancelar</Button>

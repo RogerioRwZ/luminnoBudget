@@ -185,9 +185,9 @@ export default function InventoryPage() {
   const lowStock = overview?.lowStock ?? [];
   const movements = overview?.movements ?? [];
   const suppliers = overview?.suppliers ?? [];
-  // Itens pendentes agrupados por orçamento, para retirar tudo de uma vez
-  // ou conferir com o leitor de código de barras.
-  const pendingQuotes = useMemo(() => {
+  // Itens agrupados por orçamento, para retirar tudo de uma vez ou conferir
+  // com o leitor. O que já terminou segue visível, para consulta e estorno.
+  const fulfillmentGroups = useMemo(() => {
     const groups = new Map<
       number,
       {
@@ -197,26 +197,81 @@ export default function InventoryPage() {
         lines: typeof fulfillments;
       }
     >();
-    fulfillments
-      .filter(line => line.pendingQuantity > 0)
-      .forEach(line => {
-        const group = groups.get(line.quoteId) ?? {
-          quoteId: line.quoteId,
-          quoteNumber: line.quoteNumber,
-          clientName: line.clientName,
-          lines: [],
-        };
-        group.lines.push(line);
-        groups.set(line.quoteId, group);
-      });
-    return Array.from(groups.values()).map(group => ({
-      ...group,
-      deliverableCount: group.lines.filter(line => line.deliverableQuantity > 0)
-        .length,
-      shortageCount: group.lines.filter(line => line.shortageQuantity > 0)
-        .length,
-    }));
+    fulfillments.forEach(line => {
+      const group = groups.get(line.quoteId) ?? {
+        quoteId: line.quoteId,
+        quoteNumber: line.quoteNumber,
+        clientName: line.clientName,
+        lines: [],
+      };
+      group.lines.push(line);
+      groups.set(line.quoteId, group);
+    });
+    return Array.from(groups.values()).map(group => {
+      const pendingLines = group.lines.filter(line => line.pendingQuantity > 0);
+      return {
+        ...group,
+        pendingLines,
+        deliverableCount: pendingLines.filter(line => line.deliverableQuantity > 0).length,
+        shortageCount: pendingLines.filter(line => line.shortageQuantity > 0).length,
+      };
+    });
   }, [fulfillments]);
+  const pendingQuotes = useMemo(() => fulfillmentGroups.filter(group => group.pendingLines.length > 0), [fulfillmentGroups]);
+  const finishedQuotes = useMemo(() => fulfillmentGroups.filter(group => !group.pendingLines.length), [fulfillmentGroups]);
+  const [fulfillmentTab, setFulfillmentTab] = useState<"pending" | "finished">("pending");
+  const [fulfillmentSearch, setFulfillmentSearch] = useState("");
+  const visibleGroups = useMemo(() => {
+    const text = fulfillmentSearch.trim().toLocaleLowerCase("pt-BR");
+    return (fulfillmentTab === "pending" ? pendingQuotes : finishedQuotes).filter(group => !text || `#${group.quoteNumber} ${group.clientName}`.toLocaleLowerCase("pt-BR").includes(text));
+  }, [fulfillmentSearch, fulfillmentTab, finishedQuotes, pendingQuotes]);
+  const [cancelForm, setCancelForm] = useState<{
+    title: string;
+    lines: Array<{ line: (typeof fulfillments)[number]; quantity: string }>;
+    reason: string;
+  } | null>(null);
+  const [reverseForm, setReverseForm] = useState<{
+    line: (typeof fulfillments)[number];
+    delivery: (typeof fulfillments)[number]["deliveries"][number];
+    reason: string;
+  } | null>(null);
+  const [undoTarget, setUndoTarget] = useState<{ id: number; label: string } | null>(null);
+  const [correctionError, setCorrectionError] = useState("");
+  const correctionFailed = (fallback: string) => (error: { message: string }) => setCorrectionError(getFormErrorMessage(error, fallback));
+  const cancelRemainder = trpc.inventory.cancelRemainder.useMutation({
+    onSuccess: () => {
+      refresh();
+      setCancelForm(null);
+      toast.success("Saldo cancelado. Confira a cobrança no Financeiro.");
+    },
+    onError: correctionFailed("Não foi possível cancelar o saldo. Atualize a página e tente novamente."),
+  });
+  const undoCancellation = trpc.inventory.undoCancellation.useMutation({
+    onSuccess: () => {
+      refresh();
+      setUndoTarget(null);
+      toast.success("Cancelamento desfeito. O item voltou a ficar pendente.");
+    },
+    onError: error => {
+      setUndoTarget(null);
+      toast.error(getFormErrorMessage(error, "Não foi possível desfazer o cancelamento."));
+    },
+  });
+  const reverseDelivery = trpc.inventory.reverseDelivery.useMutation({
+    onSuccess: () => {
+      refresh();
+      setReverseForm(null);
+      toast.success("Retirada estornada. O item voltou a ficar pendente.");
+    },
+    onError: correctionFailed("Não foi possível estornar a retirada. Atualize a página e tente novamente."),
+  });
+  const cancelQuantity = (value: string) => Number(value.replace(",", "."));
+  const cancelAmount = cancelForm ? cancelForm.lines.reduce((sum, entry) => sum + (cancelQuantity(entry.quantity) || 0) * entry.line.unitPrice, 0) : 0;
+  const cancelValid = Boolean(cancelForm && cancelForm.reason.trim().length >= 3 && cancelForm.lines.every(entry => cancelQuantity(entry.quantity) > 0 && cancelQuantity(entry.quantity) <= entry.line.pendingQuantity));
+  const openCancel = (title: string, lines: typeof fulfillments) => {
+    setCorrectionError("");
+    setCancelForm({ title, lines: lines.map(line => ({ line, quantity: String(line.pendingQuantity) })), reason: "" });
+  };
   const [deliverAllGroup, setDeliverAllGroup] = useState<
     (typeof pendingQuotes)[number] | null
   >(null);
@@ -369,7 +424,7 @@ export default function InventoryPage() {
               Itens pendentes de entrega
             </p>
             <p className="mt-1 font-display text-2xl font-bold">
-              {pendingQuotes.reduce((sum, group) => sum + group.lines.length, 0)}
+              {pendingQuotes.reduce((sum, group) => sum + group.pendingLines.length, 0)}
             </p>
           </CardContent>
         </Card>
@@ -626,9 +681,25 @@ export default function InventoryPage() {
                   Tentar novamente
                 </Button>
               </div>
-            ) : pendingQuotes.length ? (
+            ) : (
               <div className="space-y-4">
-                {pendingQuotes.map(group => (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="flex gap-2" role="tablist" aria-label="Retiradas">
+                    {([["pending", `Com saldo (${pendingQuotes.length})`], ["finished", `Concluídos (${finishedQuotes.length})`]] as const).map(([value, label]) => (
+                      <Button key={value} role="tab" aria-selected={fulfillmentTab === value} size="sm" variant={fulfillmentTab === value ? "default" : "outline"} onClick={() => setFulfillmentTab(value)}>
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  <Input
+                    aria-label="Buscar retirada por cliente ou orçamento"
+                    className="sm:ml-auto sm:max-w-xs"
+                    placeholder="Cliente ou nº do orçamento"
+                    value={fulfillmentSearch}
+                    onChange={event => setFulfillmentSearch(event.target.value)}
+                  />
+                </div>
+                {visibleGroups.map(group => (
                   <div
                     key={group.quoteId}
                     className="overflow-hidden rounded-xl border border-border/70"
@@ -640,28 +711,35 @@ export default function InventoryPage() {
                           {group.clientName || "Cliente não informado"}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {plural(group.lines.length, "item pendente", "itens pendentes")}
+                          {group.pendingLines.length
+                            ? plural(group.pendingLines.length, "item pendente", "itens pendentes")
+                            : "Nada pendente"}
                           {group.shortageCount
                             ? ` · ${plural(group.shortageCount, "aguardando compra", "aguardando compra")}`
                             : ""}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/estoque/conferencia/${group.quoteId}`}>
-                            <ScanBarcode className="mr-2 h-4 w-4" />
-                            Conferir com leitor
-                          </Link>
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={!group.deliverableCount}
-                          onClick={() => setDeliverAllGroup(group)}
-                        >
-                          <PackageCheck className="mr-2 h-4 w-4" />
-                          Retirar tudo
-                        </Button>
-                      </div>
+                      {group.pendingLines.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => openCancel(`Cancelar todo o saldo do orçamento #${group.quoteNumber}`, group.pendingLines)}>
+                            Cancelar saldo
+                          </Button>
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/estoque/conferencia/${group.quoteId}`}>
+                              <ScanBarcode className="mr-2 h-4 w-4" />
+                              Conferir com leitor
+                            </Link>
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={!group.deliverableCount}
+                            onClick={() => setDeliverAllGroup(group)}
+                          >
+                            <PackageCheck className="mr-2 h-4 w-4" />
+                            Retirar tudo
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="divide-y divide-border">
                       {group.lines.map(line => (
@@ -677,86 +755,225 @@ export default function InventoryPage() {
                               {line.roomName} · entregue{" "}
                               {line.deliveredQuantity} de {line.orderedQuantity}{" "}
                               {line.unit}
+                              {line.cancelledQuantity ? ` · ${line.cancelledQuantity} cancelado` : ""}
                             </p>
-                            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                              {line.productId ? (
+                            {line.pendingQuantity > 0 ? (
+                              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                                {line.productId ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                  >
+                                    Reservado: {line.reservedQuantity}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary">
+                                    Item avulso, sem estoque
+                                  </Badge>
+                                )}
                                 <Badge
                                   variant="secondary"
-                                  className="bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                  className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                                 >
-                                  Reservado: {line.reservedQuantity}
+                                  Pode retirar: {line.deliverableQuantity}
                                 </Badge>
-                              ) : (
-                                <Badge variant="secondary">
-                                  Item avulso, sem estoque
-                                </Badge>
-                              )}
-                              <Badge
-                                variant="secondary"
-                                className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                              >
-                                Pode retirar: {line.deliverableQuantity}
-                              </Badge>
-                              {line.shortageQuantity > 0 ? (
-                                <Badge
-                                  variant="secondary"
-                                  className="bg-rose-500/10 text-rose-700 dark:text-rose-300"
-                                >
-                                  <ShoppingCart className="mr-1 h-3 w-3" />
-                                  Falta comprar: {line.shortageQuantity}
-                                </Badge>
-                              ) : null}
-                            </div>
-                            {line.deliveries.length ? (
+                                {line.shortageQuantity > 0 ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                                  >
+                                    <ShoppingCart className="mr-1 h-3 w-3" />
+                                    Falta comprar: {line.shortageQuantity}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {line.deliveries.length || line.cancellations.length ? (
                               <details className="mt-2 text-xs text-muted-foreground">
                                 <summary className="cursor-pointer">
-                                  Ver{" "}
-                                  {plural(line.deliveries.length, "retirada registrada", "retiradas registradas")}
+                                  Ver histórico ({line.deliveries.length + line.cancellations.length})
                                 </summary>
                                 <div className="mt-2 space-y-1 rounded-lg bg-muted/50 p-2">
                                   {line.deliveries.map(delivery => (
-                                    <p key={delivery.id}>
-                                      {dateOnly(delivery.deliveredAt)} ·{" "}
-                                      {delivery.deliveredQuantity} {line.unit}
-                                      {delivery.responsible
-                                        ? ` · ${delivery.responsible}`
-                                        : ""}
-                                    </p>
+                                    <div key={`d${delivery.id}`} className="flex flex-wrap items-center gap-2">
+                                      <p className={delivery.reversedAt ? "line-through" : ""}>
+                                        Retirada: {dateOnly(delivery.deliveredAt)} ·{" "}
+                                        {delivery.deliveredQuantity} {line.unit}
+                                        {delivery.responsible
+                                          ? ` · ${delivery.responsible}`
+                                          : ""}
+                                      </p>
+                                      {delivery.reversedAt ? (
+                                        <span>Estornada em {dateOnly(delivery.reversedAt)}: {delivery.reversalReason}</span>
+                                      ) : (
+                                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => { setCorrectionError(""); setReverseForm({ line, delivery, reason: "" }); }}>
+                                          Estornar
+                                        </Button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {line.cancellations.map(cancellation => (
+                                    <div key={`c${cancellation.id}`} className="flex flex-wrap items-center gap-2">
+                                      <p className={cancellation.undoneAt ? "line-through" : ""}>
+                                        Saldo cancelado: {dateOnly(cancellation.cancelledAt)} ·{" "}
+                                        {cancellation.quantity} {line.unit} · {cancellation.reason}
+                                      </p>
+                                      {cancellation.undoneAt ? (
+                                        <span>Desfeito em {dateOnly(cancellation.undoneAt)}</span>
+                                      ) : (
+                                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setUndoTarget({ id: cancellation.id, label: `${cancellation.quantity} ${line.unit} de ${line.shortDescription}` })}>
+                                          Desfazer
+                                        </Button>
+                                      )}
+                                    </div>
                                   ))}
                                 </div>
                               </details>
                             ) : null}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={line.deliverableQuantity <= 0}
-                            onClick={() => openDelivery(line)}
-                          >
-                            <ArrowUpFromLine className="mr-2 h-4 w-4" />
-                            Registrar retirada
-                          </Button>
+                          {line.pendingQuantity > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => openCancel(`Cancelar saldo de ${line.shortDescription}`, [line])}>
+                                Cancelar saldo
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={line.deliverableQuantity <= 0}
+                                onClick={() => openDelivery(line)}
+                              >
+                                <ArrowUpFromLine className="mr-2 h-4 w-4" />
+                                Registrar retirada
+                              </Button>
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                     </div>
                   </div>
                 ))}
-              </div>
-            ) : (
-              <div className="py-10 text-center">
-                <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
-                <p className="mt-3 text-sm font-semibold">
-                  Não há itens pendentes de retirada.
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Os itens de orçamentos aprovados aparecem aqui até serem
-                  entregues por completo.
-                </p>
+                {!visibleGroups.length ? (
+                  <div className="py-10 text-center">
+                    <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
+                    <p className="mt-3 text-sm font-semibold">
+                      {fulfillmentSearch.trim()
+                        ? "Nenhum orçamento encontrado nesta lista."
+                        : fulfillmentTab === "pending"
+                          ? "Não há itens pendentes de retirada."
+                          : "Nenhum orçamento concluído ainda."}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Os itens de orçamentos aprovados aparecem aqui até serem
+                      entregues por completo.
+                    </p>
+                  </div>
+                ) : null}
               </div>
             )}
           </CardContent>
         </Card>
       </section>
+      <Dialog open={Boolean(cancelForm)} onOpenChange={open => !open && setCancelForm(null)}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{cancelForm?.title}</DialogTitle>
+            <DialogDescription>
+              Para o que o cliente não vai mais retirar. O saldo sai de
+              Retiradas, Separação e Compras, e a reserva fica livre.
+            </DialogDescription>
+          </DialogHeader>
+          <FormError message={correctionError} />
+          {cancelForm ? (
+            <div className="space-y-4">
+              {cancelForm.lines.map((entry, index) => (
+                <div key={entry.line.quoteItemId} className="flex items-end gap-3">
+                  <p className="min-w-0 flex-1 text-sm">
+                    <b className="block truncate">{entry.line.shortDescription}</b>
+                    <span className="text-xs text-muted-foreground">{entry.line.roomName} · pendente: {entry.line.pendingQuantity} {entry.line.unit}</span>
+                  </p>
+                  <Input
+                    aria-label={`Quantidade a cancelar de ${entry.line.shortDescription}`}
+                    className="w-24"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={entry.line.pendingQuantity}
+                    value={entry.quantity}
+                    onChange={event => setCancelForm({ ...cancelForm, lines: cancelForm.lines.map((other, otherIndex) => (otherIndex === index ? { ...other, quantity: event.target.value } : other)) })}
+                  />
+                </div>
+              ))}
+              <div className="space-y-2">
+                <Label htmlFor="cancel-reason">Motivo *</Label>
+                <Textarea id="cancel-reason" rows={2} placeholder="Ex.: cliente desistiu do restante" value={cancelForm.reason} onChange={event => setCancelForm({ ...cancelForm, reason: event.target.value })} />
+              </div>
+              <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+                Valor dos itens cancelados: <b>{money(cancelAmount)}</b>, sem
+                considerar desconto e frete. O Financeiro não muda sozinho:
+                estorne ou cancele a cobrança lá, se for o caso.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setCancelForm(null)}>Voltar</Button>
+                <AsyncButton
+                  pending={cancelRemainder.isPending}
+                  loadingLabel="Cancelando…"
+                  disabled={!cancelValid}
+                  onClick={() => cancelRemainder.mutate({
+                    quoteId: cancelForm.lines[0]!.line.quoteId,
+                    reason: cancelForm.reason,
+                    lines: cancelForm.lines.map(entry => ({ quoteItemId: entry.line.quoteItemId, quantity: cancelQuantity(entry.quantity) })),
+                  })}
+                >
+                  Cancelar saldo
+                </AsyncButton>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(reverseForm)} onOpenChange={open => !open && setReverseForm(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Estornar retirada</DialogTitle>
+            <DialogDescription>
+              {reverseForm ? `${reverseForm.delivery.deliveredQuantity} ${reverseForm.line.unit} de ${reverseForm.line.shortDescription}, retirada em ${dateOnly(reverseForm.delivery.deliveredAt)}.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <FormError message={correctionError} />
+          {reverseForm ? (
+            <div className="space-y-4">
+              <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+                {reverseForm.line.productId
+                  ? "Para retirada lançada por engano: a peça volta ao estoque e o item volta a ficar pendente. Se o cliente levou e devolveu, use o Pós-venda."
+                  : "Para retirada lançada por engano: o item volta a ficar pendente. Se o cliente levou e devolveu, use o Pós-venda."}
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="reverse-reason">Motivo *</Label>
+                <Textarea id="reverse-reason" rows={2} placeholder="Ex.: lançada no orçamento errado" value={reverseForm.reason} onChange={event => setReverseForm({ ...reverseForm, reason: event.target.value })} />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setReverseForm(null)}>Voltar</Button>
+                <AsyncButton
+                  pending={reverseDelivery.isPending}
+                  loadingLabel="Estornando…"
+                  disabled={reverseForm.reason.trim().length < 3}
+                  onClick={() => reverseDelivery.mutate({ deliveryId: reverseForm.delivery.id, reason: reverseForm.reason })}
+                >
+                  Estornar retirada
+                </AsyncButton>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={undoTarget !== null}
+        onOpenChange={open => !open && setUndoTarget(null)}
+        title="Desfazer o cancelamento?"
+        description={undoTarget ? `${undoTarget.label} volta a ficar pendente e reserva o que houver livre no estoque.` : ""}
+        confirmLabel="Desfazer cancelamento"
+        onConfirm={() => undoTarget && undoCancellation.mutate({ id: undoTarget.id })}
+      />
       <ConfirmDialog
         open={deliverAllGroup !== null}
         onOpenChange={open => !open && setDeliverAllGroup(null)}

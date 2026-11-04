@@ -14,6 +14,7 @@ import {
   getQuote,
   getSettings,
   getPickingList,
+  quoteLockInfo,
   registerFollowUp,
   getProduct,
   importBackup,
@@ -28,7 +29,7 @@ import {
   saveQuote,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement } from "../stockDb";
+import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation } from "../stockDb";
 import { isCentQuantity } from "../../shared/stock";
 import { canAccess, canSeeCost, USER_ROLES } from "../../shared/permissions";
 import { abcReport, staleStockReport } from "../turnoverDb";
@@ -85,6 +86,7 @@ const clientInput = z.object({
 });
 
 const deliveryQuantity = z.coerce.number().positive().max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade");
+const correctionReason = z.string().trim().min(3, "Informe o motivo").max(500);
 const deliveryMeta = { responsible: nullableText, notes: nullableText, deliveredAt: z.coerce.date() };
 
 async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, results: Array<{ quoteItemId: number }>, responsible?: string | null) {
@@ -285,6 +287,7 @@ export const businessRouter = router({
       )
       .query(({ input }) => listQuotesPaged(input ?? {})),
     get: areaProcedure("quotes", "pdfs").input(z.object({ id: z.number().int().positive() })).query(({ input }) => getQuote(input.id)),
+    lockInfo: areaProcedure("quotes").input(z.object({ id: z.number().int().positive() })).query(({ input }) => quoteLockInfo(input.id)),
     create: areaProcedure("quotes").mutation(async ({ ctx }) => {
       const created = await createQuote(ctx.user.id);
       if (created) await log(ctx, { action: "quote.create", entityType: "quote", entityId: created.id, summary: `Criou o orçamento #${created.quoteNumber}` });
@@ -501,6 +504,25 @@ export const businessRouter = router({
       const results = await deliverAllAvailable(input);
       await logDelivery(ctx, input.quoteId, results, input.responsible);
       return results;
+    }),
+    cancelRemainder: areaProcedure("stock").input(z.object({
+      quoteId: z.number().int().positive(),
+      lines: z.array(z.object({ quoteItemId: z.number().int().positive(), quantity: deliveryQuantity })).min(1).max(500),
+      reason: correctionReason,
+    })).mutation(async ({ ctx, input }) => {
+      const result = await cancelRemainder(input, ctx.user.id);
+      await log(ctx, { action: "stock.cancel_remainder", entityType: "stock", entityId: input.quoteId, summary: `Cancelou saldo de ${plural(input.lines.length, "item", "itens")} do orçamento #${result.quoteNumber}${result.clientName ? ` (${result.clientName})` : ""}: ${brl(result.amount)}`, details: { motivo: input.reason } });
+      return result;
+    }),
+    undoCancellation: areaProcedure("stock").input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const result = await undoCancellation(input.id, ctx.user.id);
+      await log(ctx, { action: "stock.undo_cancel", entityType: "stock", entityId: input.id, summary: `Desfez o cancelamento de ${result.quantity} no orçamento #${result.quoteNumber}${result.clientName ? ` (${result.clientName})` : ""}` });
+      return result;
+    }),
+    reverseDelivery: areaProcedure("stock").input(z.object({ deliveryId: z.number().int().positive(), reason: correctionReason, responsible: nullableText })).mutation(async ({ ctx, input }) => {
+      const result = await reverseDelivery(input, ctx.user.id);
+      await log(ctx, { action: "stock.reverse_delivery", entityType: "stock", entityId: input.deliveryId, summary: `Estornou a retirada de ${result.quantity} do orçamento #${result.quoteNumber}${result.clientName ? ` (${result.clientName})` : ""}`, details: { motivo: input.reason } });
+      return result;
     }),
   }),
   agenda: router({

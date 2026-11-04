@@ -27,13 +27,18 @@ export function dueDateForInstallment(firstDueDate: Date, installmentNumber: num
   return dueDate;
 }
 
+// Dia no fuso da loja ("2026-11-04"), para comparar datas: a parcela vence no
+// fim do dia, e não na hora gravada, seja qual for o fuso do servidor.
+const DAY_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+export const businessDay = (date: Date) => DAY_FORMAT.format(date);
+
 export function calculateReceivableStatus(input: { originalAmount: number; receivedAmount: number; cancelled: boolean; dueDate: Date; now?: Date }): FinanceStatus {
   if (input.cancelled) return "cancelled";
   const remaining = roundMoney(input.originalAmount - input.receivedAmount);
   if (remaining <= 0) return "paid";
   // Vencimento vem antes de "parcial": uma parcela paga em parte e já
   // vencida continua em atraso (e entra no total "Em atraso").
-  if (input.dueDate.getTime() < (input.now ?? new Date()).getTime()) return "overdue";
+  if (businessDay(input.dueDate) < businessDay(input.now ?? new Date())) return "overdue";
   if (input.receivedAmount > 0) return "partial";
   return "open";
 }

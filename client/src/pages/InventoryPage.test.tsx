@@ -27,6 +27,9 @@ vi.mock("@/lib/trpc", () => ({
       move: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       deliver: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       deliverAll: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      cancelRemainder: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      undoCancellation: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
+      reverseDelivery: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
     },
   },
 }));
@@ -83,7 +86,7 @@ describe("InventoryPage", () => {
         quoteId: 1, quoteNumber: 55, clientName: "Cliente Teste", phone: null, approved: true,
         quoteItemId: 900, roomName: "SALA", productId: 10, barcode: null, code: "1", shortDescription: "Perfil de LED", fullDescription: null, unit: "UN", supplierName: null,
         orderedQuantity: 10, deliveredQuantity: 0, pendingQuantity: 10, reservedQuantity: 10, deliverableQuantity: 10, shortageQuantity: 0,
-        stockQuantity: 10, availableQuantity: 0, deliveries: [],
+        stockQuantity: 10, availableQuantity: 0, unitPrice: 10, cancelledQuantity: 0, deliveries: [], cancellations: [],
       },
     ];
     render(<InventoryPage />);
@@ -101,7 +104,7 @@ describe("InventoryPage", () => {
         quoteId: 2, quoteNumber: 70, clientName: "Marina", phone: null, approved: true,
         quoteItemId: 901, roomName: "SALA", productId: 11, barcode: null, code: "2", shortDescription: "Spot", fullDescription: null, unit: "UN", supplierName: "Fornecedor",
         orderedQuantity: 6, deliveredQuantity: 0, pendingQuantity: 6, reservedQuantity: 0, deliverableQuantity: 0, shortageQuantity: 6,
-        stockQuantity: 0, availableQuantity: 0, deliveries: [],
+        stockQuantity: 0, availableQuantity: 0, unitPrice: 10, cancelledQuantity: 0, deliveries: [], cancellations: [],
       },
     ];
     render(<InventoryPage />);

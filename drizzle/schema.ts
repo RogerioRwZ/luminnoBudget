@@ -215,8 +215,30 @@ export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   responsible: varchar("responsible", { length: 240 }),
   notes: text("notes"),
   stockMovementId: int("stockMovementId"),
+  // Estorno: a retirada lançada por engano fica no histórico, marcada, e deixa
+  // de contar como entregue.
+  reversedAt: timestamp("reversedAt"),
+  reversalReason: text("reversalReason"),
+  reversedByUserId: int("reversedByUserId"),
+  reversalMovementId: int("reversalMovementId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("quoteItemDeliveries_quoteId_idx").on(table.quoteId), index("quoteItemDeliveries_quoteItemId_idx").on(table.quoteItemId)]);
+
+// Saldo que o cliente não vai mais retirar. Pendente = pedido − retirado −
+// cancelado (sem desfazer). Não mexe no Financeiro nem no total da venda.
+export const quoteItemCancellations = mysqlTable("quoteItemCancellations", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull(),
+  quoteItemId: int("quoteItemId").notNull(),
+  productId: int("productId"),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
+  reason: text("reason").notNull(),
+  createdByUserId: int("createdByUserId"),
+  cancelledAt: timestamp("cancelledAt").notNull().defaultNow(),
+  undoneAt: timestamp("undoneAt"),
+  undoneByUserId: int("undoneByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("quoteItemCancellations_quoteId_idx").on(table.quoteId), index("quoteItemCancellations_quoteItemId_idx").on(table.quoteItemId)]);
 
 export const quoteVersions = mysqlTable("quoteVersions", {
   id: int("id").autoincrement().primaryKey(),
