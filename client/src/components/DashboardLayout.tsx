@@ -39,6 +39,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "./ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { useEffect } from "react";
 
 const menuItems = [
@@ -84,23 +85,47 @@ function sidebarStartsOpen() {
   }
 }
 
-// No computador, clicar no conteúdo com a barra aberta recolhe para os ícones
-// (no celular ela já é uma gaveta que fecha ao tocar fora).
+// No computador, clicar no conteúdo ou teclar Esc com a barra aberta recolhe
+// para os ícones (no celular ela já é uma gaveta que fecha ao tocar fora).
+// Espera o clique terminar: recolher ao apertar o botão do mouse desloca a
+// página sob o ponteiro, e o clique cairia fora do que a pessoa mirou.
 function CollapseSidebarOnOutsideClick() {
   const { isMobile, open, setOpen } = useSidebar();
   useEffect(() => {
     if (isMobile || !open) return;
-    const onPointerDown = (event: PointerEvent) => {
+    const onClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       // Só o conteúdo da página: diálogos e menus abrem fora dele, e o botão
       // da barra cuida de si.
       if (!target?.closest("[data-slot=sidebar-inset]") || target.closest("[data-sidebar=trigger]")) return;
+      // Selecionando texto para copiar: mexer na página desfaria a seleção.
+      if (window.getSelection()?.isCollapsed === false) return;
       setOpen(false);
     };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Com janela ou lista aberta, o Esc é dela.
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[role=dialog], [role=alertdialog], [role=listbox], [role=menu]")) return;
+      setOpen(false);
+    };
+    document.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [isMobile, open, setOpen]);
   return null;
+}
+
+// Nome do botão quando a barra está só com os ícones.
+function CollapsedTooltip({ label, children }: { label: string; children: React.ReactElement }) {
+  const { isMobile, state } = useSidebar();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" align="center" hidden={state !== "collapsed" || isMobile}>{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 type LocalUser ={ id: number; username: string; name: string | null; role: UserRole };
@@ -111,30 +136,30 @@ type DashboardLayoutProps = {
   onLoggedOut?: () => void;
 };
 
-export default function DashboardLayout({ children, user, onLoggedOut = () => window.location.replace("/") }: DashboardLayoutProps) {
-  const [location, setLocation] = useLocation();
+function AppSidebar({ user, displayName, location, setLocation, onLogout }: { user: LocalUser; displayName: string; location: string; setLocation: (path: string) => void; onLogout: () => void }) {
   const { theme, toggleTheme } = useTheme();
-  const { data: currentUser } = trpc.auth.me.useQuery();
-  const utils = trpc.useUtils();
-  const logout = trpc.auth.logout.useMutation({ onSuccess: async () => {
-    await Promise.all([utils.auth.status.invalidate(), utils.auth.me.invalidate()]);
-    onLoggedOut();
-  } });
+  const { isMobile, open, openMobile, setOpenMobile } = useSidebar();
   const isAdmin = user.role === "admin";
   const allowedItems = menuItems.filter((item) => canOpenPage(user.role, item.path));
   const visibleItems = isAdmin ? [...allowedItems, adminItem] : allowedItems;
-  // Título vem de todas as páginas: quem abre uma área fora do perfil vê o nome dela, não "não encontrada".
-  const activeItem = [...menuItems, adminItem].find((item) => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
-  const health = useSystemHealth();
-  const healthState = health.isPending ? "checking" : health.data ? "online" : "offline";
+  const themeLabel = `Tema ${theme === "dark" ? "claro" : "escuro"}`;
+  // No celular a gaveta cobre a página: escolher uma tela fecha a gaveta.
+  const go = (path: string) => {
+    setLocation(path);
+    setOpenMobile(false);
+  };
+  // Em telas baixas o menu rola: a tela atual não pode ficar escondida.
+  useEffect(() => {
+    if (isMobile ? !openMobile : !open) return;
+    const timer = window.setTimeout(() => document.querySelector("[data-sidebar=menu-button][data-active=true]")?.scrollIntoView?.({ block: "nearest" }), 50);
+    return () => window.clearTimeout(timer);
+  }, [isMobile, location, open, openMobile]);
 
   return (
-    <SidebarProvider defaultOpen={sidebarStartsOpen()}>
-      <CollapseSidebarOnOutsideClick />
       <Sidebar collapsible="icon" className="border-r border-sidebar-border">
         <SidebarHeader className="h-[86px] justify-center px-3 group-data-[collapsible=icon]:px-2">
           <button
-            onClick={() => setLocation("/")}
+            onClick={() => go("/")}
             className="flex items-center gap-3 rounded-xl px-2 py-2 text-left outline-none group-data-[collapsible=icon]:p-0 transition hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             aria-label="Ir para o painel Luminno"
           >
@@ -154,7 +179,7 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
               <SidebarMenuItem key={item.path}>
                 <SidebarMenuButton
                   isActive={item.path === "/" ? location === "/" : location.startsWith(item.path)}
-                  onClick={() => setLocation(item.path)}
+                  onClick={() => go(item.path)}
                   tooltip={item.label}
                   className="h-11 rounded-xl px-3 font-medium transition-all"
                 >
@@ -168,23 +193,46 @@ export default function DashboardLayout({ children, user, onLoggedOut = () => wi
         <SidebarFooter className="gap-3 p-3 group-data-[collapsible=icon]:p-2">
           {isAdmin ? (
             <button
-              onClick={() => setLocation("/configuracoes#backup")}
+              onClick={() => go("/configuracoes#backup")}
               className="rounded-xl border border-sidebar-border bg-sidebar-accent/50 p-3 text-left text-xs transition hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:hidden"
             >
               <span className="mb-1 flex items-center gap-2 font-semibold"><ArchiveRestore className="h-3.5 w-3.5 text-primary" /> Backup manual</span>
               <span className="block leading-relaxed text-muted-foreground">Baixe uma cópia de todos os dados da loja.</span>
             </button>
           ) : null}
+          <CollapsedTooltip label={themeLabel}>
           <button
             onClick={toggleTheme}
+            aria-label={themeLabel}
             className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-sidebar-foreground transition hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
             {theme === "dark" ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
-            <span className="group-data-[collapsible=icon]:hidden">Tema {theme === "dark" ? "claro" : "escuro"}</span>
+            <span className="group-data-[collapsible=icon]:hidden">{themeLabel}</span>
           </button>
-          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"><div className="min-w-0 group-data-[collapsible=icon]:hidden"><p className="truncate font-semibold">{currentUser?.name || user.name || user.username}</p><p className="truncate text-muted-foreground">@{user.username} · {ROLE_LABELS[user.role] ?? user.role}</p></div><button onClick={() => logout.mutate()} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground" aria-label="Sair do sistema"><LogOut className="h-4 w-4" /></button></div>
+          </CollapsedTooltip>
+          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"><div className="min-w-0 group-data-[collapsible=icon]:hidden"><p className="truncate font-semibold">{displayName}</p><p className="truncate text-muted-foreground">@{user.username} · {ROLE_LABELS[user.role] ?? user.role}</p></div><CollapsedTooltip label="Sair do sistema"><button onClick={onLogout} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground" aria-label="Sair do sistema"><LogOut className="h-4 w-4" /></button></CollapsedTooltip></div>
         </SidebarFooter>
       </Sidebar>
+  );
+}
+
+export default function DashboardLayout({ children, user, onLoggedOut = () => window.location.replace("/") }: DashboardLayoutProps) {
+  const [location, setLocation] = useLocation();
+  const { data: currentUser } = trpc.auth.me.useQuery();
+  const utils = trpc.useUtils();
+  const logout = trpc.auth.logout.useMutation({ onSuccess: async () => {
+    await Promise.all([utils.auth.status.invalidate(), utils.auth.me.invalidate()]);
+    onLoggedOut();
+  } });
+  // Título vem de todas as páginas: quem abre uma área fora do perfil vê o nome dela, não "não encontrada".
+  const activeItem = [...menuItems, adminItem].find((item) => item.path === location || (item.path !== "/" && location.startsWith(item.path)));
+  const health = useSystemHealth();
+  const healthState = health.isPending ? "checking" : health.data ? "online" : "offline";
+
+  return (
+    <SidebarProvider defaultOpen={sidebarStartsOpen()}>
+      <CollapseSidebarOnOutsideClick />
+      <AppSidebar user={user} displayName={currentUser?.name || user.name || user.username} location={location} setLocation={setLocation} onLogout={() => logout.mutate()} />
       <SidebarInset className="min-h-screen min-w-0 bg-background">
         <header className="sticky top-0 z-30 flex h-[74px] items-center gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur-xl md:px-8">
           <SidebarTrigger className="h-9 w-9 rounded-lg border border-border bg-card" />
