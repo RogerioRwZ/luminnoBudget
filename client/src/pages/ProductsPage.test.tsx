@@ -62,6 +62,27 @@ describe("ProductsPage", () => {
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ reference: "LM-2/PT", barcode: "7890000000017" }));
   });
 
+  it("cadastra com a quantidade em estoque e a unidade da lista", () => {
+    mocks.list.data = [];
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo produto" }));
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "FITA-1" } });
+    fireEvent.change(screen.getByLabelText("Descrição curta (vai para o orçamento)"), { target: { value: "Fita" } });
+    fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "M" } });
+    fireEvent.change(screen.getByLabelText("Quantidade em estoque (M)"), { target: { value: "15,5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
+    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ unit: "M", initialStock: 15.5 }));
+  });
+
+  it("aceita outra unidade digitada", () => {
+    mocks.list.data = [];
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo produto" }));
+    fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "__outra" } });
+    fireEvent.change(screen.getByLabelText("Outra unidade"), { target: { value: "barra" } });
+    expect((screen.getByLabelText("Outra unidade") as HTMLInputElement).value).toBe("BARRA");
+  });
+
   it("o cadastro não tem mais variações, e o próximo produto novo abre em branco", () => {
     mocks.list.data = [];
     render(<ProductsPage />);

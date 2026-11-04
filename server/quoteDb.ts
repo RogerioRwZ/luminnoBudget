@@ -37,7 +37,7 @@ import { getDb, LOCKED_READS, retryOnDeadlock } from "./db";
 import { commissionRateFor } from "./reportsDb";
 import { createReceivablesFromQuote, financeOverview, releaseQuoteReceivables } from "./financeDb";
 import { parseEntryOffer, parsePaymentPlan, validatePaymentPlan, type EntryOffer, type PaymentPlan } from "../shared/paymentPlan";
-import { allocatePendingReservations, fulfillmentLines } from "./stockDb";
+import { allocatePendingReservations, fulfillmentLines, moveStock } from "./stockDb";
 import { matchesClientSearch } from "../shared/contact";
 
 export type QuoteDraft = {
@@ -227,6 +227,10 @@ export async function saveProduct(input: {
   // undefined mantém a garantia gravada; null volta para a padrão da loja.
   warrantyMonths?: number | null;
   active: boolean;
+  // Só no cadastro: o saldo de partida entra como movimentação de entrada,
+  // para aparecer no histórico como qualquer outra.
+  initialStock?: number;
+  responsible?: string | null;
 }) {
   const db = await database();
   // Campos não enviados mantêm o que já estava gravado.
@@ -269,6 +273,7 @@ export async function saveProduct(input: {
     await tx.execute(sql`SELECT id FROM ${products} FOR UPDATE`);
     const existingCodes = await tx.select({ code: products.code }).from(products);
     const inserted = await tx.insert(products).values({ ...values, code: nextProductCode(existingCodes.map((product) => product.code)), stockQuantity: "0.00" }).$returningId();
+    if (input.initialStock) await moveStock(tx, { productId: inserted[0]!.id, type: "entry", quantity: input.initialStock, occurredAt: new Date(), responsible: input.responsible || null, notes: "Estoque inicial no cadastro do produto" });
     return inserted[0]!.id;
   }));
 }

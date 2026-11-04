@@ -150,6 +150,7 @@ const productInput = z.object({
   reorderPoint: money,
   warrantyMonths: z.coerce.number().int().min(0).max(120).nullable().optional(),
   active: z.boolean().default(true),
+  initialStock: z.coerce.number().min(0, "O estoque inicial não pode ser negativo.").max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais no estoque inicial.").optional(),
 });
 
 const quoteItemInput = z
@@ -244,19 +245,22 @@ export const businessRouter = router({
     list: protectedProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProducts(input?.search)),
     save: areaProcedure("catalog").input(productInput).mutation(async ({ ctx, input }) => {
       const before = input.id ? await getProduct(input.id) : null;
+      // Lançar estoque continua sendo de quem tem acesso ao Estoque.
+      if (input.initialStock && !canAccess(ctx.user.role, "stock")) throw new TRPCError({ code: "FORBIDDEN", message: "Seu perfil não lança estoque. Peça à expedição para registrar a entrada." });
+      if (input.initialStock && input.id) throw new TRPCError({ code: "BAD_REQUEST", message: "O saldo de um produto já cadastrado muda em Estoque > Movimentar estoque." });
       // Quem não vê o custo também não pode alterá-lo. Ao duplicar um produto,
       // a cópia leva o custo do original mesmo assim.
       const { copyCostFrom, ...fields } = input;
       const copied = copyCostFrom && !input.id && !canSeeCost(ctx.user.role) ? await getProduct(copyCostFrom) : null;
       const costPrice = canSeeCost(ctx.user.role) ? input.costPrice : copied?.costPrice != null ? Number(copied.costPrice) : undefined;
-      const id = await saveProduct({ ...fields, costPrice, imageUrl: input.imageUrl || null }).catch((error) => {
+      const id = await saveProduct({ ...fields, costPrice, imageUrl: input.imageUrl || null, responsible: ctx.user.name || ctx.user.username }).catch((error) => {
         // Dois cadastros ao mesmo tempo com a mesma referência ou código de barras.
         if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Esta referência ou código de barras acabou de ser usado em outro produto." });
         throw error;
       });
       const saved = (await getProduct(id))!;
       if (!before) {
-        await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})` });
+        await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})${input.initialStock ? `, com estoque inicial de ${input.initialStock} ${saved.unit}` : ""}` });
       } else {
         const changes = changedFields(before as Record<string, unknown>, saved as Record<string, unknown>, ["reference", "barcode", "shortDescription", "unitPrice", "costPrice", "reorderPoint", "warrantyMonths", "supplierName", "unit", "active"]);
         if (Object.keys(changes).length) {

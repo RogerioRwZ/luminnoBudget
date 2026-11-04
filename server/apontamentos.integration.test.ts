@@ -54,6 +54,28 @@ describe("unidade e estoque", () => {
     expect(saved.rooms[0]!.items[0]!.unit).toBe("UN");
   }, 20_000);
 
+  it("estoque inicial entra como movimentação e só no cadastro", async () => {
+    const id = await admin.product.save({ reference: reference(), shortDescription: "Com estoque", unit: "M", unitPrice: 10, reorderPoint: 0, active: true, initialStock: 15.5 });
+    productIds.push(id);
+    const row = (await admin.inventory.overview()).products.find((product) => product.id === id)!;
+    expect(row).toMatchObject({ stockQuantity: 15.5, unit: "M" });
+    expect((await admin.inventory.overview()).movements.find((movement) => movement.productId === id)).toMatchObject({ type: "entry", quantity: 15.5, beforeQuantity: 0, afterQuantity: 15.5, notes: "Estoque inicial no cadastro do produto" });
+    await expect(admin.product.save({ id, reference: `R${id}`, shortDescription: "Com estoque", unit: "M", unitPrice: 10, reorderPoint: 0, active: true, initialStock: 3 })).rejects.toThrow(/Movimentar estoque/);
+    await expect(admin.product.save({ reference: reference(), shortDescription: "Negativo", unit: "UN", unitPrice: 1, reorderPoint: 0, active: true, initialStock: -1 })).rejects.toThrow();
+    await expect(admin.product.save({ reference: reference(), shortDescription: "Fração", unit: "UN", unitPrice: 1, reorderPoint: 0, active: true, initialStock: 1.555 })).rejects.toThrow();
+  }, 20_000);
+
+  it("Vendas cadastra produto, mas não lança estoque", async () => {
+    const sales = caller("sales");
+    await expect(sales.product.save({ reference: reference(), shortDescription: "Vendas", unit: "UN", unitPrice: 1, reorderPoint: 0, active: true, initialStock: 5 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const id = await sales.product.save({ reference: reference(), shortDescription: "Vendas", unit: "UN", unitPrice: 1, reorderPoint: 0, active: true });
+    productIds.push(id);
+    const stock = caller("stock");
+    const other = await stock.product.save({ reference: reference(), shortDescription: "Expedição", unit: "CX", unitPrice: 1, reorderPoint: 0, active: true, initialStock: 4 });
+    productIds.push(other);
+    expect((await stock.inventory.overview()).products.find((product) => product.id === other)).toMatchObject({ stockQuantity: 4 });
+  }, 20_000);
+
   it("entrada negativa é recusada; ajuste negativo continua valendo", async () => {
     const id = await product(5);
     await expect(admin.inventory.move({ productId: id, type: "entry", quantity: -2, occurredAt: new Date() })).rejects.toThrow(/positiva/);
