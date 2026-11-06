@@ -32,6 +32,7 @@ import {
   saveSettings,
 } from "../quoteDb";
 import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation } from "../stockDb";
+import { ensureSupplier, listSuppliers, renameSupplier } from "../suppliersDb";
 import { isCentQuantity } from "../../shared/stock";
 import { barcodeProblem, normalizeBarcode } from "../../shared/productCodes";
 import { quoteMargin } from "../../shared/margin";
@@ -258,6 +259,8 @@ export const businessRouter = router({
         if (isDuplicateEntry(error)) throw new TRPCError({ code: "CONFLICT", message: "Esta referência ou código de barras acabou de ser usado em outro produto." });
         throw error;
       });
+      // Fornecedor novo digitado no cadastro já fica na lista para os próximos.
+      await ensureSupplier(input.supplierName);
       const saved = (await getProduct(id))!;
       if (!before) {
         await log(ctx, { action: "product.create", entityType: "product", entityId: id, summary: `Cadastrou o produto ${saved.shortDescription} (${brl(input.unitPrice)})${input.initialStock ? `, com estoque inicial de ${input.initialStock} ${saved.unit}` : ""}` });
@@ -301,6 +304,19 @@ export const businessRouter = router({
       const extension = input.mimeType.split("/")[1];
       const safeBase = input.fileName.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
       return saveLocalImage("products", safeBase, input.mimeType, bytes);
+    }),
+  }),
+  suppliers: router({
+    list: areaProcedure("catalog", "stock", "purchases").query(() => listSuppliers()),
+    create: areaProcedure("catalog").input(z.object({ name: z.string().trim().min(1, "Informe o nome do fornecedor").max(240) })).mutation(async ({ ctx, input }) => {
+      await ensureSupplier(input.name);
+      await log(ctx, { action: "supplier.create", entityType: "product", summary: `Cadastrou o fornecedor ${input.name}` });
+      return { name: input.name };
+    }),
+    rename: areaProcedure("catalog").input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(1, "Informe o nome do fornecedor").max(240) })).mutation(async ({ ctx, input }) => {
+      const result = await renameSupplier(input.id, input.name);
+      await log(ctx, { action: "supplier.rename", entityType: "product", entityId: input.id, summary: `Renomeou o fornecedor ${result.before} para ${result.name}` });
+      return result;
     }),
   }),
   quote: router({

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
-import { afterSalesCases, financePayments, financeReceivables, products, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements, storeSettings } from "../drizzle/schema";
+import { eq, inArray, like } from "drizzle-orm";
+import { afterSalesCases, financePayments, financeReceivables, products, quoteItemDeliveries, quoteItemReservations, quoteItems, quoteRooms, quotes, stockMovements, storeSettings, suppliers } from "../drizzle/schema";
 import { getDb } from "./db";
 import { appRouter } from "./routers";
 import { canOpenPage } from "../shared/permissions";
@@ -102,6 +102,39 @@ describe("unidade e estoque", () => {
     const otherRef = (await admin.product.list()).find((row) => row.id === other)!.reference!;
     await expect(admin.product.setBarcode({ productId: id, barcode: "código" })).rejects.toThrow(/só aceita/);
     await expect(admin.product.setBarcode({ productId: id, barcode: otherRef })).rejects.toThrow(/referência do produto/);
+  }, 20_000);
+});
+
+describe("fornecedores", () => {
+  const db = () => getDb().then((value) => value!);
+  afterEach(async () => { await (await db()).delete(suppliers).where(like(suppliers.name, "Forn Teste%")); });
+
+  it("produto com fornecedor novo entra na lista, sem repetir", async () => {
+    const save = (supplierName: string) => admin.product.save({ reference: reference(), shortDescription: "Com fornecedor", unit: "UN", unitPrice: 1, reorderPoint: 0, active: true, supplierName }).then((id) => { productIds.push(id); });
+    await save("Forn Teste Um");
+    await save("forn teste um");
+    const found = (await admin.suppliers.list()).filter((row) => row.name.toLowerCase() === "forn teste um");
+    expect(found).toHaveLength(1);
+    expect(found[0]!.productCount).toBe(2);
+  }, 20_000);
+
+  it("renomear atualiza os produtos e recusa nome já usado", async () => {
+    const id = await admin.product.save({ reference: reference(), shortDescription: "Com fornecedor", unit: "UN", unitPrice: 1, reorderPoint: 0, active: true, supplierName: "Forn Teste Antigo" });
+    productIds.push(id);
+    await admin.suppliers.create({ name: "Forn Teste Outro" });
+    const row = (await admin.suppliers.list()).find((entry) => entry.name === "Forn Teste Antigo")!;
+    await expect(admin.suppliers.rename({ id: row.id, name: "forn teste outro" })).rejects.toThrow(/Já existe/);
+    await admin.suppliers.rename({ id: row.id, name: "Forn Teste Novo" });
+    expect((await admin.product.list()).find((product) => product.id === id)!.supplierName).toBe("Forn Teste Novo");
+    await expect(caller("finance").suppliers.rename({ id: row.id, name: "X" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  }, 20_000);
+});
+
+describe("horários", () => {
+  it("registro de atividades guarda a hora atual, em qualquer fuso do banco", async () => {
+    await product();
+    const entry = (await admin.activity.list({ pageSize: 1 })).entries[0]!;
+    expect(Math.abs(Date.now() - new Date(entry.createdAt).getTime())).toBeLessThan(60_000);
   }, 20_000);
 });
 

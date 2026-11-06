@@ -1,3 +1,4 @@
+import { plural } from "@shared/plural";
 import { ExpandableText } from "@/components/ExpandableText";
 import { parseDecimalInput } from "@/components/MoneyInput";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
@@ -128,6 +129,7 @@ export default function ProductsPage() {
     onSuccess: () => {
       utils.product.list.invalidate();
       utils.inventory.invalidate();
+      utils.suppliers.invalidate();
       setFormError("");
       removeDraft(`product-${form.id ?? "new"}`);
       toast.success("Produto salvo com sucesso");
@@ -163,6 +165,20 @@ export default function ProductsPage() {
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState("");
   const [otherUnit, setOtherUnit] = useState(false);
+  const [newSupplier, setNewSupplier] = useState(false);
+  const [supplierEdit, setSupplierEdit] = useState<string | null>(null);
+  const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
+  const renameSupplier = trpc.suppliers.rename.useMutation({
+    onSuccess: result => {
+      utils.suppliers.invalidate();
+      utils.product.list.invalidate();
+      setForm(current => ({ ...current, supplierName: result.name }));
+      setSupplierEdit(null);
+      setFormError("");
+      toast.success("Nome do fornecedor atualizado.");
+    },
+    onError: error => setFormError(getFormErrorMessage(error, "Não foi possível renomear o fornecedor.")),
+  });
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<ProductForm>(emptyProduct);
   const productDraft = useDraftAutosave(`product-${form.id ?? "new"}`, form, {
@@ -205,6 +221,8 @@ export default function ProductsPage() {
   };
   const edit = (product: Product) => {
     setOtherUnit(false);
+    setNewSupplier(false);
+    setSupplierEdit(null);
     setDuplicateOf(null);
     setForm({
       id: product.id,
@@ -230,6 +248,8 @@ export default function ProductsPage() {
   // código de barras não podem repetir, e o estoque da cópia é informado de novo.
   const duplicate = (product: Product) => {
     setOtherUnit(false);
+    setNewSupplier(false);
+    setSupplierEdit(null);
     setFormError("");
     setTriedSave(false);
     setDuplicateOf(product);
@@ -248,6 +268,9 @@ export default function ProductsPage() {
     });
     setOpen(true);
   };
+  const selectedSupplier = suppliers.find(supplier => supplier.name === form.supplierName);
+  // O nome gravado no produto aparece mesmo que tenha saído da lista.
+  const supplierOptions = Array.from(new Set([...suppliers.map(supplier => supplier.name), ...(form.supplierName && !newSupplier ? [form.supplierName] : [])]));
   const editingProduct = form.id ? data.find(product => product.id === form.id) : undefined;
   const unitIsOther = otherUnit || !isListedUnit(form.unit);
   const handleImage = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -268,6 +291,8 @@ export default function ProductsPage() {
   };
   // Código lido que não está no catálogo: abre o cadastro já com ele.
   const startWithBarcode = (value: string) => {
+    setNewSupplier(false);
+    setSupplierEdit(null);
     setSearch("");
     setFormError("");
     setTriedSave(false);
@@ -448,15 +473,60 @@ export default function ProductsPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Fornecedor</Label>
-                <Input
+                <Label htmlFor="product-supplier">Fornecedor</Label>
+                <select
+                  id="product-supplier"
                   aria-label="Fornecedor"
-                  value={form.supplierName}
-                  onChange={e =>
-                    setForm({ ...form, supplierName: e.target.value })
-                  }
-                  placeholder="Ex.: Distribuidora Luminare"
-                />
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  value={newSupplier ? "__novo" : form.supplierName}
+                  onChange={e => {
+                    const creating = e.target.value === "__novo";
+                    setNewSupplier(creating);
+                    setSupplierEdit(null);
+                    setForm({ ...form, supplierName: creating ? "" : e.target.value });
+                  }}
+                >
+                  <option value="">Sem fornecedor</option>
+                  {supplierOptions.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                  <option value="__novo">+ Novo fornecedor…</option>
+                </select>
+                {newSupplier ? (
+                  <Input
+                    aria-label="Nome do novo fornecedor"
+                    maxLength={240}
+                    value={form.supplierName}
+                    onChange={e => setForm({ ...form, supplierName: e.target.value })}
+                    placeholder="Ex.: Distribuidora Luminare"
+                  />
+                ) : null}
+                {!newSupplier && selectedSupplier ? (
+                  supplierEdit === null ? (
+                    <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => setSupplierEdit(selectedSupplier.name)}>
+                      Editar nome do fornecedor
+                    </button>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-2">
+                        <Input aria-label="Novo nome do fornecedor" maxLength={240} value={supplierEdit} onChange={e => setSupplierEdit(e.target.value)} />
+                        <AsyncButton
+                          size="sm"
+                          pending={renameSupplier.isPending}
+                          loadingLabel="Salvando…"
+                          disabled={!supplierEdit.trim() || supplierEdit.trim() === selectedSupplier.name}
+                          onClick={() => renameSupplier.mutate({ id: selectedSupplier.id, name: supplierEdit })}
+                        >
+                          Salvar nome
+                        </AsyncButton>
+                        <Button size="sm" variant="ghost" onClick={() => setSupplierEdit(null)}>Cancelar</Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Muda em {plural(selectedSupplier.productCount, "produto", "produtos")} deste fornecedor.
+                      </p>
+                    </div>
+                  )
+                ) : null}
               </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label>

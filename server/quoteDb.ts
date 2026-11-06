@@ -5,6 +5,7 @@ import {
   financePayments,
   financeReceivables,
   products,
+  suppliers,
   internalComments,
   messageTemplates,
   quoteVersions,
@@ -862,7 +863,7 @@ export async function registerFollowUp(id: number, days: number) {
 
 export async function exportBackup() {
   const db = await database();
-  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows, cancellationRows, commentRows, versionRows, attachmentRows, templateRows, activityRows] = await Promise.all([
+  const [clientRows, productRows, quoteRows, roomRows, itemRows, pdfHistoryRows, receivableRows, paymentRows, reservationRows, deliveryRows, movementRows, settingRows, appointmentRows, professionalRows, commissionPaymentRows, afterSalesRows, loanRows, loanItemRows, cancellationRows, commentRows, versionRows, attachmentRows, templateRows, activityRows, supplierRows] = await Promise.all([
     db.select().from(clients),
     db.select().from(products),
     db.select().from(quotes),
@@ -887,12 +888,13 @@ export async function exportBackup() {
     db.select().from(quoteAttachments),
     db.select().from(messageTemplates),
     db.select().from(activityLog),
+    db.select().from(suppliers),
   ]);
   return {
     format: "luminno-backup",
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows, quoteItemCancellations: cancellationRows, internalComments: commentRows, quoteVersions: versionRows, quoteAttachments: attachmentRows, messageTemplates: templateRows, activityLog: activityRows },
+    data: { clients: clientRows, products: productRows, quotes: quoteRows, quoteRooms: roomRows, quoteItems: itemRows, quotePdfHistory: pdfHistoryRows, financeReceivables: receivableRows, financePayments: paymentRows, quoteItemReservations: reservationRows, quoteItemDeliveries: deliveryRows, stockMovements: movementRows, storeSettings: settingRows, appointments: appointmentRows, professionals: professionalRows, commissionPayments: commissionPaymentRows, afterSalesCases: afterSalesRows, stockLoans: loanRows, stockLoanItems: loanItemRows, quoteItemCancellations: cancellationRows, internalComments: commentRows, quoteVersions: versionRows, quoteAttachments: attachmentRows, messageTemplates: templateRows, activityLog: activityRows, suppliers: supplierRows },
   };
 }
 
@@ -943,6 +945,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     quoteAttachments?: Array<typeof quoteAttachments.$inferInsert>;
     messageTemplates?: Array<typeof messageTemplates.$inferInsert>;
     activityLog?: Array<typeof activityLog.$inferInsert>;
+    suppliers?: Array<typeof suppliers.$inferInsert>;
     stockMovements?: Array<typeof stockMovements.$inferInsert>;
     storeSettings?: Array<typeof storeSettings.$inferInsert>;
     appointments?: Array<typeof appointments.$inferInsert>;
@@ -965,6 +968,7 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
       if (data.quoteAttachments) await tx.delete(quoteAttachments);
       if (data.messageTemplates) await tx.delete(messageTemplates);
       if (data.activityLog) await tx.delete(activityLog);
+      if (data.suppliers) await tx.delete(suppliers);
       await tx.delete(stockMovements);
       await tx.delete(financePayments);
       await tx.delete(financeReceivables);
@@ -1009,6 +1013,9 @@ export async function importBackup(input: { data: Record<string, unknown>; repla
     if (data.quoteAttachments?.length) await tx.insert(quoteAttachments).values(data.quoteAttachments).onDuplicateKeyUpdate({ set: { fileName: sql`values(fileName)` } });
     if (data.messageTemplates?.length) await tx.insert(messageTemplates).values(data.messageTemplates).onDuplicateKeyUpdate({ set: { body: sql`values(body)` } });
     if (data.activityLog?.length) await tx.insert(activityLog).values(data.activityLog).onDuplicateKeyUpdate({ set: { summary: sql`values(summary)` } });
+    if (data.suppliers?.length) await tx.insert(suppliers).values(data.suppliers).onDuplicateKeyUpdate({ set: { name: sql`values(name)` } });
+    // Backups antigos não têm a lista: ela sai dos próprios produtos.
+    await tx.execute(sql`INSERT IGNORE INTO ${suppliers} (name) SELECT DISTINCT TRIM(${products.supplierName}) FROM ${products} WHERE TRIM(COALESCE(${products.supplierName}, '')) <> ''`);
     if (data.storeSettings?.length) await tx.insert(storeSettings).values(data.storeSettings).onDuplicateKeyUpdate({ set: { companyName: sql`values(companyName)`, pixKey: sql`values(pixKey)`, defaultTerms: sql`values(defaultTerms)` } });
   });
   return { imported: true };
