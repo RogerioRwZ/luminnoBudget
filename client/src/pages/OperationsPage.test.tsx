@@ -45,7 +45,8 @@ describe("OperationsPage", () => {
 
   it("exibe comparação e bloqueia restauração sem justificativa", () => {
     render(<OperationsPage />);
-    fireEvent.change(screen.getByLabelText("Orçamento das ferramentas operacionais"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Orçamento das ferramentas operacionais" }));
+    fireEvent.click(screen.getAllByRole("option")[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Comparar" }));
     expect(screen.getByText("Comparação antes da restauração")).toBeTruthy();
     expect(screen.getAllByText("R$ 125,00")).toHaveLength(2);

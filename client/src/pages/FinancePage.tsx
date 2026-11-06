@@ -1,3 +1,4 @@
+import { SearchableSelect } from "@/components/SearchableSelect";
 import {
   AsyncButton,
   FormError,
@@ -636,19 +637,14 @@ export default function FinancePage() {
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
               <Label>Cliente cadastrado</Label>
-              <select
-                aria-label="Cliente cadastrado"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              <SearchableSelect
+                ariaLabel="Cliente cadastrado"
+                placeholder="Selecionar depois. Digite o nome para buscar"
+                clearLabel="Tirar o cliente"
                 value={createForm.clientId}
-                onChange={event => selectClient(event.target.value)}
-              >
-                <option value="">Selecionar depois</option>
-                {clients.map(client => (
-                  <option key={client.id} value={client.id}>
-                    {client.professional ? `${client.name} · ${client.professional}` : client.name}
-                  </option>
-                ))}
-              </select>
+                options={clients.map(client => ({ value: String(client.id), label: client.professional ? `${client.name} · ${client.professional}` : client.name }))}
+                onChange={selectClient}
+              />
             </div>
             <div className="space-y-2">
               <Label>Nome do cliente</Label>

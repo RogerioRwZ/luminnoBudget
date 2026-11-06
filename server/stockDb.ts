@@ -33,11 +33,38 @@ export async function inventoryOverview() {
   const stockValue = productRows.reduce((sum, product) => sum + toNumber(product.stockQuantity) * toNumber(product.unitPrice), 0);
   const lowStock = productRows.filter((product) => product.active && toNumber(product.reorderPoint) > 0 && toNumber(product.stockQuantity) <= toNumber(product.reorderPoint));
   return {
-    products: productRows.map((product) => { const stockQuantity = toNumber(product.stockQuantity); const reservedQuantity = reservedByProduct.get(product.id) ?? 0; return { ...product, stockQuantity, reservedQuantity, availableQuantity: calculateAvailableStock(stockQuantity, reservedQuantity), loanedQuantity: loaned.get(product.id) ?? 0, reorderPoint: toNumber(product.reorderPoint), unitPrice: toNumber(product.unitPrice), lowStock: toNumber(product.reorderPoint) > 0 && stockQuantity <= toNumber(product.reorderPoint) }; }),
+    products: productRows.map((product) => { const stockQuantity = toNumber(product.stockQuantity); const reservedQuantity = reservedByProduct.get(product.id) ?? 0; return { ...product, stockQuantity, reservedQuantity, availableQuantity: calculateAvailableStock(stockQuantity, reservedQuantity), loanedQuantity: loaned.get(product.id) ?? 0, reorderPoint: toNumber(product.reorderPoint), unitPrice: toNumber(product.unitPrice), lowStock: product.active && toNumber(product.reorderPoint) > 0 && stockQuantity <= toNumber(product.reorderPoint) }; }),
     lowStock: lowStock.map((product) => ({ ...product, stockQuantity: toNumber(product.stockQuantity), reorderPoint: toNumber(product.reorderPoint) })),
     suppliers: Array.from(new Set(productRows.map((product) => product.supplierName).filter((supplier): supplier is string => Boolean(supplier)))).sort((first, second) => first.localeCompare(second, "pt-BR")),
     stockValue,
     movements: movementRows.map((movement) => ({ ...movement, quantity: toNumber(movement.quantity), beforeQuantity: toNumber(movement.beforeQuantity), afterQuantity: toNumber(movement.afterQuantity), product: productMap.get(movement.productId) ? { code: productMap.get(movement.productId)!.code, shortDescription: productMap.get(movement.productId)!.shortDescription, unit: productMap.get(movement.productId)!.unit } : null })),
+  };
+}
+
+const HISTORY_LIMIT = 200;
+
+// Histórico com busca: cada palavra precisa aparecer em algum campo. A
+// comparação segue o banco, que ignora maiúsculas e acentos.
+export async function searchMovements(input: { search?: string; type?: StockMovementType }) {
+  const db = await database();
+  const haystack = sql`CONCAT_WS(' ', ${products.reference}, ${products.code}, ${products.barcode}, ${products.shortDescription}, ${products.fullDescription}, ${products.supplierName}, ${stockMovements.clientName}, ${stockMovements.responsible}, ${stockMovements.notes}, CONCAT('#', ${quotes.quoteNumber}))`;
+  const words = (input.search ?? "").split(/\s+/).filter(Boolean).slice(0, 8);
+  const filters = [
+    ...(input.type ? [eq(stockMovements.type, input.type)] : []),
+    ...words.map((word) => sql`${haystack} LIKE ${`%${word.replace(/[\\%_]/g, "\\$&")}%`}`),
+  ];
+  const rows = await db
+    .select({ movement: stockMovements, product: { code: products.code, reference: products.reference, shortDescription: products.shortDescription, unit: products.unit }, quoteNumber: quotes.quoteNumber })
+    .from(stockMovements)
+    .leftJoin(products, eq(products.id, stockMovements.productId))
+    .leftJoin(quotes, eq(quotes.id, stockMovements.quoteId))
+    .where(filters.length ? and(...filters) : undefined)
+    .orderBy(desc(stockMovements.occurredAt), desc(stockMovements.id))
+    .limit(HISTORY_LIMIT + 1);
+  return {
+    limit: HISTORY_LIMIT,
+    limited: rows.length > HISTORY_LIMIT,
+    rows: rows.slice(0, HISTORY_LIMIT).map((row) => ({ ...row.movement, quantity: toNumber(row.movement.quantity), beforeQuantity: toNumber(row.movement.beforeQuantity), afterQuantity: toNumber(row.movement.afterQuantity), product: row.product, quoteNumber: row.quoteNumber })),
   };
 }
 

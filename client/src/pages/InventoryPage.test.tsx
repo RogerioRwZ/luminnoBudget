@@ -23,6 +23,7 @@ vi.mock("@/lib/trpc", () => ({
     useUtils: () => ({ inventory: { invalidate: mocks.invalidate }, product: { list: { invalidate: mocks.invalidate } } }),
     inventory: {
       overview: { useQuery: () => ({ ...mocks.overview, refetch: mocks.refetchOverview }) },
+      movements: { useQuery: () => ({ data: { rows: [], limit: 200, limited: false }, isLoading: false, error: null }) },
       fulfillments: { useQuery: () => ({ ...mocks.fulfillments, refetch: mocks.refetchFulfillments }) },
       move: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
       deliver: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },

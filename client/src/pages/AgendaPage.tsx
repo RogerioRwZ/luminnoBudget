@@ -1,3 +1,4 @@
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AsyncButton, FormError, getFormErrorMessage } from "@/components/FormFeedback";
 import { Badge } from "@/components/ui/badge";
@@ -314,10 +315,15 @@ export default function AgendaPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="appointment-quote">Orçamento</Label>
-              <select id="appointment-quote" className={selectClass} value={form.quoteId ?? ""} onChange={event => setForm(applyQuote(event.target.value ? Number(event.target.value) : null, form))}>
-                <option value="">Sem orçamento</option>
-                {selectableQuotes.map(quote => <option key={quote.id} value={quote.id}>#{quote.quoteNumber} · {quote.clientName || "sem cliente"}</option>)}
-              </select>
+              <SearchableSelect
+                id="appointment-quote"
+                ariaLabel="Orçamento do compromisso"
+                placeholder="Sem orçamento. Digite o número ou o cliente"
+                clearLabel="Tirar o orçamento"
+                value={form.quoteId ? String(form.quoteId) : ""}
+                options={selectableQuotes.map(quote => ({ value: String(quote.id), label: `#${quote.quoteNumber} · ${quote.clientName || "sem cliente"}` }))}
+                onChange={value => setForm(applyQuote(value ? Number(value) : null, form))}
+              />
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="appointment-client">Cliente *</Label>
