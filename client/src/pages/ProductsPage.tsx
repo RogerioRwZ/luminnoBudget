@@ -1,5 +1,6 @@
 import { plural } from "@shared/plural";
 import { ExpandableText } from "@/components/ExpandableText";
+import { ProductImportDialog } from "@/components/ProductImportDialog";
 import { parseDecimalInput } from "@/components/MoneyInput";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
 import { useVisibleItems } from "@/hooks/useVisibleItems";
@@ -35,6 +36,7 @@ import { money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
   Boxes,
+  FileSpreadsheet,
   Hash,
   ImagePlus,
   PackagePlus,
@@ -168,6 +170,7 @@ export default function ProductsPage() {
   const [newSupplier, setNewSupplier] = useState(false);
   const [supplierEdit, setSupplierEdit] = useState<string | null>(null);
   const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
+  const [importOpen, setImportOpen] = useState(false);
   const renameSupplier = trpc.suppliers.rename.useMutation({
     onSuccess: result => {
       utils.suppliers.invalidate();
@@ -326,6 +329,20 @@ export default function ProductsPage() {
             reposição. O código interno de cada produto é criado automaticamente.
           </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <Button variant="outline" className="h-11 px-5" onClick={() => setImportOpen(true)}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" />
+          Importar planilha
+        </Button>
+        {importOpen ? (
+          <ProductImportDialog
+            catalog={data.map((product) => ({ id: product.id, reference: product.reference, barcode: product.barcode, shortDescription: product.shortDescription }))}
+            suppliers={suppliers.map((supplier) => supplier.name)}
+            canSeeCost={showCost}
+            canStock={canStock}
+            onClose={() => setImportOpen(false)}
+          />
+        ) : null}
         <Dialog open={open} onOpenChange={handleOpen}>
           <DialogTrigger asChild>
             <Button className="h-11 px-5">
@@ -696,6 +713,7 @@ export default function ProductsPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
       <Card className="border-border/70 shadow-sm">
         <CardContent className="p-0">

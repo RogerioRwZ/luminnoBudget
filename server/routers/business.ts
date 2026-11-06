@@ -33,6 +33,7 @@ import {
 } from "../quoteDb";
 import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation } from "../stockDb";
 import { ensureSupplier, listSuppliers, renameSupplier } from "../suppliersDb";
+import { importProductRow, isDuplicateEntry, type ImportResult } from "../productImportDb";
 import { isCentQuantity } from "../../shared/stock";
 import { barcodeProblem, normalizeBarcode } from "../../shared/productCodes";
 import { quoteMargin } from "../../shared/margin";
@@ -62,11 +63,6 @@ const log = (ctx: ActivityCtx, entry: ActivityEntry) => recordActivity(ctx.user,
 const STATUS_LABELS = { draft: "rascunho", open: "em aberto", approved: "aprovado", lost: "não aprovado" } as const;
 const messageEvent = z.enum(["quote_sent", "quote_approved", "quote_expiring", "quote_expired", "payment_due", "payment_overdue", "delivery_scheduled", "delivery_completed"]);
 
-function isDuplicateEntry(error: unknown) {
-  const cause = (error as { cause?: unknown } | null)?.cause ?? error;
-  const mysqlError = cause as { code?: string; errno?: number } | null;
-  return mysqlError?.code === "ER_DUP_ENTRY" || mysqlError?.errno === 1062;
-}
 const money = z.coerce.number().min(0).max(99_999_999).default(0);
 const imageLocation = z.string().trim().max(2000).refine(
   (value) => value.startsWith("/uploads/") && !value.includes(".."),
@@ -152,6 +148,25 @@ const productInput = z.object({
   warrantyMonths: z.coerce.number().int().min(0).max(120).nullable().optional(),
   active: z.boolean().default(true),
   initialStock: z.coerce.number().min(0, "O estoque inicial não pode ser negativo.").max(99_999).refine(isCentQuantity, "Use no máximo 2 casas decimais no estoque inicial.").optional(),
+});
+
+const importDecimal = (label: string, max = 99_999_999) => z.number().min(0, `${label} inválido.`).max(max, `${label} inválido.`).refine(isCentQuantity, `${label}: use no máximo 2 casas decimais.`).optional();
+const importRowInput = z.object({
+  line: z.number().int().min(1),
+  reference: z.string().trim().min(1, "Informe a referência do produto").max(64, "A referência pode ter no máximo 64 caracteres"),
+  shortDescription: z.string().trim().min(1).max(512).optional(),
+  fullDescription: z.string().trim().max(2000).optional(),
+  barcode: z.string().trim().max(64).optional(),
+  unit: z.string().trim().min(1).max(16).refine((value) => !isNumericUnit(value), NUMERIC_UNIT_MESSAGE).optional(),
+  supplierName: z.string().trim().max(240).optional(),
+  unitPrice: importDecimal("Valor de venda"),
+  costPrice: importDecimal("Preço de custo"),
+  initialStock: importDecimal("Quantidade em estoque", 99_999),
+  reorderPoint: importDecimal("Ponto de reposição"),
+  warrantyMonths: z.number().int().min(0).max(120).optional(),
+  active: z.boolean().optional(),
+  imageUrl: imageLocation.optional(),
+  imageKey: z.string().trim().max(2000).optional(),
 });
 
 const quoteItemInput = z
@@ -272,6 +287,37 @@ export const businessRouter = router({
         }
       }
       return id;
+    }),
+    // A tela envia em lotes, para mostrar o andamento. Cada linha responde sozinha.
+    importRows: areaProcedure("catalog").input(z.object({
+      mode: z.enum(["skip", "update"]),
+      rows: z.array(z.unknown()).min(1).max(200),
+    })).mutation(async ({ ctx, input }) => {
+      const access = { canSeeCost: canSeeCost(ctx.user.role), canStock: canAccess(ctx.user.role, "stock"), responsible: ctx.user.name || ctx.user.username };
+      const results: ImportResult[] = [];
+      for (const raw of input.rows) {
+        const parsed = importRowInput.safeParse(raw);
+        if (!parsed.success) {
+          const line = Number((raw as { line?: unknown } | null)?.line) || 0;
+          results.push({ line, reference: String((raw as { reference?: unknown } | null)?.reference ?? ""), status: "error", message: parsed.error.issues[0]?.message ?? "Linha inválida." });
+          continue;
+        }
+        results.push(await importProductRow(parsed.data, input.mode, access));
+      }
+      const count = (status: ImportResult["status"]) => results.filter((result) => result.status === status).length;
+      const lines = results.map((result) => result.line);
+      const priceChanges = results.flatMap((result) => (result.priceChange ? [{ referencia: result.reference, ...result.priceChange }] : []));
+      await log(ctx, {
+        action: "product.import",
+        entityType: "product",
+        summary: `Importou produtos por planilha (linhas ${Math.min(...lines)} a ${Math.max(...lines)}): ${count("created")} novos, ${count("updated")} atualizados, ${count("skipped")} ignorados, ${count("error")} com erro`,
+        details: {
+          novos: results.filter((result) => result.status === "created").map((result) => result.reference),
+          atualizados: results.filter((result) => result.status === "updated").map((result) => result.reference),
+          ...(priceChanges.length ? { precosAlterados: priceChanges } : {}),
+        },
+      });
+      return results;
     }),
     setBarcode: areaProcedure("catalog").input(z.object({ productId: z.number().int().positive(), barcode: z.string().trim().max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
       const problem = barcodeProblem(input.barcode);
