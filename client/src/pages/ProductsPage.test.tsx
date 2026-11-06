@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ product: { list: { invalidate: mocks.invalidate } }, inventory: { invalidate: mocks.invalidate } }),
+    useUtils: () => ({ product: { list: { invalidate: mocks.invalidate } }, inventory: { invalidate: mocks.invalidate }, suppliers: { invalidate: mocks.invalidate } }),
+    suppliers: { list: { useQuery: () => ({ data: [{ id: 1, name: "Luminare", productCount: 2 }] }) }, rename: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) } },
     product: {
       list: { useQuery: () => ({ ...mocks.list, refetch: mocks.refetch }) },
       save: { useMutation: () => ({ isPending: false, mutate: mocks.mutate }) },
@@ -105,6 +106,25 @@ describe("ProductsPage", () => {
     fireEvent.change(screen.getByLabelText("Quantidade em estoque (M)"), { target: { value: "15,5" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ unit: "M", initialStock: 15.5 }));
+  });
+
+  it("escolhe fornecedor da lista, cria um novo e edita o nome", () => {
+    mocks.list.data = [];
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Novo produto" }));
+    const field = screen.getByLabelText("Fornecedor") as HTMLSelectElement;
+    expect(Array.from(field.options).map(option => option.value)).toEqual(["", "Luminare", "__novo"]);
+    fireEvent.change(field, { target: { value: "Luminare" } });
+    fireEvent.click(screen.getByRole("button", { name: "Editar nome do fornecedor" }));
+    fireEvent.change(screen.getByLabelText("Novo nome do fornecedor"), { target: { value: "Luminare SA" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar nome" }));
+    expect(mocks.mutate).toHaveBeenCalledWith({ id: 1, name: "Luminare SA" });
+    fireEvent.change(field, { target: { value: "__novo" } });
+    fireEvent.change(screen.getByLabelText("Nome do novo fornecedor"), { target: { value: "Stella" } });
+    fireEvent.change(screen.getByLabelText(/Referência/), { target: { value: "X-1" } });
+    fireEvent.change(screen.getByLabelText("Descrição curta (vai para o orçamento)"), { target: { value: "Spot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar produto" }));
+    expect(mocks.mutate).toHaveBeenLastCalledWith(expect.objectContaining({ supplierName: "Stella" }));
   });
 
   it("aceita outra unidade digitada", () => {

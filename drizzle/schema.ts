@@ -11,6 +11,11 @@ import {
   varchar,
 } from "drizzle-orm/mysql-core";
 
+// O app grava e lê os horários como UTC. O padrão do banco (NOW) usa o fuso do
+// MySQL: com o servidor em Brasília, o registro saía 3 horas atrasado na tela.
+// Por isso o horário de cada gravação vem sempre daqui.
+const now = () => new Date();
+
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
@@ -21,9 +26,9 @@ export const users = mysqlTable("users", {
   passwordHash: varchar("passwordHash", { length: 255 }),
   isActive: boolean("isActive").notNull().default(true),
   role: mysqlEnum("role", ["user", "admin", "sales", "stock", "finance"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
+  lastSignedIn: timestamp("lastSignedIn").defaultNow().$defaultFn(now).notNull(),
 });
 
 export const clients = mysqlTable("clients", {
@@ -35,8 +40,8 @@ export const clients = mysqlTable("clients", {
   phone: varchar("phone", { length: 40 }),
   email: varchar("email", { length: 320 }),
   address: text("address"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 });
 
 export const products = mysqlTable("products", {
@@ -60,8 +65,16 @@ export const products = mysqlTable("products", {
   // Garantia em meses; nulo usa a garantia padrão das Configurações.
   warrantyMonths: int("warrantyMonths"),
   active: boolean("active").notNull().default(true),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
+});
+
+// Só o nome: os produtos guardam o nome do fornecedor, e renomear atualiza todos.
+export const suppliers = mysqlTable("suppliers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 240 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 });
 
 export const quotes = mysqlTable("quotes", {
@@ -75,7 +88,7 @@ export const quotes = mysqlTable("quotes", {
   phone: varchar("phone", { length: 40 }),
   address: text("address"),
   status: mysqlEnum("status", ["draft", "open", "approved", "lost"]).notNull().default("draft"),
-  issueDate: timestamp("issueDate").notNull().defaultNow(),
+  issueDate: timestamp("issueDate").notNull().defaultNow().$defaultFn(now),
   validUntil: timestamp("validUntil"),
   discountMode: mysqlEnum("discountMode", ["percentage", "fixed"]).notNull().default("percentage"),
   discountValue: decimal("discountValue", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -100,8 +113,8 @@ export const quotes = mysqlTable("quotes", {
   sellerUserId: int("sellerUserId"),
   // Percentual de comissão do profissional fixado na aprovação.
   commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [index("quotes_clientId_idx").on(table.clientId)]);
 
 export const quoteRooms = mysqlTable("quoteRooms", {
@@ -138,7 +151,7 @@ export const quotePdfHistory = mysqlTable("quotePdfHistory", {
   // ao baixar, sem guardar o arquivo no servidor.
   snapshot: mediumtext("snapshot"),
   fileSize: int("fileSize").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("quotePdfHistory_quoteId_idx").on(table.quoteId)]);
 
 export const financeReceivables = mysqlTable("financeReceivables", {
@@ -155,8 +168,8 @@ export const financeReceivables = mysqlTable("financeReceivables", {
   dueDate: timestamp("dueDate").notNull(),
   status: mysqlEnum("status", ["open", "partial", "paid", "cancelled"]).notNull().default("open"),
   createdByUserId: int("createdByUserId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [index("financeReceivables_quoteId_idx").on(table.quoteId), index("financeReceivables_clientId_idx").on(table.clientId)]);
 
 export const financePayments = mysqlTable("financePayments", {
@@ -167,11 +180,11 @@ export const financePayments = mysqlTable("financePayments", {
   paymentMethod: mysqlEnum("paymentMethod", ["pix", "cash", "credit_card", "debit_card", "bank_transfer", "boleto", "store_credit", "other"]).notNull().default("other"),
   // Taxa da maquininha descontada deste recebimento (cartão).
   feeAmount: decimal("feeAmount", { precision: 12, scale: 2 }),
-  paidAt: timestamp("paidAt").notNull().defaultNow(),
+  paidAt: timestamp("paidAt").notNull().defaultNow().$defaultFn(now),
   reference: varchar("reference", { length: 120 }),
   notes: text("notes"),
   createdByUserId: int("createdByUserId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("financePayments_receivableId_idx").on(table.receivableId)]);
 
 export const quoteItemReservations = mysqlTable("quoteItemReservations", {
@@ -180,9 +193,9 @@ export const quoteItemReservations = mysqlTable("quoteItemReservations", {
   quoteItemId: int("quoteItemId").notNull().unique(),
   productId: int("productId").notNull(),
   reservedQuantity: decimal("reservedQuantity", { precision: 12, scale: 2 }).notNull(),
-  reservedAt: timestamp("reservedAt").notNull().defaultNow(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  reservedAt: timestamp("reservedAt").notNull().defaultNow().$defaultFn(now),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [index("quoteItemReservations_quoteId_idx").on(table.quoteId), index("quoteItemReservations_productId_idx").on(table.productId)]);
 
 export const stockMovements = mysqlTable("stockMovements", {
@@ -198,8 +211,8 @@ export const stockMovements = mysqlTable("stockMovements", {
   clientName: varchar("clientName", { length: 240 }),
   responsible: varchar("responsible", { length: 240 }),
   notes: text("notes"),
-  occurredAt: timestamp("occurredAt").notNull().defaultNow(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  occurredAt: timestamp("occurredAt").notNull().defaultNow().$defaultFn(now),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("stockMovements_productId_idx").on(table.productId), index("stockMovements_quoteId_idx").on(table.quoteId)]);
 
 export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
@@ -211,7 +224,7 @@ export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   productId: int("productId"),
   clientName: varchar("clientName", { length: 240 }),
   deliveredQuantity: decimal("deliveredQuantity", { precision: 12, scale: 2 }).notNull(),
-  deliveredAt: timestamp("deliveredAt").notNull().defaultNow(),
+  deliveredAt: timestamp("deliveredAt").notNull().defaultNow().$defaultFn(now),
   responsible: varchar("responsible", { length: 240 }),
   notes: text("notes"),
   stockMovementId: int("stockMovementId"),
@@ -221,7 +234,7 @@ export const quoteItemDeliveries = mysqlTable("quoteItemDeliveries", {
   reversalReason: text("reversalReason"),
   reversedByUserId: int("reversedByUserId"),
   reversalMovementId: int("reversalMovementId"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("quoteItemDeliveries_quoteId_idx").on(table.quoteId), index("quoteItemDeliveries_quoteItemId_idx").on(table.quoteItemId)]);
 
 // Saldo que o cliente não vai mais retirar. Pendente = pedido − retirado −
@@ -234,10 +247,10 @@ export const quoteItemCancellations = mysqlTable("quoteItemCancellations", {
   quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
   reason: text("reason").notNull(),
   createdByUserId: int("createdByUserId"),
-  cancelledAt: timestamp("cancelledAt").notNull().defaultNow(),
+  cancelledAt: timestamp("cancelledAt").notNull().defaultNow().$defaultFn(now),
   undoneAt: timestamp("undoneAt"),
   undoneByUserId: int("undoneByUserId"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("quoteItemCancellations_quoteId_idx").on(table.quoteId), index("quoteItemCancellations_quoteItemId_idx").on(table.quoteItemId)]);
 
 export const quoteVersions = mysqlTable("quoteVersions", {
@@ -247,7 +260,7 @@ export const quoteVersions = mysqlTable("quoteVersions", {
   snapshot: text("snapshot").notNull(),
   changeNote: varchar("changeNote", { length: 512 }),
   createdByUserId: int("createdByUserId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("quoteVersions_quoteId_idx").on(table.quoteId)]);
 
 export const internalComments = mysqlTable("internalComments", {
@@ -256,8 +269,8 @@ export const internalComments = mysqlTable("internalComments", {
   body: text("body").notNull(),
   authorUserId: int("authorUserId").notNull(),
   resolved: boolean("resolved").notNull().default(false),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [index("internalComments_quoteId_idx").on(table.quoteId)]);
 
 export const quoteAttachments = mysqlTable("quoteAttachments", {
@@ -268,7 +281,7 @@ export const quoteAttachments = mysqlTable("quoteAttachments", {
   mimeType: varchar("mimeType", { length: 120 }).notNull(),
   fileSize: int("fileSize").notNull(),
   createdByUserId: int("createdByUserId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("quoteAttachments_quoteId_idx").on(table.quoteId)]);
 
 export const messageTemplates = mysqlTable("messageTemplates", {
@@ -278,8 +291,8 @@ export const messageTemplates = mysqlTable("messageTemplates", {
   subject: varchar("subject", { length: 240 }),
   body: text("body").notNull(),
   active: boolean("active").notNull().default(true),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 });
 
 export const storeSettings = mysqlTable("storeSettings", {
@@ -308,7 +321,7 @@ export const storeSettings = mysqlTable("storeSettings", {
   // Taxas da maquininha (JSON: débito e crédito de 1x a 12x, em %).
   cardFees: text("cardFees"),
   defaultTerms: text("defaultTerms"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 });
 
 // Agenda de entregas, visitas técnicas e instalações.
@@ -326,8 +339,8 @@ export const appointments = mysqlTable("appointments", {
   responsible: varchar("responsible", { length: 240 }),
   notes: text("notes"),
   createdByUserId: int("createdByUserId"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [index("appointments_scheduledAt_idx").on(table.scheduledAt), index("appointments_quoteId_idx").on(table.quoteId)]);
 
 // Comissão dos profissionais (arquitetos, designers). O nome é o mesmo
@@ -337,8 +350,8 @@ export const professionals = mysqlTable("professionals", {
   name: varchar("name", { length: 240 }).notNull().unique(),
   commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
   phone: varchar("phone", { length: 40 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 });
 
 export const commissionPayments = mysqlTable("commissionPayments", {
@@ -348,7 +361,7 @@ export const commissionPayments = mysqlTable("commissionPayments", {
   paidAt: timestamp("paidAt").notNull(),
   notes: varchar("notes", { length: 500 }),
   createdByUserId: int("createdByUserId"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("commissionPayments_professional_idx").on(table.professional)]);
 
 // Pós-venda: trocas, devoluções e garantias de um item vendido. Cliente,
@@ -373,12 +386,12 @@ export const afterSalesCases = mysqlTable("afterSalesCases", {
   // nova entregue na troca. Gravadas para não repetir a baixa.
   restockMovementId: int("restockMovementId"),
   replacementMovementId: int("replacementMovementId"),
-  openedAt: timestamp("openedAt").notNull().defaultNow(),
+  openedAt: timestamp("openedAt").notNull().defaultNow().$defaultFn(now),
   dueDate: timestamp("dueDate").notNull(),
   resolvedAt: timestamp("resolvedAt"),
   createdByUserId: int("createdByUserId"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [
   index("afterSalesCases_quoteId_idx").on(table.quoteId),
   index("afterSalesCases_status_idx").on(table.status),
@@ -395,12 +408,12 @@ export const stockLoans = mysqlTable("stockLoans", {
   phone: varchar("phone", { length: 40 }),
   quoteId: int("quoteId"),
   notes: text("notes"),
-  loanedAt: timestamp("loanedAt").notNull().defaultNow(),
+  loanedAt: timestamp("loanedAt").notNull().defaultNow().$defaultFn(now),
   dueDate: timestamp("dueDate").notNull(),
   closedAt: timestamp("closedAt"),
   createdByUserId: int("createdByUserId"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 }, (table) => [index("stockLoans_dueDate_idx").on(table.dueDate), index("stockLoans_quoteId_idx").on(table.quoteId)]);
 
 export const stockLoanItems = mysqlTable("stockLoanItems", {
@@ -425,14 +438,14 @@ export const pushSubscriptions = mysqlTable("pushSubscriptions", {
   auth: varchar("auth", { length: 64 }).notNull(),
   userAgent: varchar("userAgent", { length: 255 }),
   lastDailyAt: timestamp("lastDailyAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [index("pushSubscriptions_userId_idx").on(table.userId)]);
 
 // Chaves e marcadores internos do sistema (ex.: chaves VAPID dos avisos).
 export const appKeys = mysqlTable("appKeys", {
   name: varchar("name", { length: 64 }).primaryKey(),
   value: text("value").notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$defaultFn(now).onUpdateNow().$onUpdateFn(now).notNull(),
 });
 
 // Registro de atividades: quem fez o quê e quando. O nome do usuário é
@@ -448,7 +461,7 @@ export const activityLog = mysqlTable("activityLog", {
   summary: varchar("summary", { length: 512 }).notNull(),
   details: text("details"),
   ip: varchar("ip", { length: 64 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().$defaultFn(now).notNull(),
 }, (table) => [
   index("activityLog_createdAt_idx").on(table.createdAt),
   index("activityLog_entity_idx").on(table.entityType, table.entityId),

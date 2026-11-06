@@ -1,3 +1,5 @@
+import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { isValidPeriod, PeriodPicker, periodRange, presetPeriod, type Period } from "@/components/PeriodPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,8 @@ export default function StockTurnoverPage() {
   const range = useMemo(() => (validPeriod ? periodRange(period) : null), [period, validPeriod]);
   const stale = trpc.inventory.stale.useQuery({ days }, { enabled: tab === "stale" });
   const abc = trpc.inventory.abc.useQuery(range!, { enabled: tab === "abc" && Boolean(range) });
+  const { visible: visibleStale, remaining: remainingStale, showMore: showMoreStale } = useVisibleItems(stale.data?.rows ?? [], days, 10);
+  const { visible: visibleAbc, remaining: remainingAbc, showMore: showMoreAbc } = useVisibleItems(abc.data?.rows ?? [], `${period.from}|${period.to}`, 10);
 
   const exportStale = () =>
     stale.data && downloadCsv(`estoque-parado-${days}-dias`, stale.data.rows, [
@@ -124,7 +128,7 @@ export default function StockTurnoverPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {stale.data?.rows.length ? stale.data.rows.map(row => (
+                    {stale.data?.rows.length ? visibleStale.map(row => (
                       <tr key={row.productId}>
                         <td className="px-4 py-2"><span className="font-semibold">{row.description}</span> <span className="text-xs text-muted-foreground">#{row.code}</span></td>
                         <td className="px-4 py-2 text-muted-foreground">{row.supplierName ?? "—"}</td>
@@ -139,6 +143,7 @@ export default function StockTurnoverPage() {
                   </tbody>
                 </table>
               </div>
+              <ShowMoreButton remaining={remainingStale} onClick={showMoreStale} />
             </CardContent>
           </Card>
           <p className="text-xs text-muted-foreground">
@@ -186,7 +191,7 @@ export default function StockTurnoverPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {abc.data?.rows.length ? abc.data.rows.map(row => (
+                    {abc.data?.rows.length ? visibleAbc.map(row => (
                       <tr key={row.productId}>
                         <td className="px-4 py-2"><Badge variant="outline" className={ABC_STYLES[row.abc]}>{row.abc}</Badge></td>
                         <td className="px-4 py-2"><span className="font-semibold">{row.label}</span>{row.supplierName ? <span className="block text-xs text-muted-foreground">{row.supplierName}</span> : null}</td>
@@ -204,6 +209,7 @@ export default function StockTurnoverPage() {
                   </tbody>
                 </table>
               </div>
+              <ShowMoreButton remaining={remainingAbc} onClick={showMoreAbc} />
             </CardContent>
           </Card>
           <p className="text-xs text-muted-foreground">

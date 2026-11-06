@@ -20,7 +20,7 @@ export async function inventoryOverview() {
   const db = await database();
   const [allProductRows, movementRows, reservationRows, loaned] = await Promise.all([
     db.select().from(products).orderBy(products.shortDescription),
-    db.select().from(stockMovements).orderBy(desc(stockMovements.occurredAt), desc(stockMovements.id)).limit(100),
+    db.select().from(stockMovements).orderBy(desc(stockMovements.occurredAt), desc(stockMovements.id)).limit(500),
     db.select().from(quoteItemReservations),
     loanedByProduct(),
   ]);

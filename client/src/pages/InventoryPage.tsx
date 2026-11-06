@@ -59,6 +59,8 @@ type MovementForm = {
   occurredAt: string;
 };
 // Data e hora locais: toISOString é UTC e adiantaria o campo em 3 horas.
+// Listas do Estoque: 10 linhas por vez.
+const STOCK_PAGE = 10;
 const qty = (value: number) => value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 const nowInput = () => {
   const now = new Date();
@@ -195,6 +197,8 @@ export default function InventoryPage() {
   const lowStock = overview?.lowStock ?? [];
   const movements = overview?.movements ?? [];
   const suppliers = overview?.suppliers ?? [];
+  const { visible: visibleLowStock, remaining: remainingLowStock, showMore: showMoreLowStock } = useVisibleItems(lowStock, lowStock.length, STOCK_PAGE);
+  const { visible: visibleMovements, remaining: remainingMovements, showMore: showMoreMovements } = useVisibleItems(movements, null, STOCK_PAGE);
   // Itens agrupados por orçamento, para retirar tudo de uma vez ou conferir
   // com o leitor. O que já terminou segue visível, para consulta e estorno.
   const fulfillmentGroups = useMemo(() => {
@@ -235,7 +239,7 @@ export default function InventoryPage() {
     const text = fulfillmentSearch.trim().toLocaleLowerCase("pt-BR");
     return (fulfillmentTab === "pending" ? pendingQuotes : finishedQuotes).filter(group => !text || `#${group.quoteNumber} ${group.clientName}`.toLocaleLowerCase("pt-BR").includes(text));
   }, [fulfillmentSearch, fulfillmentTab, finishedQuotes, pendingQuotes]);
-  const { visible: shownGroups, remaining: remainingGroups, showMore: showMoreGroups } = useVisibleItems(visibleGroups, `${fulfillmentTab}|${fulfillmentSearch}`, 20);
+  const { visible: shownGroups, remaining: remainingGroups, showMore: showMoreGroups } = useVisibleItems(visibleGroups, `${fulfillmentTab}|${fulfillmentSearch}`, STOCK_PAGE);
   const [cancelForm, setCancelForm] = useState<{
     title: string;
     lines: Array<{ line: (typeof fulfillments)[number]; quantity: string }>;
@@ -314,7 +318,7 @@ export default function InventoryPage() {
       }).filter(product => matchesProductSearch(product, productSearch)),
     [products, supplierFilter, maximumStock, availabilityFilter, productSearch]
   );
-  const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filteredProducts, filteredProducts.length);
+  const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filteredProducts, filteredProducts.length, STOCK_PAGE);
   const openMovement = () => {
     setMovementForm({
       productId: products[0]?.id ?? 0,
@@ -628,7 +632,7 @@ export default function InventoryPage() {
           <CardContent>
             {lowStock.length ? (
               <div className="space-y-3">
-                {lowStock.map(product => (
+                {visibleLowStock.map(product => (
                   <div
                     key={product.id}
                     className="flex items-center justify-between rounded-xl border border-red-500/15 bg-red-500/5 p-3"
@@ -650,6 +654,7 @@ export default function InventoryPage() {
                     </Badge>
                   </div>
                 ))}
+                <ShowMoreButton remaining={remainingLowStock} onClick={showMoreLowStock} />
               </div>
             ) : (
               <div className="py-10 text-center">
@@ -872,7 +877,7 @@ export default function InventoryPage() {
                     </div>
                   </div>
                 ))}
-                <ShowMoreButton remaining={remainingGroups} onClick={showMoreGroups} pageSize={20} />
+                <ShowMoreButton remaining={remainingGroups} onClick={showMoreGroups} />
                 {!visibleGroups.length ? (
                   <div className="py-10 text-center">
                     <PackageCheck className="mx-auto h-7 w-7 text-emerald-600 dark:text-emerald-300" />
@@ -1031,6 +1036,7 @@ export default function InventoryPage() {
           </CardHeader>
           <CardContent>
             {movements.length ? (
+            <>
               <div className="overflow-x-auto">
                 <table className="min-w-[760px] w-full text-sm">
                   <thead className="border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -1044,7 +1050,7 @@ export default function InventoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {movements.map(movement => {
+                    {visibleMovements.map(movement => {
                       const meta = movementMeta[movement.type];
                       const Icon = meta.icon;
                       return (
@@ -1094,6 +1100,8 @@ export default function InventoryPage() {
                   </tbody>
                 </table>
               </div>
+              <ShowMoreButton remaining={remainingMovements} onClick={showMoreMovements} />
+            </>
             ) : (
               <div className="py-10 text-center">
                 <History className="mx-auto h-7 w-7 text-muted-foreground" />
