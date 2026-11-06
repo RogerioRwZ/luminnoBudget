@@ -1,3 +1,4 @@
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
 import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -461,21 +462,14 @@ export default function OperationsPage() {
         </CardHeader>
         <CardContent>
           <FormError message={operationError} />
-          <select
-            aria-label="Orçamento das ferramentas operacionais"
-            className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
-            value={quoteId ?? ""}
-            onChange={event =>
-              setQuoteId(Number(event.target.value) || undefined)
-            }
-          >
-            <option value="">Selecione um orçamento</option>
-            {quotes.data?.map(quote => (
-              <option key={quote.id} value={quote.id}>
-                #{quote.quoteNumber} — {quote.clientName}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            ariaLabel="Orçamento das ferramentas operacionais"
+            placeholder="Digite o número do orçamento ou o cliente"
+            clearLabel="Limpar orçamento"
+            value={quoteId ? String(quoteId) : ""}
+            options={(quotes.data ?? []).map(quote => ({ value: String(quote.id), label: `#${quote.quoteNumber} — ${quote.clientName}` }))}
+            onChange={value => setQuoteId(Number(value) || undefined)}
+          />
           {selectedQuote ? (
             <p className="mt-2 text-xs text-muted-foreground">
               Status: {QUOTE_STATUS_LABELS[selectedQuote.status]}

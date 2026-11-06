@@ -1,3 +1,4 @@
+import { SearchInput } from "@/components/SearchInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { downloadCsv } from "@/lib/csvDownload";
 import { trpc } from "@/lib/trpc";
 import { plural } from "@shared/plural";
+import { foldText } from "@shared/productCodes";
 import { buildPurchaseOrderText, purchaseQuantity } from "@shared/purchases";
 import {
   ClipboardCopy,
@@ -20,6 +22,8 @@ import { toast } from "sonner";
 
 const quantity = (value: number) =>
   new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+
+const supplierLabel = (name: string) => name || "Sem fornecedor cadastrado";
 
 export default function PurchasesPage() {
   const { data = [], isLoading, error, refetch } =
@@ -39,13 +43,25 @@ export default function PurchasesPage() {
         .filter(supplier => supplier.lines.length),
     [data, includeOpen]
   );
+  const [search, setSearch] = useState("");
+  // A busca só filtra a tela: copiar o pedido e o CSV levam tudo do fornecedor.
+  const shownSuppliers = useMemo(() => {
+    const words = foldText(search).split(/\s+/).filter(Boolean);
+    if (!words.length) return suppliers.map(supplier => ({ supplier, lines: supplier.lines }));
+    return suppliers.flatMap(supplier => {
+      const lines = supplier.lines.filter(line => {
+        const text = foldText(`${supplierLabel(supplier.supplierName)} ${line.reference ?? ""} ${line.code} ${line.barcode ?? ""} ${line.shortDescription} ${line.waitingQuotes.map(entry => `#${entry.quoteNumber} ${entry.clientName}`).join(" ")}`);
+        return words.every(word => text.includes(word));
+      });
+      return lines.length ? [{ supplier, lines }] : [];
+    });
+  }, [suppliers, search]);
   const waitingQuotes = new Set(
     data.flatMap(supplier =>
       supplier.lines.flatMap(line => line.waitingQuotes.map(entry => entry.quoteId))
     )
   ).size;
   const productCount = suppliers.reduce((sum, supplier) => sum + supplier.lines.length, 0);
-  const supplierLabel = (name: string) => name || "Sem fornecedor cadastrado";
 
   const copyOrder = async (supplier: (typeof suppliers)[number]) => {
     const text = buildPurchaseOrderText({
@@ -121,6 +137,8 @@ export default function PurchasesPage() {
         ))}
       </section>
 
+      {suppliers.length ? <SearchInput className="max-w-md" ariaLabel="Buscar em compras" placeholder="Produto, referência, fornecedor, cliente ou nº do orçamento" value={search} onChange={setSearch} /> : null}
+
       {isLoading ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
           Calculando compras…
@@ -132,8 +150,10 @@ export default function PurchasesPage() {
             Tentar novamente
           </Button>
         </div>
+      ) : suppliers.length && !shownSuppliers.length ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">Nada encontrado nesta busca.</p>
       ) : suppliers.length ? (
-        suppliers.map(supplier => (
+        shownSuppliers.map(({ supplier, lines }) => (
           <Card key={supplier.supplierName} className="border-border/70 shadow-sm">
             <CardHeader className="flex flex-col gap-3 space-y-0 border-b border-border sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -141,7 +161,7 @@ export default function PurchasesPage() {
                   {supplierLabel(supplier.supplierName)}
                 </CardTitle>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {plural(supplier.lines.length, "produto", "produtos")}
+                  {lines.length === supplier.lines.length ? plural(supplier.lines.length, "produto", "produtos") : `${lines.length} de ${plural(supplier.lines.length, "produto", "produtos")} nesta busca. O pedido leva todos.`}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -157,7 +177,7 @@ export default function PurchasesPage() {
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
-                {supplier.lines.map(line => (
+                {lines.map(line => (
                   <div
                     key={line.productId}
                     className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"

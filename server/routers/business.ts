@@ -31,7 +31,7 @@ import {
   productCosts,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation } from "../stockDb";
+import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation, searchMovements } from "../stockDb";
 import { ensureSupplier, listSuppliers, renameSupplier } from "../suppliersDb";
 import { importProductRow, isDuplicateEntry, type ImportResult } from "../productImportDb";
 import { isCentQuantity } from "../../shared/stock";
@@ -560,6 +560,7 @@ export const businessRouter = router({
   }),
   inventory: router({
     overview: areaProcedure("stock").query(inventoryOverview),
+    movements: areaProcedure("stock").input(z.object({ search: z.string().trim().max(120).optional(), type: z.enum(["entry", "delivery", "adjustment", "return", "loan_out", "loan_return"]).optional() })).query(({ input }) => searchMovements(input)),
     fulfillments: areaProcedure("stock").query(approvedFulfillments),
     quoteFulfillment: areaProcedure("stock").input(z.object({ quoteId: z.number().int().positive() })).query(({ input }) => fulfillmentLines([input.quoteId])),
     purchases: areaProcedure("purchases").query(purchaseSuggestions),

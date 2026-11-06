@@ -1,3 +1,4 @@
+import { SearchInput } from "@/components/SearchInput";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
 import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { isValidPeriod, PeriodPicker, periodRange, presetPeriod, type Period } from "@/components/PeriodPicker";
@@ -9,6 +10,7 @@ import { downloadCsv } from "@/lib/csvDownload";
 import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { plural } from "@shared/plural";
+import { foldText } from "@shared/productCodes";
 import { ABC_DESCRIPTIONS, type AbcClass } from "@shared/stockTurnover";
 import { ArrowLeft, FileSpreadsheet, PackageX, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -30,8 +32,15 @@ export default function StockTurnoverPage() {
   const range = useMemo(() => (validPeriod ? periodRange(period) : null), [period, validPeriod]);
   const stale = trpc.inventory.stale.useQuery({ days }, { enabled: tab === "stale" });
   const abc = trpc.inventory.abc.useQuery(range!, { enabled: tab === "abc" && Boolean(range) });
-  const { visible: visibleStale, remaining: remainingStale, showMore: showMoreStale } = useVisibleItems(stale.data?.rows ?? [], days, 10);
-  const { visible: visibleAbc, remaining: remainingAbc, showMore: showMoreAbc } = useVisibleItems(abc.data?.rows ?? [], `${period.from}|${period.to}`, 10);
+  const [search, setSearch] = useState("");
+  const words = useMemo(() => foldText(search).split(/\s+/).filter(Boolean), [search]);
+  const hits = (text: string) => { const folded = foldText(text); return words.every(word => folded.includes(word)); };
+  // A busca só filtra a tabela: os cartões e a exportação continuam com tudo.
+  const staleRows = useMemo(() => (stale.data?.rows ?? []).filter(row => hits(`${row.code} ${row.description} ${row.supplierName ?? ""}`)), [stale.data, words]);
+  const abcRows = useMemo(() => (abc.data?.rows ?? []).filter(row => hits(`${row.label} ${row.supplierName ?? ""}`)), [abc.data, words]);
+  const { visible: visibleStale, remaining: remainingStale, showMore: showMoreStale } = useVisibleItems(staleRows, `${days}|${search}`, 10);
+  const { visible: visibleAbc, remaining: remainingAbc, showMore: showMoreAbc } = useVisibleItems(abcRows, `${period.from}|${period.to}|${search}`, 10);
+  const searchBox = <SearchInput className="max-w-md" ariaLabel="Buscar produto neste relatório" placeholder="Produto, código ou fornecedor" value={search} onChange={setSearch} />;
 
   const exportStale = () =>
     stale.data && downloadCsv(`estoque-parado-${days}-dias`, stale.data.rows, [
@@ -113,6 +122,7 @@ export default function StockTurnoverPage() {
               </Card>
             ))}
           </section>
+          {searchBox}
           <Card className="border-border/70 shadow-sm">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -128,7 +138,7 @@ export default function StockTurnoverPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {stale.data?.rows.length ? visibleStale.map(row => (
+                    {staleRows.length ? visibleStale.map(row => (
                       <tr key={row.productId}>
                         <td className="px-4 py-2"><span className="font-semibold">{row.description}</span> <span className="text-xs text-muted-foreground">#{row.code}</span></td>
                         <td className="px-4 py-2 text-muted-foreground">{row.supplierName ?? "—"}</td>
@@ -175,6 +185,7 @@ export default function StockTurnoverPage() {
               </Card>
             ))}
           </section>
+          {searchBox}
           <Card className="border-border/70 shadow-sm">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -191,7 +202,7 @@ export default function StockTurnoverPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {abc.data?.rows.length ? visibleAbc.map(row => (
+                    {abcRows.length ? visibleAbc.map(row => (
                       <tr key={row.productId}>
                         <td className="px-4 py-2"><Badge variant="outline" className={ABC_STYLES[row.abc]}>{row.abc}</Badge></td>
                         <td className="px-4 py-2"><span className="font-semibold">{row.label}</span>{row.supplierName ? <span className="block text-xs text-muted-foreground">{row.supplierName}</span> : null}</td>

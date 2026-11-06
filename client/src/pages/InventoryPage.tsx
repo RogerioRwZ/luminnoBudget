@@ -22,30 +22,29 @@ import { dateOnly, money } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ScanButton } from "@/components/CameraBarcodeScanner";
 import { useUnknownCode } from "@/hooks/useUnknownCode";
-import { findProductByScan, matchesProductSearch } from "@shared/productCodes";
+import { findProductByScan, foldText, matchesProductSearch } from "@shared/productCodes";
 import { downloadCsv } from "@/lib/csvDownload";
 import { filterInventoryProducts } from "@shared/stockFilters";
 import {
   Download,
   AlertTriangle,
-  ArrowDownToLine,
   ArrowUpFromLine,
   Boxes,
   ClipboardList,
   Filter,
-  History,
   PackageCheck,
   PackagePlus,
   ScanBarcode,
   ShoppingCart,
-  RotateCcw,
-  SlidersHorizontal,
   TrendingUp,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SearchableSelect } from "@/components/SearchableSelect";
+import { SearchInput } from "@/components/SearchInput";
 import { ShowMoreButton } from "@/components/ShowMoreButton";
+import { StockHistoryCard } from "@/components/StockHistoryCard";
 import { useDeliveryReceipt } from "@/hooks/useDeliveryReceipt";
 import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { toast } from "sonner";
@@ -66,39 +65,6 @@ const nowInput = () => {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
-
-const movementMeta = {
-  entry: {
-    label: "Entrada",
-    icon: ArrowDownToLine,
-    className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  },
-  delivery: {
-    label: "Entrega",
-    icon: ArrowUpFromLine,
-    className: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  },
-  adjustment: {
-    label: "Ajuste",
-    icon: SlidersHorizontal,
-    className: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  },
-  return: {
-    label: "Devolução",
-    icon: RotateCcw,
-    className: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
-  },
-  loan_out: {
-    label: "Empréstimo",
-    icon: ArrowUpFromLine,
-    className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300",
-  },
-  loan_return: {
-    label: "Volta do empréstimo",
-    icon: ArrowDownToLine,
-    className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300",
-  },
-} as const;
 
 export default function InventoryPage() {
   const utils = trpc.useUtils();
@@ -129,6 +95,12 @@ export default function InventoryPage() {
   const [availabilityFilter, setAvailabilityFilter] = useState<
     "all" | "reserved" | "low"
   >("all");
+  const movementOptions = useMemo(() => (overview?.products ?? []).map(product => ({
+    value: String(product.id),
+    label: `${product.reference ?? product.code} · ${product.shortDescription}`,
+    hint: `Físico: ${qty(product.stockQuantity)} ${product.unit} · Disponível: ${qty(product.availableQuantity)}${product.active ? "" : " · Arquivado"}`,
+    searchText: `${product.code} ${product.barcode ?? ""} ${product.fullDescription ?? ""} ${product.supplierName ?? ""}`,
+  })), [overview?.products]);
   const [movementForm, setMovementForm] = useState<MovementForm>({
     productId: 0,
     type: "entry",
@@ -156,7 +128,7 @@ export default function InventoryPage() {
     onSuccess: result => {
       refresh();
       toast.success(
-        `Movimentação registrada. Saldo atual: ${result.afterQuantity}`
+        `Movimentação registrada. Saldo atual: ${qty(result.afterQuantity)}`
       );
       setInventoryError("");
       setMovementOpen(false);
@@ -195,10 +167,10 @@ export default function InventoryPage() {
   });
   const products = overview?.products ?? [];
   const lowStock = overview?.lowStock ?? [];
-  const movements = overview?.movements ?? [];
   const suppliers = overview?.suppliers ?? [];
-  const { visible: visibleLowStock, remaining: remainingLowStock, showMore: showMoreLowStock } = useVisibleItems(lowStock, lowStock.length, STOCK_PAGE);
-  const { visible: visibleMovements, remaining: remainingMovements, showMore: showMoreMovements } = useVisibleItems(movements, null, STOCK_PAGE);
+  const [lowStockSearch, setLowStockSearch] = useState("");
+  const filteredLowStock = useMemo(() => lowStock.filter(product => matchesProductSearch(product, lowStockSearch)), [lowStock, lowStockSearch]);
+  const { visible: visibleLowStock, remaining: remainingLowStock, showMore: showMoreLowStock } = useVisibleItems(filteredLowStock, `${lowStock.length}|${lowStockSearch}`, STOCK_PAGE);
   // Itens agrupados por orçamento, para retirar tudo de uma vez ou conferir
   // com o leitor. O que já terminou segue visível, para consulta e estorno.
   const fulfillmentGroups = useMemo(() => {
@@ -236,8 +208,11 @@ export default function InventoryPage() {
   const [fulfillmentTab, setFulfillmentTab] = useState<"pending" | "finished">("pending");
   const [fulfillmentSearch, setFulfillmentSearch] = useState("");
   const visibleGroups = useMemo(() => {
-    const text = fulfillmentSearch.trim().toLocaleLowerCase("pt-BR");
-    return (fulfillmentTab === "pending" ? pendingQuotes : finishedQuotes).filter(group => !text || `#${group.quoteNumber} ${group.clientName}`.toLocaleLowerCase("pt-BR").includes(text));
+    const words = foldText(fulfillmentSearch).split(/\s+/).filter(Boolean);
+    return (fulfillmentTab === "pending" ? pendingQuotes : finishedQuotes).filter(group => {
+      const text = foldText(`#${group.quoteNumber} ${group.clientName} ${group.lines.map(line => `${line.reference ?? ""} ${line.code ?? ""} ${line.barcode ?? ""} ${line.shortDescription} ${line.fullDescription ?? ""}`).join(" ")}`);
+      return words.every(word => text.includes(word));
+    });
   }, [fulfillmentSearch, fulfillmentTab, finishedQuotes, pendingQuotes]);
   const { visible: shownGroups, remaining: remainingGroups, showMore: showMoreGroups } = useVisibleItems(visibleGroups, `${fulfillmentTab}|${fulfillmentSearch}`, STOCK_PAGE);
   const [cancelForm, setCancelForm] = useState<{
@@ -319,9 +294,13 @@ export default function InventoryPage() {
     [products, supplierFilter, maximumStock, availabilityFilter, productSearch]
   );
   const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filteredProducts, filteredProducts.length, STOCK_PAGE);
-  const openMovement = () => {
+  const movementProduct = products.find(product => product.id === movementForm.productId);
+  const movementAfter = movementProduct && movementForm.quantity
+    ? Math.round((movementProduct.stockQuantity + (movementForm.type === "adjustment" ? movementForm.quantity : Math.abs(movementForm.quantity))) * 100) / 100
+    : null;
+  const openMovement = (productId = 0) => {
     setMovementForm({
-      productId: products[0]?.id ?? 0,
+      productId,
       type: "entry",
       quantity: 0,
       notes: "",
@@ -372,6 +351,7 @@ export default function InventoryPage() {
             disabled={!products.length}
             onClick={() =>
               downloadCsv("estoque", products, [
+                { header: "Referência", value: product => product.reference ?? product.code },
                 { header: "Código", value: product => product.code },
                 { header: "Produto", value: product => product.shortDescription },
                 { header: "Fornecedor", value: product => product.supplierName },
@@ -391,7 +371,7 @@ export default function InventoryPage() {
           </Button>
           <Button
             className="h-11 px-5"
-            onClick={openMovement}
+            onClick={() => openMovement()}
             disabled={!products.length}
           >
             <PackagePlus className="mr-2 h-4 w-4" />
@@ -604,6 +584,9 @@ export default function InventoryPage() {
                       <p className="mt-1 text-xs font-semibold text-primary">
                         Disponível: {qty(product.availableQuantity)} {product.unit}
                       </p>
+                      <button type="button" className="mt-1 text-xs font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" aria-label={`Movimentar ${product.shortDescription}`} onClick={() => openMovement(product.id)}>
+                        Movimentar
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -632,6 +615,8 @@ export default function InventoryPage() {
           <CardContent>
             {lowStock.length ? (
               <div className="space-y-3">
+                <SearchInput ariaLabel="Buscar na reposição necessária" placeholder="Produto, referência ou fornecedor" value={lowStockSearch} onChange={setLowStockSearch} />
+                {!filteredLowStock.length ? <p className="py-6 text-center text-sm text-muted-foreground">Nenhum item encontrado nesta lista.</p> : null}
                 {visibleLowStock.map(product => (
                   <div
                     key={product.id}
@@ -712,9 +697,9 @@ export default function InventoryPage() {
                     ))}
                   </div>
                   <Input
-                    aria-label="Buscar retirada por cliente ou orçamento"
+                    aria-label="Buscar retirada por cliente, orçamento ou produto"
                     className="sm:ml-auto sm:max-w-xs"
-                    placeholder="Cliente ou nº do orçamento"
+                    placeholder="Cliente, nº do orçamento ou produto"
                     value={fulfillmentSearch}
                     onChange={event => setFulfillmentSearch(event.target.value)}
                   />
@@ -1021,100 +1006,10 @@ export default function InventoryPage() {
         }
       />
       <section>
-        <Card className="border-border/70 shadow-sm">
-          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-            <div>
-              <CardTitle className="font-display text-lg">
-                Histórico de movimentações
-              </CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Últimas 100 entradas, entregas, ajustes e devoluções registrados
-                no estoque.
-              </p>
-            </div>
-            <History className="h-5 w-5 text-primary" />
-          </CardHeader>
-          <CardContent>
-            {movements.length ? (
-            <>
-              <div className="overflow-x-auto">
-                <table className="min-w-[760px] w-full text-sm">
-                  <thead className="border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="pb-3">Data</th>
-                      <th className="pb-3">Produto</th>
-                      <th className="pb-3">Tipo</th>
-                      <th className="pb-3">Qtd.</th>
-                      <th className="pb-3">Saldo</th>
-                      <th className="pb-3">Destino / responsável</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleMovements.map(movement => {
-                      const meta = movementMeta[movement.type];
-                      const Icon = meta.icon;
-                      return (
-                        <tr
-                          key={movement.id}
-                          className="border-b border-border/70 last:border-0"
-                        >
-                          <td className="py-3 text-xs">
-                            {dateOnly(movement.occurredAt)}
-                          </td>
-                          <td className="py-3">
-                            <p className="font-semibold">
-                              {movement.product?.shortDescription ||
-                                "Produto removido"}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {movement.product?.code}
-                            </p>
-                          </td>
-                          <td className="py-3">
-                            <Badge
-                              variant="secondary"
-                              className={meta.className}
-                            >
-                              <Icon className="mr-1 h-3 w-3" />
-                              {meta.label}
-                            </Badge>
-                          </td>
-                          <td className="py-3 font-semibold">
-                            {movement.quantity > 0 ? "+" : ""}
-                            {movement.quantity}
-                          </td>
-                          <td className="py-3 text-xs">
-                            {movement.beforeQuantity} → {movement.afterQuantity}
-                          </td>
-                          <td className="py-3 text-xs text-muted-foreground">
-                            {movement.clientName ||
-                              movement.responsible ||
-                              "Movimentação interna"}
-                            {movement.responsible && movement.clientName
-                              ? ` · ${movement.responsible}`
-                              : ""}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <ShowMoreButton remaining={remainingMovements} onClick={showMoreMovements} />
-            </>
-            ) : (
-              <div className="py-10 text-center">
-                <History className="mx-auto h-7 w-7 text-muted-foreground" />
-                <p className="mt-3 text-sm font-semibold">
-                  Ainda não há movimentações.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <StockHistoryCard />
       </section>
       <Dialog open={movementOpen} onOpenChange={setMovementOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Movimentar estoque</DialogTitle>
             <DialogDescription>
@@ -1126,34 +1021,30 @@ export default function InventoryPage() {
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
               <Label>Produto</Label>
-              <div className="flex gap-2">
-                <select
-                  aria-label="Produto da movimentação"
-                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
-                  value={movementForm.productId}
-                  onChange={e =>
-                    setMovementForm({
-                      ...movementForm,
-                      productId: Number(e.target.value),
-                    })
-                  }
-                >
-                  {products.map(product => (
-                    <option key={product.id} value={product.id}>
-                      {product.reference ?? product.code} · {product.shortDescription}
-                    </option>
-                  ))}
-                </select>
-                <ScanButton
-                  className="h-10 w-10 shrink-0"
-                  title="Escolher o produto pelo código de barras"
-                  onDetected={value => {
-                    const found = findProductByScan(products, value);
-                    if (found) setMovementForm(current => ({ ...current, productId: found.id }));
-                    else unknownCode(value);
-                  }}
-                />
-              </div>
+              <SearchableSelect
+                ariaLabel="Produto da movimentação"
+                placeholder="Referência, descrição ou código de barras"
+                value={movementForm.productId ? String(movementForm.productId) : ""}
+                options={movementOptions}
+                emptyMessage="Nenhum produto encontrado."
+                onChange={value => setMovementForm(current => ({ ...current, productId: Number(value) }))}
+                action={
+                  <ScanButton
+                    className="h-10 w-10 shrink-0"
+                    title="Escolher o produto pelo código de barras"
+                    onDetected={value => {
+                      const found = findProductByScan(products, value);
+                      if (found) setMovementForm(current => ({ ...current, productId: found.id }));
+                      else unknownCode(value);
+                    }}
+                  />
+                }
+              />
+              {movementProduct ? (
+                <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">
+                  Físico: <b className="text-foreground">{qty(movementProduct.stockQuantity)} {movementProduct.unit}</b> · Reservado: {qty(movementProduct.reservedQuantity)} · Disponível: {qty(movementProduct.availableQuantity)}
+                </p>
+              ) : null}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -1199,6 +1090,12 @@ export default function InventoryPage() {
                 />
               </div>
             </div>
+            {movementAfter !== null && movementProduct ? (
+              <p role="status" className={`rounded-lg p-2.5 text-xs ${movementAfter < 0 || movementAfter < movementProduct.reservedQuantity ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"}`}>
+                Saldo depois: <b>{qty(movementAfter)} {movementProduct.unit}</b>
+                {movementAfter < 0 ? ". Não dá para ficar negativo." : movementAfter < movementProduct.reservedQuantity && movementForm.quantity < 0 ? `. Ficaria abaixo dos ${qty(movementProduct.reservedQuantity)} reservados para orçamentos aprovados.` : ""}
+              </p>
+            ) : null}
             <div className="space-y-2">
               <Label>Responsável</Label>
               <Input
@@ -1265,7 +1162,7 @@ export default function InventoryPage() {
           if (!value) setSelectedLine(null);
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Registrar retirada</DialogTitle>
             <DialogDescription>
@@ -1294,7 +1191,7 @@ export default function InventoryPage() {
                   aria-label="Quantidade entregue"
                   type="number"
                   min="0.01"
-                  max={qty(selectedLine.deliverableQuantity)}
+                  max={selectedLine.deliverableQuantity}
                   step="0.01"
                   value={deliveryForm.quantity}
                   onChange={e =>
