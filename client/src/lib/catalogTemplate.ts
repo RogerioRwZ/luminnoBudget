@@ -53,7 +53,7 @@ export function catalogTemplate(access: Access, suppliers: string[]): SheetSpec[
         ["Linha de exemplo", `A linha "${IMPORT_EXAMPLE_REFERENCE}" é só um modelo: o sistema não a importa.`],
         ["Limite", `Até ${IMPORT_MAX_ROWS.toLocaleString("pt-BR")} produtos por planilha.`],
         ["Código interno", "É criado pelo sistema. Não precisa de coluna."],
-        ["Importar", "Em Catálogo > Importar planilha: envie este arquivo e selecione as fotos. O sistema mostra a conferência antes de gravar."],
+        ["Importar", "Em Catálogo > Importar planilha: envie este arquivo e selecione as fotos, ou envie um único .zip com a planilha e as fotos. O sistema mostra a conferência antes de gravar."],
       ],
     },
   ];

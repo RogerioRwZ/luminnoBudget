@@ -9,6 +9,7 @@ import { useVisibleItems } from "@/hooks/useVisibleItems";
 import { catalogTemplate, errorSheet } from "@/lib/catalogTemplate";
 import { isSupportedImage, prepareImage, renameForType } from "@/lib/shrinkImage";
 import { trpc } from "@/lib/trpc";
+import { readImportFile } from "@/lib/importPackage";
 import { downloadXlsx, readXlsx, XlsxError } from "@/lib/xlsx";
 import { plural } from "@shared/plural";
 import { IMPORT_MAX_ROWS, parseImportSheet, photoKey, photoReport, supplierKey, unknownSuppliers, type CatalogEntry, type ImportRow } from "@shared/productImport";
@@ -16,7 +17,6 @@ import { AlertTriangle, Download, FileSpreadsheet, ImagePlus, Upload } from "luc
 import { useMemo, useState } from "react";
 
 const BATCH = 200;
-const MAX_FILE = 25 * 1024 * 1024;
 
 type Decision = { action: "create" } | { action: "replace"; to: string } | null;
 type Outcome = { line: number; reference: string; status: "created" | "updated" | "skipped" | "error"; message?: string };
@@ -35,7 +35,12 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
   const access = { canSeeCost, canStock };
   const [step, setStep] = useState<Step>("start");
   const [sheetFile, setSheetFile] = useState<File | null>(null);
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [pickedPhotos, setPickedPhotos] = useState<File[]>([]);
+  const [zipPhotos, setZipPhotos] = useState<File[]>([]);
+  const [duplicates, setDuplicates] = useState<string[]>([]);
+  const [reading, setReading] = useState(false);
+  // A foto do .zip vem primeiro: o mesmo nome selecionado à parte prevalece.
+  const photos = useMemo(() => [...zipPhotos, ...pickedPhotos], [zipPhotos, pickedPhotos]);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"skip" | "update">("skip");
@@ -53,6 +58,7 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
   const undecided = unknown.filter((item) => !decisions[supplierKey(item.name)]).length;
   const photoNames = useMemo(() => photos.map((file) => file.name), [photos]);
   const photoInfo = useMemo(() => photoReport(toSave, photoNames), [toSave, photoNames]);
+  const unusedPhotos = useMemo(() => photoReport(rows, photoNames).unused, [rows, photoNames]);
   const missingPhoto = useMemo(() => new Set(photoInfo.missing.map((item) => item.line)), [photoInfo]);
   const attention = useMemo(() => [...invalid, ...valid.filter((row) => row.warnings.length || row.existing || missingPhoto.has(row.line))], [invalid, valid, missingPhoto]);
   const list = useVisibleItems(attention, rows, 50);
@@ -60,9 +66,10 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
   async function review() {
     if (!sheetFile) return;
     setError(null);
+    setReading(true);
     try {
-      if (sheetFile.size > MAX_FILE) throw new XlsxError("A planilha é grande demais (máximo de 25 MB).");
-      const sheets = await readXlsx(new Uint8Array(await sheetFile.arrayBuffer()));
+      const pack = await readImportFile(sheetFile);
+      const sheets = await readXlsx(pack.sheet);
       const sheet = sheets.find((item) => supplierKey(item.name) === "produtos") ?? sheets[0];
       if (!sheet) throw new XlsxError("A planilha está vazia.");
       const parsed = parseImportSheet(sheet.rows, { catalog, ...access });
@@ -70,11 +77,15 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
       if (!parsed.rows.length) throw new XlsxError("Nenhum produto preenchido. A linha de exemplo não conta.");
       if (parsed.rows.length > IMPORT_MAX_ROWS) throw new XlsxError(`A planilha tem ${parsed.rows.length.toLocaleString("pt-BR")} produtos. O limite é ${IMPORT_MAX_ROWS.toLocaleString("pt-BR")} por vez: divida em mais de um arquivo.`);
       setRows(parsed.rows);
+      setZipPhotos(pack.photos);
+      setDuplicates(pack.duplicates);
       setDecisions({});
       setMode("skip");
       setStep("review");
     } catch (failure) {
-      setError(failure instanceof XlsxError ? failure.message : "Não foi possível ler esta planilha. Salve como .xlsx e tente de novo.");
+      setError(failure instanceof XlsxError ? failure.message : "Não foi possível ler este arquivo. Salve a planilha como .xlsx e tente de novo.");
+    } finally {
+      setReading(false);
     }
   }
 
@@ -163,7 +174,7 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
         <DialogHeader>
           <DialogTitle>Importar catálogo por planilha</DialogTitle>
           <DialogDescription>
-            {step === "start" ? "Baixe o modelo, preencha e envie. Nada é gravado antes da conferência." : step === "review" ? "Confira antes de gravar." : step === "running" ? "Importando. Mantenha esta tela aberta." : "Importação concluída."}
+            {step === "start" ? "Baixe o modelo, preencha e envie a planilha ou um .zip com a planilha e as fotos. Nada é gravado antes da conferência." : step === "review" ? "Confira antes de gravar." : step === "running" ? "Importando. Mantenha esta tela aberta." : "Importação concluída."}
           </DialogDescription>
         </DialogHeader>
 
@@ -177,19 +188,20 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
               </Button>
             </section>
             <section className="space-y-2 rounded-lg border border-border p-4">
-              <Label htmlFor="import-sheet" className="font-semibold">2. Envie a planilha preenchida (.xlsx)</Label>
-              <Input id="import-sheet" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setSheetFile(event.target.files?.[0] ?? null); setError(null); }} />
+              <Label htmlFor="import-sheet" className="font-semibold">2. Envie a planilha (.xlsx) ou um .zip com a planilha e as fotos</Label>
+              <p className="text-sm text-muted-foreground">No .zip, as fotos podem estar em pastas. O nome de cada arquivo deve ser igual ao da coluna Foto.</p>
+              <Input id="import-sheet" type="file" accept=".xlsx,.zip,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setSheetFile(event.target.files?.[0] ?? null); setError(null); }} />
             </section>
             <section className="space-y-2 rounded-lg border border-border p-4">
-              <Label htmlFor="import-photos" className="font-semibold">3. Selecione as fotos (opcional)</Label>
-              <p className="text-sm text-muted-foreground">Selecione todas de uma vez. O nome de cada arquivo deve ser igual ao da coluna Foto. JPG, PNG ou WEBP.</p>
-              <Input id="import-photos" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />
-              {photos.length ? <p className="text-xs text-muted-foreground"><ImagePlus className="mr-1 inline h-3.5 w-3.5" />{plural(photos.length, "foto selecionada", "fotos selecionadas")}</p> : null}
+              <Label htmlFor="import-photos" className="font-semibold">3. Fotos fora do .zip (opcional)</Label>
+              <p className="text-sm text-muted-foreground">Se enviou só a planilha, selecione as fotos aqui, todas de uma vez. JPG, PNG ou WEBP.</p>
+              <Input id="import-photos" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(event) => setPickedPhotos(Array.from(event.target.files ?? []))} />
+              {pickedPhotos.length ? <p className="text-xs text-muted-foreground"><ImagePlus className="mr-1 inline h-3.5 w-3.5" />{plural(pickedPhotos.length, "foto selecionada", "fotos selecionadas")}</p> : null}
             </section>
             <FormError message={error} />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-              <Button type="button" disabled={!sheetFile} onClick={() => void review()}><FileSpreadsheet className="mr-2 h-4 w-4" />Conferir planilha</Button>
+              <Button type="button" disabled={!sheetFile || reading} onClick={() => void review()}><FileSpreadsheet className="mr-2 h-4 w-4" />{reading ? "Lendo o arquivo..." : "Conferir planilha"}</Button>
             </div>
           </div>
         ) : null}
@@ -200,6 +212,7 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
               <Badge variant="outline">{plural(rows.length, "linha", "linhas")}</Badge>
               <Badge variant="outline">{plural(valid.length - existing.length, "produto novo", "produtos novos")}</Badge>
               {existing.length ? <Badge variant="outline">{plural(existing.length, "já cadastrado", "já cadastrados")}</Badge> : null}
+              {photos.length ? <Badge variant="outline">{plural(photos.length, "foto", "fotos")}</Badge> : null}
               {invalid.length ? <Badge variant="destructive">{plural(invalid.length, "linha com erro", "linhas com erro")}</Badge> : null}
             </div>
 
@@ -240,7 +253,8 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
               </section>
             ) : null}
 
-            {photoInfo.unused.length ? <p className="rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">{plural(photoInfo.unused.length, "foto selecionada não aparece", "fotos selecionadas não aparecem")} na planilha e {photoInfo.unused.length === 1 ? "não será enviada" : "não serão enviadas"}: {photoInfo.unused.slice(0, 10).join(", ")}{photoInfo.unused.length > 10 ? "..." : ""}</p> : null}
+            {unusedPhotos.length ? <p className="rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">{plural(unusedPhotos.length, "foto não aparece", "fotos não aparecem")} na coluna Foto e {unusedPhotos.length === 1 ? "não será enviada" : "não serão enviadas"}: {unusedPhotos.slice(0, 10).join(", ")}{unusedPhotos.length > 10 ? "..." : ""}</p> : null}
+            {duplicates.length ? <p className="rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">O .zip tem mais de uma foto com o mesmo nome, em pastas diferentes. Será usada a última de cada: {duplicates.slice(0, 10).join(", ")}{duplicates.length > 10 ? "..." : ""}</p> : null}
 
             {attention.length ? (
               <section className="space-y-2">
@@ -251,7 +265,7 @@ export function ProductImportDialog({ catalog, suppliers, canSeeCost, canStock, 
                       <p className="break-words font-medium">Linha {row.line}: {row.data.reference || "(sem referência)"}{row.data.shortDescription ? ` · ${row.data.shortDescription}` : ""}</p>
                       {row.problems.map((problem) => <p key={problem} className="text-destructive">{problem}</p>)}
                       {!row.problems.length && row.existing ? <p className="text-muted-foreground">Já cadastrado como "{row.existing.shortDescription}": será {mode === "skip" ? "ignorado" : "atualizado"}.</p> : null}
-                      {!row.problems.length && missingPhoto.has(row.line) ? <p className="text-amber-700 dark:text-amber-400">A foto {row.photo} não foi selecionada: {row.existing ? "mantém a foto atual" : "entra sem foto"}.</p> : null}
+                      {!row.problems.length && missingPhoto.has(row.line) ? <p className="text-amber-700 dark:text-amber-400">A foto {row.photo} não foi encontrada: {row.existing ? "mantém a foto atual" : "entra sem foto"}.</p> : null}
                       {!row.problems.length ? row.warnings.map((warning) => <p key={warning} className="text-amber-700 dark:text-amber-400">{warning}</p>) : null}
                     </li>
                   ))}

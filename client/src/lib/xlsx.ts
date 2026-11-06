@@ -68,12 +68,20 @@ function zipStored(files: Array<{ name: string; data: Uint8Array }>) {
 
 const MAX_UNZIPPED = 100 * 1024 * 1024;
 
-async function inflate(data: Uint8Array) {
-  const stream = new Response(data as BodyInit).body!.pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+const CP437 = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u00a0";
+
+// O Windows antigo grava o nome em CP437; o Mac grava UTF-8 sem avisar no arquivo.
+function zipName(bytes: Uint8Array, utf8Flag: boolean) {
+  try {
+    return new TextDecoder("utf-8", { fatal: !utf8Flag }).decode(bytes);
+  } catch {
+    return Array.from(bytes, (byte) => (byte < 128 ? String.fromCharCode(byte) : CP437[byte - 128]!)).join("");
+  }
 }
 
-async function unzip(bytes: Uint8Array) {
+export type ZipEntry = { name: string; method: number; compressed: number; size: number; local: number; encrypted: boolean };
+
+export function listZip(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let end = -1;
   for (let index = bytes.length - 22; index >= Math.max(0, bytes.length - 66_000); index -= 1) {
@@ -85,29 +93,67 @@ async function unzip(bytes: Uint8Array) {
   if (end < 0) throw new Error("not-zip");
   const count = view.getUint16(end + 10, true);
   let cursor = view.getUint32(end + 16, true);
-  const files = new Map<string, Uint8Array>();
-  const decoder = new TextDecoder();
-  let total = 0;
+  if (count === 0xffff || cursor === 0xffffffff || cursor + 46 * count > bytes.length) throw new Error("not-zip");
+  const entries: ZipEntry[] = [];
   for (let index = 0; index < count; index += 1) {
-    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error("not-zip");
-    const method = view.getUint16(cursor + 10, true);
-    const compressed = view.getUint32(cursor + 20, true);
-    const size = view.getUint32(cursor + 24, true);
+    if (cursor + 46 > bytes.length || view.getUint32(cursor, true) !== 0x02014b50) throw new Error("not-zip");
+    const flags = view.getUint16(cursor + 8, true);
     const nameLength = view.getUint16(cursor + 28, true);
-    const extra = view.getUint16(cursor + 30, true);
-    const comment = view.getUint16(cursor + 32, true);
-    const local = view.getUint32(cursor + 42, true);
-    const name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
-    cursor += 46 + nameLength + extra + comment;
+    entries.push({
+      name: zipName(bytes.subarray(cursor + 46, cursor + 46 + nameLength), (flags & 0x0800) !== 0),
+      method: view.getUint16(cursor + 10, true),
+      compressed: view.getUint32(cursor + 20, true),
+      size: view.getUint32(cursor + 24, true),
+      local: view.getUint32(cursor + 42, true),
+      encrypted: (flags & 1) !== 0,
+    });
+    cursor += 46 + nameLength + view.getUint16(cursor + 30, true) + view.getUint16(cursor + 32, true);
+  }
+  return entries;
+}
+
+// O tamanho declarado no ZIP pode mentir: o limite vale para o que sai de verdade.
+export async function zipEntryData(bytes: Uint8Array, entry: ZipEntry, limit: number) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (entry.local + 30 > bytes.length || view.getUint32(entry.local, true) !== 0x04034b50) throw new Error("not-zip");
+  const start = entry.local + 30 + view.getUint16(entry.local + 26, true) + view.getUint16(entry.local + 28, true);
+  const data = bytes.subarray(start, start + entry.compressed);
+  if (entry.method === 0) {
+    if (data.length > limit) throw new Error("too-big");
+    return data;
+  }
+  if (entry.method !== 8) throw new Error("not-zip");
+  const reader = new Response(data as BodyInit).body!.pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      throw new Error("too-big");
+    }
+    chunks.push(value);
+  }
+  const output = new Uint8Array(total);
+  let position = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, position);
+    position += chunk.length;
+  }
+  return output;
+}
+
+async function unzip(bytes: Uint8Array) {
+  const files = new Map<string, Uint8Array>();
+  let left = MAX_UNZIPPED;
+  for (const entry of listZip(bytes)) {
     // Só as partes de texto da planilha: fotos e o resto não interessam.
-    if (!/\.(xml|rels)$/i.test(name)) continue;
-    total += size;
-    if (total > MAX_UNZIPPED) throw new Error("too-big");
-    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
-    const data = bytes.subarray(start, start + compressed);
-    if (method === 0) files.set(name, data);
-    else if (method === 8) files.set(name, await inflate(data));
-    else throw new Error("not-zip");
+    if (!/\.(xml|rels)$/i.test(entry.name)) continue;
+    const data = await zipEntryData(bytes, entry, left);
+    left -= data.length;
+    files.set(entry.name, data);
   }
   return files;
 }
