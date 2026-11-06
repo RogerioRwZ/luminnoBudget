@@ -72,7 +72,7 @@ export default function PickingCheckPage() {
   const [picked, setPicked] = useState<Record<string, number>>(() => loadPicked(quoteId));
   const [code, setCode] = useState("");
   const [multiplier, setMultiplier] = useState(1);
-  const [responsible, setResponsible] = useState("");
+  const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState<Feedback>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
@@ -329,8 +329,9 @@ export default function PickingCheckPage() {
               ) : null}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="flex-1 space-y-2">
-                  <Label htmlFor="check-responsible">Quem retirou ou entregou (opcional)</Label>
-                  <Input id="check-responsible" value={responsible} onChange={event => setResponsible(event.target.value)} placeholder="Ex.: cliente, motorista" />
+                  <Label htmlFor="check-notes">Observação (opcional)</Label>
+                  <Input id="check-notes" maxLength={200} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Ex.: retirado pelo motorista João" />
+                  <p className="text-xs text-muted-foreground">O responsável é o usuário logado.</p>
                 </div>
                 <Button variant="outline" onClick={() => { setPicked({}); setFeedback(null); scanRef.current?.focus(); }} disabled={!totalPicked}>
                   <RotateCcw className="mr-2 h-4 w-4" />
@@ -340,7 +341,7 @@ export default function PickingCheckPage() {
                   pending={deliver.isPending}
                   loadingLabel="Registrando…"
                   disabled={!approved || !lines.length || blocked.length > 0}
-                  onClick={() => deliver.mutate({ quoteId: quote.id, lines, responsible: responsible || null, notes: "Conferido com leitor de código de barras", deliveredAt: new Date() })}
+                  onClick={() => deliver.mutate({ quoteId: quote.id, lines, notes: ["Conferido com leitor de código de barras", notes.trim()].filter(Boolean).join(" · "), deliveredAt: new Date() })}
                 >
                   <PackageCheck className="mr-2 h-4 w-4" />
                   Registrar retirada do conferido

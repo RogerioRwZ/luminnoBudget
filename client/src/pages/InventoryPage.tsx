@@ -110,7 +110,6 @@ export default function InventoryPage() {
   });
   const [deliveryForm, setDeliveryForm] = useState({
     quantity: 0,
-    responsible: "",
     notes: "",
     deliveredAt: nowInput(),
   });
@@ -314,8 +313,7 @@ export default function InventoryPage() {
       // O que este item pode retirar agora: pendente, limitado à reserva
       // dele e ao estoque físico (itens avulsos: todo o pendente).
       quantity: line.deliverableQuantity,
-      responsible: "",
-      notes: "",
+        notes: "",
       deliveredAt: nowInput(),
     });
     setDeliveryOpen(true);
@@ -1000,7 +998,6 @@ export default function InventoryPage() {
           deliverAll.mutate({
             quoteId: deliverAllGroup.quoteId,
             deliveredAt: new Date(),
-            responsible: null,
             notes: null,
           })
         }
@@ -1204,17 +1201,8 @@ export default function InventoryPage() {
               </div>
               <div className="space-y-2">
                 <Label>Responsável pela entrega</Label>
-                <Input
-                  aria-label="Responsável pela entrega"
-                  value={deliveryForm.responsible}
-                  onChange={e =>
-                    setDeliveryForm({
-                      ...deliveryForm,
-                      responsible: e.target.value,
-                    })
-                  }
-                  placeholder="Ex.: equipe de expedição"
-                />
+                <Input aria-label="Responsável pela entrega" readOnly disabled value={currentUserName} />
+                <p className="text-xs text-muted-foreground">É sempre o usuário logado.</p>
               </div>
               <div className="space-y-2">
                 <Label>Data e hora da entrega</Label>
@@ -1240,7 +1228,7 @@ export default function InventoryPage() {
                   onChange={e =>
                     setDeliveryForm({ ...deliveryForm, notes: e.target.value })
                   }
-                  placeholder="Ex.: retirada pelo cliente"
+                  placeholder="Ex.: retirado pelo motorista João"
                 />
               </div>
               <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
@@ -1268,7 +1256,6 @@ export default function InventoryPage() {
                   quoteId: selectedLine.quoteId,
                   quoteItemId: selectedLine.quoteItemId,
                   quantity: deliveryForm.quantity,
-                  responsible: deliveryForm.responsible || null,
                   notes: deliveryForm.notes || null,
                   deliveredAt: new Date(deliveryForm.deliveredAt),
                 })

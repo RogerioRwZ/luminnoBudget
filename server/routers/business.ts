@@ -91,7 +91,9 @@ const deliveryQuantity = z.coerce.number().positive().max(99_999).refine(isCentQ
 const correctionReason = z.string().trim().min(3, "Informe o motivo").max(500);
 // Folga de um minuto para diferença de relógio entre o aparelho e o servidor.
 const deliveredAt = z.coerce.date().refine((date) => date.getTime() <= Date.now() + 60_000, "A data da retirada não pode estar no futuro.");
-const deliveryMeta = { responsible: nullableText, notes: nullableText, deliveredAt };
+// O responsável é sempre quem está logado: não vem da tela.
+const deliveryMeta = { notes: nullableText, deliveredAt };
+const loggedUser = (ctx: { user: { name?: string | null; username?: string | null } }) => ctx.user.name || ctx.user.username || null;
 
 async function logDelivery(ctx: Parameters<typeof log>[0], quoteId: number, results: Array<{ quoteItemId: number }>, responsible?: string | null) {
   const [quote, lines] = await Promise.all([getQuote(quoteId), fulfillmentLines([quoteId])]);
@@ -588,8 +590,9 @@ export const businessRouter = router({
       quantity: deliveryQuantity,
       ...deliveryMeta,
     })).mutation(async ({ ctx, input }) => {
-      const result = await deliverQuoteItem(input);
-      await logDelivery(ctx, input.quoteId, [result], input.responsible);
+      const responsible = loggedUser(ctx);
+      const result = await deliverQuoteItem({ ...input, responsible });
+      await logDelivery(ctx, input.quoteId, [result], responsible);
       return result;
     }),
     // Vários itens de uma vez (conferência por código de barras).
@@ -598,13 +601,15 @@ export const businessRouter = router({
       lines: z.array(z.object({ quoteItemId: z.number().int().positive(), quantity: deliveryQuantity })).min(1).max(500),
       ...deliveryMeta,
     })).mutation(async ({ ctx, input }) => {
-      const results = await deliverQuoteItems(input);
-      await logDelivery(ctx, input.quoteId, results, input.responsible);
+      const responsible = loggedUser(ctx);
+      const results = await deliverQuoteItems({ ...input, responsible });
+      await logDelivery(ctx, input.quoteId, results, responsible);
       return results;
     }),
     deliverAll: areaProcedure("stock").input(z.object({ quoteId: z.number().int().positive(), ...deliveryMeta })).mutation(async ({ ctx, input }) => {
-      const results = await deliverAllAvailable(input);
-      await logDelivery(ctx, input.quoteId, results, input.responsible);
+      const responsible = loggedUser(ctx);
+      const results = await deliverAllAvailable({ ...input, responsible });
+      await logDelivery(ctx, input.quoteId, results, responsible);
       return results;
     }),
     cancelRemainder: areaProcedure("stock").input(z.object({
@@ -621,8 +626,8 @@ export const businessRouter = router({
       await log(ctx, { action: "stock.undo_cancel", entityType: "stock", entityId: input.id, summary: `Desfez o cancelamento de ${result.quantity} no orçamento #${result.quoteNumber}${result.clientName ? ` (${result.clientName})` : ""}` });
       return result;
     }),
-    reverseDelivery: areaProcedure("stock").input(z.object({ deliveryId: z.number().int().positive(), reason: correctionReason, responsible: nullableText })).mutation(async ({ ctx, input }) => {
-      const result = await reverseDelivery(input, ctx.user.id);
+    reverseDelivery: areaProcedure("stock").input(z.object({ deliveryId: z.number().int().positive(), reason: correctionReason })).mutation(async ({ ctx, input }) => {
+      const result = await reverseDelivery({ ...input, responsible: loggedUser(ctx) }, ctx.user.id);
       await log(ctx, { action: "stock.reverse_delivery", entityType: "stock", entityId: input.deliveryId, summary: `Estornou a retirada de ${result.quantity} do orçamento #${result.quoteNumber}${result.clientName ? ` (${result.clientName})` : ""}`, details: { motivo: input.reason } });
       return result;
     }),

@@ -206,3 +206,26 @@ describe("busca no histórico", () => {
     await expect(sales.inventory.movements({})).rejects.toThrow();
   });
 });
+
+describe("responsável pela retirada", () => {
+  it("é sempre o usuário logado, em todas as formas de retirar e no estorno", async () => {
+    const db = (await getDb())!;
+    const id = await product(10);
+    const sale = await quote([{ productId: id, quantity: 6 }]);
+    const itemId = sale.items[0]!.id;
+    const forged = { responsible: "Outra pessoa" } as object;
+    const one = await admin.inventory.deliver({ quoteId: sale.id, quoteItemId: itemId, quantity: 1, deliveredAt: new Date(), ...forged });
+    await admin.inventory.deliverMany({ quoteId: sale.id, lines: [{ quoteItemId: itemId, quantity: 1 }], deliveredAt: new Date(), ...forged });
+    await admin.inventory.deliverAll({ quoteId: sale.id, deliveredAt: new Date(), notes: "Retirado pelo motorista" });
+    await admin.inventory.reverseDelivery({ deliveryId: one.deliveryId, reason: "Lançada por engano", ...forged });
+    const deliveries = await db.select().from(quoteItemDeliveries).where(eq(quoteItemDeliveries.quoteId, sale.id));
+    expect(deliveries).toHaveLength(3);
+    expect(deliveries.every((row) => row.responsible === "Teste")).toBe(true);
+    expect(deliveries.some((row) => row.notes === "Retirado pelo motorista")).toBe(true);
+    const moves = await db.select().from(stockMovements).where(eq(stockMovements.productId, id));
+    expect(moves.filter((row) => row.type !== "entry")).toHaveLength(4);
+    expect(moves.filter((row) => row.type !== "entry").every((row) => row.responsible === "Teste")).toBe(true);
+    const logged = await admin.inventory.movements({ search: "Outra pessoa" });
+    expect(logged.rows.filter((row) => row.productId === id)).toHaveLength(0);
+  }, 30_000);
+});
