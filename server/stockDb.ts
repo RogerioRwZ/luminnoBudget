@@ -99,6 +99,23 @@ export async function recordStockMovement(input: StockMovementInput) {
   return db.transaction((tx) => moveStock(tx, input), LOCKED_READS);
 }
 
+// Ajuste pela contagem: informa quanto há de verdade e o sistema lança a
+// diferença. A conta é feita com o produto travado, para valer sobre o saldo do
+// momento mesmo que alguém tenha movimentado depois de a tela abrir.
+export async function adjustStockToCount(input: { productId: number; countedQuantity: number; responsible?: string | null; notes?: string | null; occurredAt: Date }) {
+  const db = await database();
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM ${products} WHERE ${eq(products.id, input.productId)} FOR UPDATE`);
+    const product = (await tx.select({ stockQuantity: products.stockQuantity }).from(products).where(eq(products.id, input.productId)).limit(1))[0];
+    if (!product) throw new Error("Produto não encontrado");
+    const before = toNumber(product.stockQuantity);
+    const difference = round2(input.countedQuantity - before);
+    if (difference === 0) throw new Error(`O saldo já é ${before.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}. Não há o que ajustar.`);
+    const { productId, responsible, notes, occurredAt } = input;
+    return moveStock(tx, { productId, type: "adjustment", quantity: difference, responsible, notes, occurredAt });
+  }, LOCKED_READS);
+}
+
 // Reserva o estoque livre para itens de orçamentos aprovados que ainda estão
 // sem reserva completa, na ordem de aprovação. Chamada ao aprovar, quando
 // entra mercadoria e quando outro orçamento libera a reserva.

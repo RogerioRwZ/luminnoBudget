@@ -54,6 +54,8 @@ type MovementForm = {
   productId: number;
   type: "entry" | "adjustment" | "return";
   quantity: number;
+  // Ajuste: quanto há de verdade no estoque. Texto, para aceitar o zero e o vazio.
+  counted: string;
   notes: string;
   occurredAt: string;
 };
@@ -105,6 +107,7 @@ export default function InventoryPage() {
     productId: 0,
     type: "entry",
     quantity: 0,
+    counted: "",
     notes: "",
     occurredAt: nowInput(),
   });
@@ -294,14 +297,28 @@ export default function InventoryPage() {
   );
   const { visible: visibleProducts, remaining: remainingProducts, showMore: showMoreProducts } = useVisibleItems(filteredProducts, filteredProducts.length, STOCK_PAGE);
   const movementProduct = products.find(product => product.id === movementForm.productId);
-  const movementAfter = movementProduct && movementForm.quantity
-    ? Math.round((movementProduct.stockQuantity + (movementForm.type === "adjustment" ? movementForm.quantity : Math.abs(movementForm.quantity))) * 100) / 100
-    : null;
+  const movementCounted = movementForm.counted.trim() === "" ? null : Number(movementForm.counted.replace(",", "."));
+  const isAdjustment = movementForm.type === "adjustment";
+  const movementAfter = !movementProduct
+    ? null
+    : isAdjustment
+      ? movementCounted
+      : movementForm.quantity
+        ? Math.round((movementProduct.stockQuantity + Math.abs(movementForm.quantity)) * 100) / 100
+        : null;
+  const movementDifference = isAdjustment && movementProduct && movementCounted !== null ? Math.round((movementCounted - movementProduct.stockQuantity) * 100) / 100 : null;
+  const movementValid = Boolean(movementForm.productId) && (isAdjustment ? movementCounted !== null && Number.isFinite(movementCounted) && movementCounted >= 0 && movementDifference !== 0 : Boolean(movementForm.quantity));
+  // No ajuste, o campo já começa com o saldo atual: é só corrigir.
+  const countedFor = (productId: number, type: MovementForm["type"]) => {
+    const product = products.find(item => item.id === productId);
+    return type === "adjustment" && product ? String(product.stockQuantity) : "";
+  };
   const openMovement = (productId = 0) => {
     setMovementForm({
       productId,
       type: "entry",
       quantity: 0,
+      counted: "",
       notes: "",
       occurredAt: nowInput(),
     });
@@ -1024,14 +1041,14 @@ export default function InventoryPage() {
                 value={movementForm.productId ? String(movementForm.productId) : ""}
                 options={movementOptions}
                 emptyMessage="Nenhum produto encontrado."
-                onChange={value => setMovementForm(current => ({ ...current, productId: Number(value) }))}
+                onChange={value => setMovementForm(current => ({ ...current, productId: Number(value), counted: countedFor(Number(value), current.type) }))}
                 action={
                   <ScanButton
                     className="h-10 w-10 shrink-0"
                     title="Escolher o produto pelo código de barras"
                     onDetected={value => {
                       const found = findProductByScan(products, value);
-                      if (found) setMovementForm(current => ({ ...current, productId: found.id }));
+                      if (found) setMovementForm(current => ({ ...current, productId: found.id, counted: countedFor(found.id, current.type) }));
                       else unknownCode(value);
                     }}
                   />
@@ -1054,43 +1071,49 @@ export default function InventoryPage() {
                     setMovementForm({
                       ...movementForm,
                       type: e.target.value as MovementForm["type"],
+                      counted: countedFor(movementForm.productId, e.target.value as MovementForm["type"]),
                     })
                   }
                 >
                   <option value="entry">Entrada</option>
-                  <option value="adjustment">Ajuste</option>
+                  <option value="adjustment">Ajuste (corrigir o saldo)</option>
                   <option value="return">Devolução</option>
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>
-                  {movementForm.type === "adjustment"
-                    ? "Quantidade (+/-)"
-                    : "Quantidade"}
-                </Label>
-                <Input
-                  aria-label={
-                    movementForm.type === "adjustment"
-                      ? "Quantidade (+/-)"
-                      : "Quantidade"
-                  }
-                  type="number"
-                  step="0.01"
-                  min={movementForm.type === "adjustment" ? undefined : "0.01"}
-                  value={movementForm.quantity}
-                  onChange={e =>
-                    setMovementForm({
-                      ...movementForm,
-                      quantity: Number(e.target.value),
-                    })
-                  }
-                />
+                <Label>{isAdjustment ? "Quantidade em estoque" : "Quantidade"}</Label>
+                {isAdjustment ? (
+                  <Input
+                    aria-label="Quantidade em estoque"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={movementProduct ? undefined : "Escolha o produto"}
+                    value={movementForm.counted}
+                    onChange={e => setMovementForm({ ...movementForm, counted: e.target.value })}
+                  />
+                ) : (
+                  <Input
+                    aria-label="Quantidade"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={movementForm.quantity}
+                    onChange={e => setMovementForm({ ...movementForm, quantity: Number(e.target.value) })}
+                  />
+                )}
               </div>
             </div>
+            {isAdjustment ? <p className="-mt-2 text-xs text-muted-foreground">Digite quanto há de verdade, para mais ou para menos. O sistema lança a diferença.</p> : null}
             {movementAfter !== null && movementProduct ? (
-              <p role="status" className={`rounded-lg p-2.5 text-xs ${movementAfter < 0 || movementAfter < movementProduct.reservedQuantity ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"}`}>
-                Saldo depois: <b>{qty(movementAfter)} {movementProduct.unit}</b>
-                {movementAfter < 0 ? ". Não dá para ficar negativo." : movementAfter < movementProduct.reservedQuantity && movementForm.quantity < 0 ? `. Ficaria abaixo dos ${qty(movementProduct.reservedQuantity)} reservados para orçamentos aprovados.` : ""}
+              <p role="status" className={`rounded-lg p-2.5 text-xs ${movementAfter < 0 || (movementDifference !== null && movementDifference < 0 && movementAfter < movementProduct.reservedQuantity) ? "bg-destructive/10 text-destructive" : movementDifference === 0 ? "bg-muted/60 text-muted-foreground" : "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"}`}>
+                {movementDifference === 0 ? "Igual ao saldo atual: não há o que ajustar." : (
+                  <>
+                    Saldo depois: <b>{qty(movementAfter)} {movementProduct.unit}</b>
+                    {movementDifference !== null ? ` (${movementDifference > 0 ? "+" : ""}${qty(movementDifference)})` : ""}
+                    {movementAfter < 0 ? ". Não dá para ficar negativo." : movementDifference !== null && movementDifference < 0 && movementAfter < movementProduct.reservedQuantity ? `. Ficaria abaixo do reservado para orçamentos aprovados (${qty(movementProduct.reservedQuantity)} ${movementProduct.unit}).` : ""}
+                  </>
+                )}
               </p>
             ) : null}
             <div className="space-y-2">
@@ -1139,11 +1162,14 @@ export default function InventoryPage() {
             <AsyncButton
               pending={move.isPending}
               loadingLabel="Registrando…"
-              disabled={!movementForm.productId || !movementForm.quantity}
+              disabled={!movementValid}
               onClick={() =>
                 move.mutate({
-                  ...movementForm,
+                  productId: movementForm.productId,
+                  type: movementForm.type,
+                  notes: movementForm.notes,
                   occurredAt: new Date(movementForm.occurredAt),
+                  ...(isAdjustment ? { countedQuantity: movementCounted! } : { quantity: movementForm.quantity }),
                 })
               }
             >
