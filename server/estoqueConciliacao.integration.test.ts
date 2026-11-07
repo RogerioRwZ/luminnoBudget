@@ -229,3 +229,42 @@ describe("responsável pela retirada", () => {
     expect(logged.rows.filter((row) => row.productId === id)).toHaveLength(0);
   }, 30_000);
 });
+
+describe("ajuste pela quantidade real", () => {
+  const stockNow = async (id: number) => (await admin.inventory.overview()).products.find((row) => row.id === id)!;
+
+  it("lança a diferença, para mais, para menos e até zero", async () => {
+    const id = await product(5);
+    const up = await admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 8.5, occurredAt: new Date() });
+    expect(up).toMatchObject({ beforeQuantity: 5, afterQuantity: 8.5 });
+    await admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 3, occurredAt: new Date() });
+    expect((await stockNow(id)).stockQuantity).toBe(3);
+    await admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 0, occurredAt: new Date() });
+    expect((await stockNow(id)).stockQuantity).toBe(0);
+    const db = (await getDb())!;
+    const moves = (await db.select().from(stockMovements).where(eq(stockMovements.productId, id))).filter((row) => row.type === "adjustment").sort((first, second) => first.id - second.id);
+    expect(moves.map((row) => row.quantity)).toEqual(["3.50", "-5.50", "-3.00"]);
+    await expectConsistent([id]);
+  }, 30_000);
+
+  it("vale sobre o saldo do momento, mesmo depois de outra movimentação", async () => {
+    const id = await product(5);
+    await admin.inventory.move({ productId: id, type: "entry", quantity: 10, occurredAt: new Date() });
+    const result = await admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 12, occurredAt: new Date() });
+    expect(result).toMatchObject({ beforeQuantity: 15, afterQuantity: 12 });
+    await expectConsistent([id]);
+  }, 30_000);
+
+  it("recusa saldo igual, negativo, abaixo do reservado e fora do ajuste", async () => {
+    const id = await product(5);
+    await expect(admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 5, occurredAt: new Date() })).rejects.toThrow(/Não há o que ajustar/);
+    await expect(admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: -1, occurredAt: new Date() })).rejects.toThrow(/negativa/);
+    await expect(admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 1.005, occurredAt: new Date() })).rejects.toThrow(/2 casas/);
+    await expect(admin.inventory.move({ productId: id, type: "entry", countedQuantity: 9, occurredAt: new Date() })).rejects.toThrow(/só vale para o ajuste/);
+    await expect(admin.inventory.move({ productId: id, type: "adjustment", occurredAt: new Date() })).rejects.toThrow(/Informe a quantidade/);
+    await quote([{ productId: id, quantity: 3 }]);
+    await expect(admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 2, occurredAt: new Date() })).rejects.toThrow(/reservada/);
+    await admin.inventory.move({ productId: id, type: "adjustment", countedQuantity: 3, occurredAt: new Date() });
+    expect(await stockNow(id)).toMatchObject({ stockQuantity: 3, reservedQuantity: 3, availableQuantity: 0 });
+  }, 30_000);
+});

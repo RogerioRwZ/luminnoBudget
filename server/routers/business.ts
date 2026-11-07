@@ -31,7 +31,7 @@ import {
   productCosts,
   saveSettings,
 } from "../quoteDb";
-import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation, searchMovements } from "../stockDb";
+import { approvedFulfillments, cancelRemainder, productAvailability, deliverAllAvailable, deliverQuoteItem, deliverQuoteItems, fulfillmentLines, inventoryOverview, purchaseSuggestions, recordStockMovement, reverseDelivery, undoCancellation, searchMovements, adjustStockToCount } from "../stockDb";
 import { ensureSupplier, listSuppliers, renameSupplier } from "../suppliersDb";
 import { importProductRow, isDuplicateEntry, type ImportResult } from "../productImportDb";
 import { isCentQuantity } from "../../shared/stock";
@@ -572,16 +572,24 @@ export const businessRouter = router({
     move: areaProcedure("stock").input(z.object({
       productId: z.number().int().positive(),
       type: z.enum(["entry", "adjustment", "return"]),
-      quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais"),
+      quantity: z.coerce.number().refine((value) => value !== 0 && Math.abs(value) <= 99_999 && isCentQuantity(value), "Informe uma quantidade válida, com até 2 casas decimais").optional(),
+      // Só no ajuste: quanto há de verdade. O servidor lança a diferença.
+      countedQuantity: z.coerce.number().min(0, "A quantidade em estoque não pode ser negativa.").max(99_999, "Informe no máximo 99.999.").refine(isCentQuantity, "Use no máximo 2 casas decimais na quantidade.").optional(),
       notes: nullableText,
       occurredAt: z.coerce.date(),
-    }).refine((input) => input.type === "adjustment" || input.quantity > 0, { message: "Entrada e devolução têm quantidade positiva. Para tirar do saldo, use Ajuste.", path: ["quantity"] })).mutation(async ({ ctx, input }) => {
+    }).refine((input) => input.countedQuantity === undefined || (input.type === "adjustment" && input.quantity === undefined), { message: "A quantidade contada só vale para o ajuste.", path: ["countedQuantity"] })
+      .refine((input) => input.quantity !== undefined || input.countedQuantity !== undefined, { message: "Informe a quantidade.", path: ["quantity"] })
+      .refine((input) => input.type === "adjustment" || (input.quantity ?? 0) > 0, { message: "Entrada e devolução têm quantidade positiva. Para tirar do saldo, use Ajuste.", path: ["quantity"] })).mutation(async ({ ctx, input }) => {
       // O responsável é sempre quem está logado: não vem da tela.
       const responsible = ctx.user.name || ctx.user.username;
-      const result = await recordStockMovement({ ...input, responsible });
+      const { countedQuantity, quantity, ...fields } = input;
+      const result = countedQuantity !== undefined
+        ? await adjustStockToCount({ productId: fields.productId, countedQuantity, notes: fields.notes, occurredAt: fields.occurredAt, responsible })
+        : await recordStockMovement({ ...fields, quantity: quantity!, responsible });
+      const moved = Math.round((result.afterQuantity - result.beforeQuantity) * 100) / 100;
       const product = await getProduct(input.productId);
       const label = { entry: "Entrada", adjustment: "Ajuste", return: "Devolução" }[input.type];
-      await log(ctx, { action: `stock.${input.type}`, entityType: "stock", entityId: input.productId, summary: `${label} de estoque: ${input.quantity > 0 && input.type === "adjustment" ? "+" : ""}${input.quantity} ${product?.unit ?? ""} em #${product?.code ?? input.productId} ${product?.shortDescription ?? ""} (saldo ${result.beforeQuantity} → ${result.afterQuantity})`.replace(/\s+/g, " "), details: { responsavel: responsible, observacao: input.notes ?? null } });
+      await log(ctx, { action: `stock.${input.type}`, entityType: "stock", entityId: input.productId, summary: `${label} de estoque: ${moved > 0 && input.type === "adjustment" ? "+" : ""}${moved} ${product?.unit ?? ""} em #${product?.code ?? input.productId} ${product?.shortDescription ?? ""} (saldo ${result.beforeQuantity} → ${result.afterQuantity})`.replace(/\s+/g, " "), details: { responsavel: responsible, observacao: input.notes ?? null } });
       return result;
     }),
     deliver: areaProcedure("stock").input(z.object({

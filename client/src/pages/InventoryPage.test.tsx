@@ -80,6 +80,31 @@ describe("InventoryPage", () => {
     expect(field.disabled).toBe(true);
   });
 
+  it("ajuste: digita a quantidade real, para mais, para menos ou zero", () => {
+    mocks.overview.data = { ...emptyOverview, products: [{ id: 1, code: "1", reference: "R", shortDescription: "Spot", unit: "UN", stockQuantity: 5, reservedQuantity: 2, availableQuantity: 3, reorderPoint: 0, unitPrice: 10, lowStock: false, active: true }] };
+    mocks.fulfillments.data = [];
+    render(<InventoryPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Movimentar Spot" }));
+    fireEvent.change(screen.getByLabelText("Tipo de movimentação de estoque"), { target: { value: "adjustment" } });
+    const field = screen.getByLabelText("Quantidade em estoque") as HTMLInputElement;
+    expect(field.value).toBe("5");
+    const register = screen.getByRole("button", { name: "Registrar" }) as HTMLButtonElement;
+    expect(register.disabled).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("Igual ao saldo atual");
+
+    fireEvent.change(field, { target: { value: "8" } });
+    expect(screen.getByRole("status").textContent).toContain("(+3)");
+    fireEvent.change(field, { target: { value: "3" } });
+    expect(screen.getByRole("status").textContent).toContain("(-2)");
+    fireEvent.change(field, { target: { value: "1" } });
+    expect(screen.getByRole("status").textContent).toContain("abaixo do reservado");
+    fireEvent.change(field, { target: { value: "0" } });
+    expect(register.disabled).toBe(false);
+    fireEvent.click(register);
+    expect(mocks.mutate.mock.calls[0]![0]).toMatchObject({ productId: 1, type: "adjustment", countedQuantity: 0 });
+    expect(mocks.mutate.mock.calls[0]![0].quantity).toBeUndefined();
+  });
+
   it("informa falha de estoque e permite nova tentativa", () => {
     mocks.overview.error = new Error("indisponível");
     render(<InventoryPage />);
